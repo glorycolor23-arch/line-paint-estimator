@@ -1,89 +1,72 @@
 /**
- * LINE 外壁塗装・概算見積りボット（Render + Supabase）
- * - 10問の回答と写真を集め、概算を算出
- * - 写真は Supabase Storage の `photos` バケットに保存
- * - 完了時に 6桁の受付コードを生成し、public.handoff に保存
- * - 担当チャット用LINE(@189ujduc)へ誘導するFlexを送信（失敗時はテキストにフォールバック）
+ * LINE 外壁塗装・概算見積もりボット（チャットON／郵便番号で住所自動入力）
+ * - 選択式9問→概算→「具体的な見積もり」ボタン→お名前→郵便番号→住所自動入力→続きの住所→完了
+ * - Supabase等への保存や別アカウント誘導はナシ
+ * - チャットON運用想定：ボットは「選択肢(Postback)と一部テキスト（フォーム中）」のみ反応
+ * - 郵便番号→住所：ZipCloud API（https://zipcloud.ibsnet.co.jp/）
+ *
+ * 必要な環境変数:
+ *  - CHANNEL_SECRET
+ *  - CHANNEL_ACCESS_TOKEN
+ * 任意:
+ *  - RICH_MENU_ID_MAIN  … フォーム中はリッチメニューを一時非表示にし、完了後にこのIDで戻す
+ *  - PORT（デフォルト 10000）
  */
 
 import 'dotenv/config';
 import express from 'express';
 import * as line from '@line/bot-sdk';
+import axios from 'axios';
 import qs from 'qs';
-import { createClient } from '@supabase/supabase-js';
-import { Readable } from 'stream';
 
-// ====== 環境変数 ======
-const FRIEND_ADD_URL = 'https://line.me/R/ti/p/@189ujduc'; // チャット可能アカウント
-
-const config = {
+// ================== 環境設定 ==================
+const lineConfig = {
   channelSecret: process.env.CHANNEL_SECRET,
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
 };
-if (!config.channelSecret || !config.channelAccessToken) {
+if (!lineConfig.channelSecret || !lineConfig.channelAccessToken) {
   console.error('[ERROR] CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN が未設定です');
   process.exit(1);
 }
+const RICH_MENU_ID_MAIN = process.env.RICH_MENU_ID_MAIN || null;
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_RO_KEY; // タイプミス対策
-const PHOTO_BUCKET = process.env.PHOTO_BUCKET || 'photos';
-
-const supabase =
-  SUPABASE_URL && SUPABASE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_KEY)
-    : null;
-
-if (!supabase) {
-  console.warn('[WARN] Supabase が未設定です。画像保存と受付記録は無効になります。');
-}
-
-// ====== LINE & Express ======
-const client = new line.Client(config);
+const client = new line.Client(lineConfig);
 const app = express();
 
-// Webhook (POST専用)
-app.post('/webhook', line.middleware(config), async (req, res) => {
+const PORT = process.env.PORT || 10000;
+app.get('/health', (_, res) => res.status(200).send('healthy'));
+app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   try {
     const events = req.body.events || [];
     await Promise.all(events.map(handleEvent));
     res.status(200).send('OK');
-  } catch (err) {
-    console.error('Webhook Error:', err);
+  } catch (e) {
+    console.error('Webhook error:', e);
     res.status(500).send('Error');
   }
 });
-
-// Health
-app.get('/health', (_, res) => res.status(200).send('healthy'));
-
-// Start
-const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`LINE bot listening on ${PORT}`));
 
-// ====== 簡易セッション ======
-/** 本番は Redis/DB 推奨 */
-const sessions = new Map(); // userId -> { step, answers, photoIndex, photos[], expectingPhoto }
-
+// ================== セッション（メモリ） ==================
+// 本番で再起動に強くするならDB化してください。ここでは簡易Map。
+/** userId -> { step, answers, detail: { stage, name, postal, address1, address2 }, mode } */
+const sessions = new Map();
 function getSession(userId) {
   if (!sessions.has(userId)) {
     sessions.set(userId, {
       step: 1,
       answers: {},
-      photoIndex: 0,
-      photos: [], // {key,label,url}
-      expectingPhoto: false,
+      detail: null, // {stage:'name'|'zip'|'addr2', name, postal, address1, address2}
+      mode: 'estimate', // 'estimate' or 'detail'
     });
   }
   return sessions.get(userId);
 }
 function resetSession(userId) {
-  sessions.set(userId, { step: 1, answers: {}, photoIndex: 0, photos: [], expectingPhoto: false });
+  sessions.set(userId, { step: 1, answers: {}, detail: null, mode: 'estimate' });
 }
 
-// ====== UI素材 ======
+// ================== UI 素材 ==================
 const ICONS = {
   floor: 'https://cdn-icons-png.flaticon.com/512/8911/8911331.png',
   layout: 'https://cdn-icons-png.flaticon.com/512/9193/9193091.png',
@@ -95,262 +78,19 @@ const ICONS = {
   roof: 'https://cdn-icons-png.flaticon.com/512/2933/2933922.png',
   leak: 'https://cdn-icons-png.flaticon.com/512/415/415734.png',
   distance: 'https://cdn-icons-png.flaticon.com/512/535/535285.png',
-  camera: 'https://cdn-icons-png.flaticon.com/512/685/685655.png',
-  skip: 'https://cdn-icons-png.flaticon.com/512/1828/1828665.png',
 };
 
-const PHOTO_STEPS = [
-  { key: 'floor_plan', label: '平面図（任意）' },
-  { key: 'elevation', label: '立面図（任意）' },
-  { key: 'section', label: '断面図（任意）' },
-  { key: 'around', label: '周囲の写真（任意）' },
-  { key: 'front', label: '外観写真：正面' },
-  { key: 'right', label: '外観写真：右側' },
-  { key: 'left', label: '外観写真：左側' },
-  { key: 'back', label: '外観写真：後ろ側' },
-  { key: 'damage', label: '損傷箇所（任意）' },
-];
+const quickReply = (items) => ({ items });
+const actionItem = (label, data, imageUrl, displayText) => ({
+  type: 'action',
+  imageUrl,
+  action: { type: 'postback', label, data, displayText: displayText || label },
+});
+const replyText = (replyToken, text) => client.replyMessage(replyToken, { type: 'text', text });
 
-// ====== 汎用ユーティリティ ======
-function quickReply(items) {
-  return { items };
-}
-function actionItem(label, data, imageUrl, displayText) {
-  return {
-    type: 'action',
-    imageUrl,
-    action: { type: 'postback', label, data, displayText: displayText || label },
-  };
-}
-function replyText(replyToken, text) {
-  return client.replyMessage(replyToken, { type: 'text', text });
-}
+// ================== 質問定義（写真は無し：全9問） ==================
+const PHOTO_USED = false; // 写真は使わない構成に変更
 
-// pushを安全に送る（失敗時も次へ進む）
-async function sendPushSafe(userId, messages) {
-  const msgs = Array.isArray(messages) ? messages : [messages];
-  try {
-    await client.pushMessage(userId, msgs);
-    return;
-  } catch (err) {
-    console.error('push error (batch):', err?.response?.data || err?.message || err);
-  }
-  for (const m of msgs) {
-    try { await client.pushMessage(userId, [m]); }
-    catch (err) { console.error('push error (single):', m.type, err?.response?.data || err?.message || err); }
-  }
-}
-
-// 6桁コード
-function genCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-// 日本語などを安全なファイル名に
-function safeName(base, ext = 'jpg') {
-  const t = new Date().toISOString().replace(/[-:.TZ]/g, '');
-  const slug = (base || 'img')
-    .normalize('NFKD')
-    .replace(/[^\w\-]+/g, '-') // 非英数を-
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase();
-  return `${slug || 'img'}_${t}.${ext}`;
-}
-
-// Stream -> Buffer
-async function streamToBuffer(stream) {
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  return Buffer.concat(chunks);
-}
-
-// Supabase へ画像保存（public URL を返す）
-async function uploadPhotoToSupabase(userId, label, currentKey, lineMessageStream) {
-  if (!supabase) return { url: '', path: '' };
-
-  const buf = await streamToBuffer(lineMessageStream);
-  const filename = safeName(currentKey || 'photo', 'jpg');
-  const objectPath = `${userId}/${filename}`; // userId ごとに整理
-
-  const { error: upErr } = await supabase
-    .storage.from(PHOTO_BUCKET)
-    .upload(objectPath, buf, { contentType: 'image/jpeg', upsert: true });
-
-  if (upErr) throw upErr;
-
-  // Public バケット前提。Private の場合は getSignedUrl に切替
-  const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(objectPath);
-  const url = data?.publicUrl || '';
-  return { url, path: objectPath, key: currentKey, label };
-}
-
-// handoff 保存
-async function createHandoffRow({ code, userId, answers, photos }) {
-  if (!supabase) return;
-  const { error } = await supabase.from('handoff').insert({
-    code,
-    src_user_id: userId,
-    answers,
-    photos,
-    status: 'open',
-  });
-  if (error) throw error;
-}
-
-// 誘導用 Flex
-function handoffFlex(code) {
-  return {
-    type: 'flex',
-    altText: '詳細見積もりのご案内',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'md',
-        contents: [
-          { type: 'text', text: 'より詳しい見積もりをご希望の方へ', weight: 'bold', wrap: true },
-          { type: 'text', text: '現地調査なしで1営業日以内に正式お見積りをお送りします。', wrap: true },
-          { type: 'text', text: `受付コード：${code}`, size: 'sm', color: '#666666', margin: 'md' },
-        ],
-      },
-      footer: {
-        type: 'box', layout: 'vertical', spacing: 'sm',
-        contents: [
-          { type: 'button', style: 'primary', action: { type: 'uri', label: '詳細見積もりを希望する', uri: FRIEND_ADD_URL } },
-          { type: 'text', text: 'ボタンから友だち追加後、受付コードを送ってください。', size: 'xs', color: '#999999', wrap: true },
-        ],
-      },
-    },
-  };
-}
-
-// ====== イベントハンドラ ======
-async function handleEvent(event) {
-  const userId = event.source?.userId;
-  if (!userId) return;
-
-  if (event.type === 'follow') {
-    resetSession(userId);
-    return replyText(
-      event.replyToken,
-      '友だち追加ありがとうございます！\n\n外壁・屋根塗装の【かんたん概算見積り】をご案内します。' +
-      '\nはじめますか？「見積もり」または「スタート」を送ってください。'
-    );
-  }
-
-  if (event.type === 'message') {
-    const { message } = event;
-
-    // ----- テキスト -----
-    if (message.type === 'text') {
-      const text = (message.text || '').trim();
-
-      if (/^(最初から|リセット)$/i.test(text)) {
-        resetSession(userId);
-        return replyText(event.replyToken, '回答をリセットしました。\n「見積もり」または「スタート」を送ってください。');
-      }
-
-      if (/^(見積もり|スタート|start)$/i.test(text)) {
-        resetSession(userId);
-        return askQ1(event.replyToken, userId);
-      }
-
-      const s = getSession(userId);
-      if (s.expectingPhoto) {
-        if (/^(スキップ|skip)$/i.test(text)) {
-          await askNextPhoto(event.replyToken, userId, true);
-          return;
-        }
-        if (/^(完了|おわり|終了)$/i.test(text)) {
-          s.photoIndex = PHOTO_STEPS.length; // 強制終了
-          // reply で即応答 → その後 push で結果案内
-          await replyText(event.replyToken, '集計中です…');
-          await finishAndNotify(userId);
-          return;
-        }
-        return replyText(event.replyToken, '画像を送信してください。スキップは「スキップ」と送ってください。');
-      }
-
-      return replyText(event.replyToken, '「見積もり」または「スタート」と送ってください。\n途中の方はボタンをタップしてください。');
-    }
-
-    // ----- 画像 -----
-    if (message.type === 'image') {
-      const s = getSession(userId);
-      if (!s.expectingPhoto) {
-        return replyText(
-          event.replyToken,
-          'ありがとうございます！\nただいま質問中です。「見積もり」で最初から始めるか、続きのボタンをどうぞ。'
-        );
-      }
-
-      // 受領通知は push、次の案内は reply（Quick Reply が安定）
-      try {
-        const current = PHOTO_STEPS[s.photoIndex] || { key: 'photo', label: '写真' };
-        const stream = await client.getMessageContent(message.id);
-        const uploaded = await uploadPhotoToSupabase(userId, current.label, current.key, stream);
-
-        s.photos.push({ key: uploaded.key || current.key, label: uploaded.label || current.label, url: uploaded.url });
-
-        await sendPushSafe(userId, { type: 'text', text: `受け取りました：${current.label}` });
-      } catch (e) {
-        console.error('save/upload error:', e?.response?.data || e);
-        await sendPushSafe(userId, { type: 'text', text: '画像の保存に失敗しました。もう一度お試しください。' });
-      }
-
-      return askNextPhoto(event.replyToken, userId, false);
-    }
-
-    // 他メッセージは無視
-    return;
-  }
-
-  // ----- Postback -----
-  if (event.type === 'postback') {
-    const data = qs.parse(event.postback.data);
-    const s = getSession(userId);
-
-    const q = Number(data.q);
-    const v = data.v;
-    if (!q || typeof v === 'undefined') {
-      return replyText(event.replyToken, '入力を受け取れませんでした。もう一度お試しください。');
-    }
-
-    s.answers[`q${q}`] = v;
-
-    // Q4の分岐（ない/わからない → Q5スキップ）
-    if (q === 4) {
-      if (v === 'ない' || v === 'わからない') {
-        s.answers['q5'] = '該当なし';
-        s.step = 6;
-        return askQ6(event.replyToken, userId);
-      }
-    }
-
-    s.step = q + 1;
-    switch (s.step) {
-      case 2: return askQ2(event.replyToken, userId);
-      case 3: return askQ3(event.replyToken, userId);
-      case 4: return askQ4(event.replyToken, userId);
-      case 5: return askQ5(event.replyToken, userId);
-      case 6: return askQ6(event.replyToken, userId);
-      case 7: return askQ7(event.replyToken, userId);
-      case 8: return askQ8(event.replyToken, userId);
-      case 9: return askQ9(event.replyToken, userId);
-      case 10: return askQ10_Begin(event.replyToken, userId);
-      case 11:
-        await replyText(event.replyToken, '集計中です…');
-        await finishAndNotify(userId);
-        return;
-      default:
-        await replyText(event.replyToken, '集計中です…');
-        await finishAndNotify(userId);
-        return;
-    }
-  }
-}
-
-// ====== 質問送信 ======
 async function askQ1(replyToken, userId) {
   const s = getSession(userId); s.step = 1;
   const items = [
@@ -358,96 +98,64 @@ async function askQ1(replyToken, userId) {
     actionItem('2階建て', qs.stringify({ q: 1, v: '2階建て' }), ICONS.floor),
     actionItem('3階建て', qs.stringify({ q: 1, v: '3階建て' }), ICONS.floor),
   ];
-  return client.replyMessage(replyToken, { type: 'text', text: '1/10 住宅の階数を選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '1/9 住宅の階数を選んでください', quickReply: quickReply(items) });
 }
-async function askQ2(replyToken, userId) {
+async function askQ2(replyToken) {
   const layouts = ['1DK','1LDK','2DK','2LDK','3DK','3LDK','4DK','4LDK','5DK','5LDK'];
   const items = layouts.map(l => actionItem(l, qs.stringify({ q: 2, v: l }), ICONS.layout));
-  return client.replyMessage(replyToken, { type: 'text', text: '2/10 住宅の間取りを選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '2/9 住宅の間取りを選んでください', quickReply: quickReply(items) });
 }
-async function askQ3(replyToken, userId) {
+async function askQ3(replyToken) {
   const items = [
     actionItem('外壁塗装', qs.stringify({ q: 3, v: '外壁塗装' }), ICONS.paint),
     actionItem('屋根塗装', qs.stringify({ q: 3, v: '屋根塗装' }), ICONS.paint),
     actionItem('外壁＋屋根', qs.stringify({ q: 3, v: '外壁塗装＋屋根塗装' }), ICONS.paint, '外壁塗装＋屋根塗装'),
   ];
-  return client.replyMessage(replyToken, { type: 'text', text: '3/10 希望する工事内容を選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '3/9 希望する工事内容を選んでください', quickReply: quickReply(items) });
 }
-async function askQ4(replyToken, userId) {
+async function askQ4(replyToken) {
   const items = [
     actionItem('ある', qs.stringify({ q: 4, v: 'ある' }), ICONS.yes),
     actionItem('ない', qs.stringify({ q: 4, v: 'ない' }), ICONS.no),
     actionItem('わからない', qs.stringify({ q: 4, v: 'わからない' }), ICONS.no),
   ];
-  return client.replyMessage(replyToken, { type: 'text', text: '4/10 これまで外壁塗装をしたことはありますか？', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '4/9 これまで外壁塗装をしたことはありますか？', quickReply: quickReply(items) });
 }
-async function askQ5(replyToken, userId) {
+async function askQ5(replyToken) {
   const years = ['1〜5年','5〜10年','10〜15年','15〜20年','20〜30年','30〜40年','40年以上','0年（新築）'];
   const items = years.map(y => actionItem(y, qs.stringify({ q: 5, v: y }), ICONS.years));
-  return client.replyMessage(replyToken, { type: 'text', text: '5/10 前回の外壁塗装からどのくらい経っていますか？', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '5/9 前回の外壁塗装からどのくらい経っていますか？', quickReply: quickReply(items) });
 }
-async function askQ6(replyToken, userId) {
+async function askQ6(replyToken) {
   const items = ['モルタル','サイディング','タイル','ALC'].map(v => actionItem(v, qs.stringify({ q: 6, v }), ICONS.wall));
-  return client.replyMessage(replyToken, { type: 'text', text: '6/10 外壁の種類を選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '6/9 外壁の種類を選んでください', quickReply: quickReply(items) });
 }
-async function askQ7(replyToken, userId) {
+async function askQ7(replyToken) {
   const items = ['瓦','スレート','ガルバリウム','トタン'].map(v => actionItem(v, qs.stringify({ q: 7, v }), ICONS.roof));
-  return client.replyMessage(replyToken, { type: 'text', text: '7/10 屋根の種類を選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '7/9 屋根の種類を選んでください', quickReply: quickReply(items) });
 }
-async function askQ8(replyToken, userId) {
+async function askQ8(replyToken) {
   const items = ['雨の日に水滴が落ちる','天井にシミがある','雨漏りはない'].map(v => actionItem(v, qs.stringify({ q: 8, v }), ICONS.leak));
-  return client.replyMessage(replyToken, { type: 'text', text: '8/10 雨漏りの状況を選んでください', quickReply: quickReply(items) });
+  return client.replyMessage(replyToken, { type: 'text', text: '8/9 雨漏りの状況を選んでください', quickReply: quickReply(items) });
 }
-async function askQ9(replyToken, userId) {
+async function askQ9(replyToken) {
   const items = ['30cm以下','50cm以下','70cm以下','70cm以上'].map(v => actionItem(v, qs.stringify({ q: 9, v }), ICONS.distance));
-  return client.replyMessage(replyToken, { type: 'text', text: '9/10 周辺との最短距離を選んでください（足場設置の目安）', quickReply: quickReply(items) });
-}
-async function askQ10_Begin(replyToken, userId) {
-  const s = getSession(userId);
-  s.expectingPhoto = true;
-  s.photoIndex = 0;
-  return askNextPhoto(replyToken, userId, false, true);
-}
-async function askNextPhoto(replyToken, userId, skipped = false, first = false) {
-  const s = getSession(userId);
-  if (!s.expectingPhoto) s.expectingPhoto = true;
-
-  if (!first && skipped) await replyText(replyToken, 'スキップしました。');
-  if (!first) s.photoIndex += 1;
-
-  if (s.photoIndex >= PHOTO_STEPS.length) {
-    await replyText(replyToken, '集計中です…');
-    await finishAndNotify(userId);
-    return;
-  }
-
-  const current = PHOTO_STEPS[s.photoIndex];
-  const prompt = `10/10 写真アップロード\n「${current.label}」を送ってください。`;
-  const items = [
-    { type: 'action', imageUrl: ICONS.camera, action: { type: 'camera', label: 'カメラを起動' } },
-    { type: 'action', imageUrl: ICONS.camera, action: { type: 'cameraRoll', label: 'アルバムから選択' } },
-    { type: 'action', imageUrl: ICONS.skip, action: { type: 'message', label: 'スキップ', text: 'スキップ' } },
-    { type: 'action', imageUrl: ICONS.skip, action: { type: 'message', label: '完了', text: '完了' } },
-  ];
-  return client.replyMessage(replyToken, { type: 'text', text: prompt, quickReply: { items } });
+  return client.replyMessage(replyToken, { type: 'text', text: '9/9 周辺との最短距離を選んでください（足場設置の目安）', quickReply: quickReply(items) });
 }
 
-// ====== 概算ロジック ======
+// ================== 概算ロジック ==================
 function estimateCost(a) {
   const base = { '外壁塗装': 700000, '屋根塗装': 300000, '外壁塗装＋屋根塗装': 900000 };
   const floors = { '1階建て': 1.0, '2階建て': 1.2, '3階建て': 1.4 };
   const layout = {
     '1DK': 0.9, '1LDK': 0.95, '2DK': 1.0, '2LDK': 1.05,
-    '3DK': 1.1, '3LDK': 1.15, '4DK': 1.2, '4LDK': 1.25, '5DK': 1.3, '5LDK': 1.35,
+    '3DK': 1.1, '3LDK': 1.15, '4DK': 1.2, '4LDK': 1.25,
+    '5DK': 1.3, '5LDK': 1.35,
   };
   const wall = { 'モルタル': 1.05, 'サイディング': 1.0, 'タイル': 1.15, 'ALC': 1.1 };
   const roof = { '瓦': 1.1, 'スレート': 1.0, 'ガルバリウム': 1.05, 'トタン': 0.95 };
   const leak = { '雨の日に水滴が落ちる': 1.15, '天井にシミがある': 1.1, '雨漏りはない': 1.0 };
   const dist = { '30cm以下': 1.2, '50cm以下': 1.15, '70cm以下': 1.1, '70cm以上': 1.0 };
-  const years = {
-    '1〜5年': 0.95, '5〜10年': 1.0, '10〜15年': 1.05, '15〜20年': 1.1,
-    '20〜30年': 1.15, '30〜40年': 1.2, '40年以上': 1.25, '0年（新築）': 0.9,
-  };
 
   let cost = base[a.q3] || 600000;
   cost *= floors[a.q1] || 1.0;
@@ -456,63 +164,238 @@ function estimateCost(a) {
   cost *= leak[a.q8] || 1.0;
   cost *= dist[a.q9] || 1.0;
   if (a.q3 === '屋根塗装' || a.q3 === '外壁塗装＋屋根塗装') cost *= roof[a.q7] || 1.0;
-  if (a.q4 === 'ある') cost *= years[a.q5] || 1.0;
 
   return Math.round(cost / 1000) * 1000;
 }
-function yen(n) {
-  return n.toLocaleString('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 });
+const yen = (n) => n.toLocaleString('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 });
+
+// ================== “詳細見積もり”ボタン / 入力誘導 ==================
+function detailEntryFlex() {
+  return {
+    type: 'flex',
+    altText: '具体的な見積もりをご希望の方はこちら',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'md',
+        contents: [
+          { type: 'text', text: '具体的な見積もりが欲しい方はこちら', weight: 'bold', wrap: true },
+          { type: 'text', text: 'お名前とご住所の入力で、担当よりご案内します。', wrap: true, size: 'sm', color: '#666' },
+        ],
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm',
+        contents: [
+          { type: 'button', style: 'primary', action: { type: 'postback', label: '入力をはじめる', data: 'detail=1' } },
+        ],
+      },
+    },
+  };
 }
 
-// ====== 完了処理（集計→案内） ======
-async function finishAndNotify(userId) {
+async function startDetailFlow(userId, replyToken) {
   const s = getSession(userId);
-  s.expectingPhoto = false;
-  s.step = 11;
+  s.mode = 'detail';
+  s.detail = { stage: 'name', name: '', postal: '', address1: '', address2: '' };
 
+  // リッチメニューを一時的に非表示（任意）
+  try { await client.unlinkRichMenuFromUser(userId); } catch(_) {}
+
+  return replyText(replyToken,
+    '【お見積りに必要な情報】\nお名前をご入力ください。\n（例：山田 太郎）'
+  );
+}
+
+async function handleDetailText(userId, replyToken, text) {
+  const s = getSession(userId);
+  if (!s.detail) s.detail = { stage: 'name', name: '', postal: '', address1: '', address2: '' };
+
+  // 1) お名前
+  if (s.detail.stage === 'name') {
+    const name = text.replace(/\s+/g, ' ').trim();
+    if (!name || name.length < 2) {
+      return replyText(replyToken, 'お名前をフルネームでご入力ください。');
+    }
+    s.detail.name = name;
+    s.detail.stage = 'zip';
+    return replyText(replyToken,
+      'ありがとうございます。\n次に「郵便番号（7桁）」を入力してください。\n（例：1234567 もしくは 123-4567）'
+    );
+  }
+
+  // 2) 郵便番号→住所自動入力
+  if (s.detail.stage === 'zip') {
+    const zip = (text || '').replace(/[^\d]/g, '');
+    if (!/^\d{7}$/.test(zip)) {
+      return replyText(replyToken, '郵便番号は7桁の数字で入力してください。（例：1234567）');
+    }
+    s.detail.postal = zip;
+
+    // 住所API
+    try {
+      const res = await axios.get('https://zipcloud.ibsnet.co.jp/api/search', { params: { zipcode: zip } });
+      const r = res.data;
+      if (r && r.results && r.results.length > 0) {
+        const x = r.results[0];
+        const address1 = `${x.address1 || ''}${x.address2 || ''}${x.address3 || ''}`;
+        s.detail.address1 = address1;
+        s.detail.stage = 'addr2';
+        return replyText(replyToken,
+          `住所を自動入力しました：\n【${address1}】\n\n続きの番地・建物名・部屋番号を入力してください。\n（例：1-2-3 サンプルマンション101号）`
+        );
+      } else {
+        return replyText(replyToken, '住所が見つかりませんでした。郵便番号をもう一度ご入力ください。');
+      }
+    } catch (e) {
+      console.error('ZipCloud error:', e?.response?.data || e?.message || e);
+      return replyText(replyToken, '住所検索に失敗しました。通信環境をご確認のうえ、もう一度お試しください。');
+    }
+  }
+
+  // 3) 住所の続き
+  if (s.detail.stage === 'addr2') {
+    const addr2 = text.trim();
+    if (!addr2) {
+      return replyText(replyToken, '番地・建物名・部屋番号をご入力ください。');
+    }
+    s.detail.address2 = addr2;
+
+    // 完了メッセージ
+    const fullAddress = `${s.detail.address1}${s.detail.address2 ? ' ' + s.detail.address2 : ''}`;
+    const done = [
+      '【入力内容】',
+      `・お名前：${s.detail.name}`,
+      `・郵便番号：${s.detail.postal}`,
+      `・ご住所：${fullAddress}`,
+      '',
+      'ありがとうございました！担当者より順次ご案内いたします。',
+      '最初からやり直す場合は「リセット」と送ってください。',
+    ].join('\n');
+
+    // リッチメニューを元に戻す（任意）
+    if (RICH_MENU_ID_MAIN) {
+      try { await client.linkRichMenuToUser(userId, RICH_MENU_ID_MAIN); } catch(_) {}
+    }
+
+    // セッションは維持（任意でクリアしてもOK）
+    s.mode = 'estimate';
+    s.detail.stage = 'done';
+
+    return replyText(replyToken, done);
+  }
+}
+
+// ================== 完了（概算 + 詳細ボタン） ==================
+async function finishAndEstimate(replyToken, userId) {
+  const s = getSession(userId);
   const a = s.answers;
+
   const estimate = estimateCost(a);
   const summary =
     '【回答の確認】\n' +
     `・階数: ${a.q1 || '-'}\n・間取り: ${a.q2 || '-'}\n・工事内容: ${a.q3 || '-'}\n` +
     `・過去の外壁塗装: ${a.q4 || '-'}\n・前回からの年数: ${a.q5 || '該当なし'}\n` +
     `・外壁種類: ${a.q6 || '-'}\n・屋根種類: ${a.q7 || '-'}\n` +
-    `・雨漏り: ${a.q8 || '-'}\n・最短距離: ${a.q9 || '-'}\n` +
-    `・受領写真枚数: ${s.photos.length}枚`;
+    `・雨漏り: ${a.q8 || '-'}\n・最短距離: ${a.q9 || '-'}`;
 
   const disclaimer =
-    '※表示金額は概算の目安です。実際の建物形状・劣化状況・足場条件・使用塗料により変動します。' +
-    '担当者が詳細確認のうえ正式お見積りをご案内します。';
+    '※表示金額は概算の目安です。実際の建物形状・劣化状況・足場条件・使用塗料により変動します。';
 
-  // 受付コードの作成・保存（失敗しても進む）
-  let code = '';
-  try {
-    code = genCode();
-    await createHandoffRow({ code, userId, answers: a, photos: s.photos });
-  } catch (e) {
-    console.error('createHandoff error:', e);
+  const msgs = [
+    { type: 'text', text: summary },
+    { type: 'text', text: `概算金額：${yen(estimate)}\n\n${disclaimer}` },
+    detailEntryFlex(),
+  ];
+  return client.replyMessage(replyToken, msgs);
+}
+
+// ================== イベントハンドラ ==================
+async function handleEvent(event) {
+  const userId = event.source?.userId;
+  if (!userId) return;
+
+  // 友だち追加
+  if (event.type === 'follow') {
+    resetSession(userId);
+    return replyText(
+      event.replyToken,
+      '友だち追加ありがとうございます！\n外壁・屋根塗装の【かんたん概算見積り】をご案内します。\nはじめますか？「見積もり」または「スタート」を送ってください。'
+    );
   }
 
-  await sendPushSafe(userId, { type: 'text', text: summary });
-  await sendPushSafe(userId, { type: 'text', text: `概算金額：${yen(estimate)}\n\n${disclaimer}` });
+  // メッセージ（テキスト／画像）
+  if (event.type === 'message') {
+    const s = getSession(userId);
+    const msg = event.message;
 
-  if (code) {
-    // Flex（失敗時はテキストにフォールバック）
-    try {
-      await sendPushSafe(userId, handoffFlex(code));
-    } catch (e) {
-      console.error('flex push failed:', e?.response?.data || e);
-      await sendPushSafe(userId, {
-        type: 'text',
-        text: `より詳しい見積もりをご希望の方は、こちらから → ${FRIEND_ADD_URL}\n受付コード：${code}`,
-      });
+    // 画像は使わない仕様：スルー or 案内
+    if (msg.type === 'image') {
+      return replyText(event.replyToken, '画像のアップロードは不要です。ボタンまたはテキスト入力で進めてください。');
     }
-  } else {
-    await sendPushSafe(userId, {
-      type: 'text',
-      text: `より詳しい見積もりをご希望の方は、こちらから → ${FRIEND_ADD_URL}\n（受付コードの発行に失敗しました）`,
-    });
+
+    if (msg.type === 'text') {
+      const t = (msg.text || '').trim();
+
+      // 共通コマンド
+      if (/^(見積もり|スタート|start)$/i.test(t)) {
+        resetSession(userId);
+        return askQ1(event.replyToken, userId);
+      }
+      if (/^(最初から|リセット)$/i.test(t)) {
+        resetSession(userId);
+        return replyText(event.replyToken, 'リセットしました。「見積もり」と送ってください。');
+      }
+
+      // 詳細入力フロー中のテキストを処理（name→zip→addr2）
+      if (s.mode === 'detail' && s.detail && s.detail.stage) {
+        return handleDetailText(userId, event.replyToken, t);
+      }
+
+      // それ以外の自由テキストは「無視」（＝有人チャットで対応）
+      return;
+    }
+
+    return; // 他タイプは無視
   }
 
-  await sendPushSafe(userId, { type: 'text', text: '最初からやり直す場合は「リセット」と送ってください。' });
+  // ポストバック（選択肢）
+  if (event.type === 'postback') {
+    const data = qs.parse(event.postback.data || '');
+
+    // 詳細入力開始
+    if (data.detail === '1') {
+      return startDetailFlow(userId, event.replyToken);
+    }
+
+    // 質問の回答
+    const q = Number(data.q);
+    const v = data.v;
+    if (!q || typeof v === 'undefined') {
+      return replyText(event.replyToken, '入力を受け取れませんでした。もう一度お試しください。');
+    }
+
+    const s = getSession(userId);
+    s.answers[`q${q}`] = v;
+
+    // Q4の分岐（ない/わからない → Q5スキップ）
+    if (q === 4 && (v === 'ない' || v === 'わからない')) {
+      s.answers['q5'] = '該当なし';
+      s.step = 6;
+      return askQ6(event.replyToken);
+    }
+
+    s.step = q + 1;
+    switch (s.step) {
+      case 2: return askQ2(event.replyToken);
+      case 3: return askQ3(event.replyToken);
+      case 4: return askQ4(event.replyToken);
+      case 5: return askQ5(event.replyToken);
+      case 6: return askQ6(event.replyToken);
+      case 7: return askQ7(event.replyToken);
+      case 8: return askQ8(event.replyToken);
+      case 9: return askQ9(event.replyToken);
+      case 10: return finishAndEstimate(event.replyToken, userId);
+      default: return finishAndEstimate(event.replyToken, userId);
+    }
+  }
 }
