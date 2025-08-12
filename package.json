@@ -12,6 +12,6 @@
     "express": "^4.19.2",
     "googleapis": "^131.0.0",
     "qs": "^6.12.1"
-    "engines": { "node": "22.x" }
-  }
+  },
+  "engines": { "node": ">=18" }
 }
