@@ -206,16 +206,22 @@ async function handleEvent(event) {
       return replyText(event.replyToken, '「見積もり」または「スタート」と送ってください。\n途中の方はボタンをタップしてください。');
     }
 
-    if (message.type === 'image') {
-      const s = getSession(userId);
-      if (!s.expectingPhoto) {
-        return replyText(event.replyToken, 'ありがとうございます！\nただいま質問中です。「見積もり」で最初から始めるか、続きのボタンをどうぞ。');
-      }
-      await saveImageMessage(userId, message.id, s);
-      return askNextPhoto(event.replyToken, userId, false);
-    }
-    return;
+if (message.type === 'image') {
+  const s = getSession(userId);
+  if (!s.expectingPhoto) {
+    return replyText(
+      event.replyToken,
+      'ありがとうございます！\nただいま質問中です。「見積もり」で最初から始めるか、続きのボタンをどうぞ。'
+    );
   }
+
+  // 画像保存は非同期に投げておく（返信を待たせない）
+  saveImageMessage(userId, message.id, s).catch(err => console.error('saveImageMessage', err));
+
+  // すぐ次の案内を返信
+  return askNextPhoto(event.replyToken, userId, false);
+}
+
 
   if (event.type === 'postback') {
     const data = qs.parse(event.postback.data);
@@ -365,24 +371,32 @@ async function saveImageMessage(userId, messageId, session) {
     const dir = path.join(process.cwd(), 'uploads', userId);
     await fs.promises.mkdir(dir, { recursive: true });
 
-    const current = PHOTO_STEPS[session.photoIndex] || { key: `photo_${Date.now()}`, label: '写真' };
+    const current = PHOTO_STEPS[session.photoIndex] || { key: 'photo', label: '写真' };
     const filename = `${current.key}_${Date.now()}.jpg`;
     const fullpath = path.join(dir, filename);
 
-    const write = fs.createWriteStream(fullpath);
+    // WriteStream の finish を待つ（end ではなく）
     await new Promise((resolve, reject) => {
-      stream.pipe(write);
-      stream.on('end', resolve);
+      const write = fs.createWriteStream(fullpath);
+      write.on('finish', resolve);
+      write.on('error', reject);
       stream.on('error', reject);
+      stream.pipe(write);
     });
 
     session.photos.push({ key: current.key, path: fullpath });
+
+    // 受領通知は push（reply は別イベントで既に使用するため）
     await client.pushMessage(userId, { type: 'text', text: `受け取りました：${current.label}` });
   } catch (err) {
     console.error('saveImageMessage error:', err);
-    await client.pushMessage(userId, { type: 'text', text: '画像の保存に失敗しました。もう一度お試しください。' });
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: '画像の保存に失敗しました。もう一度お試しください。'
+    });
   }
 }
+
 
 // ========================= 概算見積り（ダミー係数） =========================
 function estimateCost(answers) {
