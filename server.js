@@ -168,20 +168,26 @@ async function handleEvent(event) {
 
   if (event.type === 'follow') {
     resetSession(userId);
-    return replyText(event.replyToken,
+    return replyText(
+      event.replyToken,
       '友だち追加ありがとうございます！\n\n外壁・屋根塗装の【かんたん概算見積り】をトーク上でご案内します。\nはじめますか？「見積もり」または「スタート」を送ってください。'
     );
   }
 
+  // === message ===
   if (event.type === 'message') {
     const { message } = event;
+    const s = getSession(userId);
 
     if (message.type === 'text') {
       const text = (message.text || '').trim();
 
       if (/^(最初から|リセット)$/i.test(text)) {
         resetSession(userId);
-        return replyText(event.replyToken, '回答をリセットしました。\n「見積もり」または「スタート」を送ってください。');
+        return replyText(
+          event.replyToken,
+          '回答をリセットしました。\n「見積もり」または「スタート」を送ってください。'
+        );
       }
 
       if (/^(見積もり|スタート|start)$/i.test(text)) {
@@ -189,52 +195,68 @@ async function handleEvent(event) {
         return askQ1(event.replyToken, userId);
       }
 
-      // 写真待ちの時のテキスト
-      const s = getSession(userId);
+      // 写真待ちのときのテキスト
       if (s.expectingPhoto) {
         if (/^(スキップ|skip)$/i.test(text)) {
-          await askNextPhoto(event.replyToken, userId, true);
-          return;
+          return askNextPhoto(event.replyToken, userId, true); // スキップ
         }
         if (/^(完了|おわり|終了)$/i.test(text)) {
-          s.photoIndex = PHOTO_STEPS.length;
+          s.photoIndex = PHOTO_STEPS.length; // 強制終了して概算へ
           return finishAndEstimate(event.replyToken, userId);
         }
-        return replyText(event.replyToken, '画像を送信してください。スキップは「スキップ」と送ってください。');
+        return replyText(
+          event.replyToken,
+          '画像を送信してください。スキップする場合は「スキップ」と送ってください。'
+        );
       }
 
-      return replyText(event.replyToken, '「見積もり」または「スタート」と送ってください。\n途中の方はボタンをタップしてください。');
+      // それ以外のテキスト
+      return replyText(
+        event.replyToken,
+        '「見積もり」または「スタート」と送ってください。\n途中の方はボタンをタップしてください。'
+      );
     }
 
-if (message.type === 'image') {
-  const s = getSession(userId);
-  if (!s.expectingPhoto) {
-    return replyText(
-      event.replyToken,
-      'ありがとうございます！\nただいま質問中です。「見積もり」で最初から始めるか、続きのボタンをどうぞ。'
-    );
-  }
+    if (message.type === 'image') {
+      if (!s.expectingPhoto) {
+        return replyText(
+          event.replyToken,
+          'ありがとうございます！\nただいま質問中です。「見積もり」で最初から始めるか、続きのボタンをどうぞ。'
+        );
+      }
 
-  // 画像保存は非同期に投げておく（返信を待たせない）
-  saveImageMessage(userId, message.id, s).catch(err => console.error('saveImageMessage', err));
+      // 画像保存は非同期に実行（返信を待たせない）
+      saveImageMessage(userId, message.id, s).catch(err =>
+        console.error('saveImageMessage', err)
+      );
 
-  // すぐ次の案内を返信
-  return askNextPhoto(event.replyToken, userId, false);
-}
+      // すぐ次の案内へ
+      return askNextPhoto(event.replyToken, userId, false);
+    }
 
+    // 画像・テキスト以外は無視
+    return;
+  } // ← message ブロック終わり
 
+  // === postback ===
   if (event.type === 'postback') {
     const data = qs.parse(event.postback.data);
     const s = getSession(userId);
     const q = Number(data.q);
     const v = data.v;
+
     if (!q || typeof v === 'undefined') {
-      return replyText(event.replyToken, '入力を受け取れませんでした。もう一度お試しください。');
+      return replyText(
+        event.replyToken,
+        '入力を受け取れませんでした。もう一度お試しください。'
+      );
     }
 
+    // 回答保存
     s.answers[`q${q}`] = v;
 
-    if (q === 4) { // Q4の分岐
+    // Q4の分岐（「ない／わからない」はQ5スキップ）
+    if (q === 4) {
       if (v === 'ない' || v === 'わからない') {
         s.answers['q5'] = '該当なし';
         s.step = 6;
@@ -242,16 +264,17 @@ if (message.type === 'image') {
       }
     }
 
+    // 次の質問へ
     s.step = q + 1;
     switch (s.step) {
-      case 2: return askQ2(event.replyToken, userId);
-      case 3: return askQ3(event.replyToken, userId);
-      case 4: return askQ4(event.replyToken, userId);
-      case 5: return askQ5(event.replyToken, userId);
-      case 6: return askQ6(event.replyToken, userId);
-      case 7: return askQ7(event.replyToken, userId);
-      case 8: return askQ8(event.replyToken, userId);
-      case 9: return askQ9(event.replyToken, userId);
+      case 2:  return askQ2(event.replyToken, userId);
+      case 3:  return askQ3(event.replyToken, userId);
+      case 4:  return askQ4(event.replyToken, userId);
+      case 5:  return askQ5(event.replyToken, userId);
+      case 6:  return askQ6(event.replyToken, userId);
+      case 7:  return askQ7(event.replyToken, userId);
+      case 8:  return askQ8(event.replyToken, userId);
+      case 9:  return askQ9(event.replyToken, userId);
       case 10: return askQ10_Begin(event.replyToken, userId);
       case 11: return finishAndEstimate(event.replyToken, userId);
       default: return finishAndEstimate(event.replyToken, userId);
@@ -396,7 +419,6 @@ async function saveImageMessage(userId, messageId, session) {
     });
   }
 }
-
 
 // ========================= 概算見積り（ダミー係数） =========================
 function estimateCost(answers) {
