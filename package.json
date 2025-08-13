@@ -1,5 +1,5 @@
 {
-  "name": "line-paint-estimator",
+  "name": "line-paint",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
@@ -11,9 +11,9 @@
     "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "googleapis": "^131.0.0",
+    "qs": "^6.12.1"
   },
-  "engines": {
-    "node": ">=18"
-  }
+  "engines": { "node": ">=18" }
 }
