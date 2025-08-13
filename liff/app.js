@@ -1,89 +1,135 @@
-/* liff/app.js — 連絡先フォーム（数値KB・郵便→住所自動・戻る/プレビュー/送信） */
+/* global liff, window, document, fetch */
 
-(async function () {
-  const $ = (sel) => document.querySelector(sel);
-  const show = (id) => { document.querySelectorAll('.step').forEach(n => n.classList.add('hidden')); $(id).classList.remove('hidden'); };
-  const bar = (pct) => { $('#bar').style.width = pct + '%'; };
+const env = window.__LIFF_ENV__ || {};
+const LIFF_ID = env.LIFF_ID || "";
+const FRIEND_ADD_URL = env.FRIEND_ADD_URL || "";
 
-  // 状態
-  const state = { userId: '', name: '', postal: '', addr1: '', addr2: '' };
+// ----- 進捗制御 -----
+const steps = Array.from(document.querySelectorAll(".step"));
+const bar = document.getElementById("bar");
+let current = 0;
 
-  // LIFF 初期化
-  await liff.init({ liffId: window.__ENV?.LIFF_ID });
-  if (!liff.isLoggedIn()) await liff.login();
-  const decoded = liff.getDecodedIDToken();
-  state.userId = decoded?.sub || '';
+function showStep(idx) {
+  steps.forEach((el, i) => el.hidden = i !== idx);
+  current = idx;
+  const percent = Math.max(10, Math.round(((idx + 1) / steps.length) * 100));
+  bar.style.width = `${percent}%`;
+}
 
-  // 進捗
-  let step = 1; bar(20); show('#step-name');
+function next() { if (current < steps.length - 1) showStep(current + 1); }
+function prev() { if (current > 0) showStep(current - 1); }
 
-  // イベント
-  $('#next1').onclick = () => {
-    state.name = $('#name').value.trim();
-    if (!state.name) return alert('お名前を入力してください');
-    step = 2; bar(40); show('#step-postal');
-    $('#postal').focus();
-  };
+// ----- 入力要素 -----
+const $ = (q) => document.querySelector(q);
+const nameEl = $("#name");
+const zipEl = $("#zip");
+const addr1El = $("#addr1");
+const addr2El = $("#addr2");
+const previewEl = $("#preview");
+const thanksEl = $("#thanks");
+const backToChat = $("#backToChat");
 
-  $('#back2').onclick = () => { step = 1; bar(20); show('#step-name'); };
-  $('#next2').onclick = async () => {
-    const z = $('#postal').value.replace(/[^\d]/g, '');
-    if (!/^\d{7}$/.test(z)) return alert('郵便番号は7桁で入力してください');
-    state.postal = z;
-    // 郵便→住所
-    try {
-      const r = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
-      const j = await r.json();
-      const a = j?.results?.[0];
-      const addr = a ? `${a.address1}${a.address2}${a.address3}` : '';
-      $('#addr1').value = addr;
-      state.addr1 = addr;
-    } catch (e) { /* noop */ }
-    step = 3; bar(60); show('#step-addr1');
-    $('#addr1').focus();
-  };
-
-  $('#back3').onclick = () => { step = 2; bar(40); show('#step-postal'); };
-  $('#next3').onclick = () => {
-    state.addr1 = $('#addr1').value.trim();
-    if (!state.addr1) return alert('住所（都道府県・市区町村・番地など）を入力してください');
-    step = 4; bar(80); show('#step-addr2');
-    $('#addr2').focus();
-  };
-
-  $('#back4').onclick = () => { step = 3; bar(60); show('#step-addr1'); };
-
-  const openPreview = () => {
-    state.addr2 = ($('#addr2').value.trim() || '');
-    $('#pv-name').textContent = state.name;
-    $('#pv-postal').textContent = state.postal;
-    $('#pv-addr1').textContent = state.addr1;
-    $('#pv-addr2').textContent = state.addr2 || '（なし）';
-    bar(90);
-    show('#preview-pane');
-  };
-
-  $('#preview').onclick = openPreview;
-
-  async function submitNow() {
-    try {
-      const res = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state)
-      });
-      const j = await res.json();
-      if (!j.ok) throw new Error(j.message || '送信に失敗しました');
-      bar(100); show('#done');
-      try { await liff.sendMessages([{ type: 'text', text: '連絡先を送信しました。担当者から折り返します。' }]); } catch (e) {}
-      setTimeout(() => { try { liff.closeWindow(); } catch (e) {} }, 1200);
-    } catch (e) {
-      alert('送信に失敗しました。通信環境をご確認のうえ再度お試しください。');
+// 郵便番号 → 住所自動補完
+async function autoFillAddress() {
+  const raw = (zipEl.value || "").replace(/[^\d]/g, "");
+  if (raw.length !== 7) return;
+  try {
+    const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${raw}`);
+    const json = await res.json();
+    if (json?.results?.length) {
+      const r = json.results[0];
+      addr1El.value = `${r.address1}${r.address2}${r.address3}`;
     }
+  } catch (e) {
+    // noop
   }
+}
 
-  $('#submit').onclick = openPreview;
-  $('#backPrev').onclick = () => { show('#step-addr2'); bar(80); };
-  $('#submit2').onclick = submitNow;
-  $('#close').onclick = () => { try { liff.closeWindow(); } catch (e) { window.history.back(); } };
-})();
+zipEl.addEventListener("change", autoFillAddress);
+zipEl.addEventListener("blur", autoFillAddress);
+
+// 前後ボタン
+document.querySelectorAll(".next").forEach((b) => b.addEventListener("click", next));
+document.querySelectorAll(".prev").forEach((b) => b.addEventListener("click", prev));
+
+// プレビュー
+function updatePreview() {
+  const rows = [
+    ["お名前", nameEl.value || ""],
+    ["郵便番号", zipEl.value || ""],
+    ["住所", addr1El.value || ""],
+    ["建物名・部屋番号など", addr2El.value || "なし"]
+  ];
+  previewEl.innerHTML = rows.map(([k, v]) =>
+    `<div class="row"><div class="label">${k}</div><div>${(v || "").replace(/\n/g,"<br>")}</div></div>`
+  ).join("");
+}
+steps.forEach((s) => {
+  s.addEventListener("click", (ev) => {
+    if (ev.target.classList.contains("next")) updatePreview();
+  });
+});
+
+// 送信
+$("#submit").addEventListener("click", async () => {
+  try {
+    // LIFF 初期化済みでユーザーIDを取得
+    const context = liff.getContext();
+    const profile = await liff.getProfile().catch(() => null);
+
+    const payload = {
+      lineUserId: context?.userId || "",
+      displayName: profile?.displayName || "",
+      name: nameEl.value?.trim() || "",
+      zip: zipEl.value?.trim() || "",
+      address1: addr1El.value?.trim() || "",
+      address2: addr2El.value?.trim() || ""
+    };
+
+    // サーバへ（メール送信・スプレッドシート登録はサーバ側で完了時のみ）
+    const resp = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await resp.json();
+    if (!json?.ok) throw new Error("submit failed");
+
+    // ユーザーのトークに要約を送る（QA中は通知を増やさないよう簡潔な1通）
+    await liff.sendMessages([
+      {
+        type: "text",
+        text:
+          "見積り依頼を受け付けました。\n" +
+          `お名前：${payload.name}\n` +
+          `郵便番号：${payload.zip}\n` +
+          `住所：${payload.address1} ${payload.address2 || ""}\n` +
+          "1〜2営業日程度で詳細なお見積りをお送りします。"
+      }
+    ]);
+
+    $("#form").hidden = true;
+    thanksEl.hidden = false;
+    updatePreview();
+  } catch (e) {
+    alert("送信に失敗しました。時間をおいてお試しください。");
+  }
+});
+
+// 戻るリンク
+backToChat.addEventListener("click", (e) => {
+  e.preventDefault();
+  if (FRIEND_ADD_URL) location.href = FRIEND_ADD_URL;
+  else liff.closeWindow();
+});
+
+// ----- LIFF 初期化 -----
+async function main() {
+  if (!LIFF_ID) {
+    alert("LIFF_ID が設定されていません。");
+    return;
+  }
+  await liff.init({ liffId: LIFF_ID });
+  showStep(0);
+}
+main();
