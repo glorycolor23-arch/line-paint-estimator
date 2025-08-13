@@ -47,6 +47,42 @@ app.use(express.json());
 /* Health */
 app.get('/health', (_, res) => res.status(200).send('ok'));
 
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// --- ここが重要：env.js を動的に返す ---
+app.get("/liff/env.js", (req, res) => {
+  const payload = {
+    LIFF_ID: process.env.LIFF_ID || "",
+    FRIEND_ADD_URL: process.env.FRIEND_ADD_URL || "",
+  };
+  res.type("application/javascript").send(
+    `window.__LIFF_ENV__=${JSON.stringify(payload)};`
+  );
+});
+
+// 静的配信（/liff/index.html 等）
+app.use("/liff", express.static(path.join(__dirname, "liff"), { index: "index.html" }));
+
+// 健康チェック
+app.get("/health", (_req, res) => res.type("text/plain").send("ok"));
+
+// ルートは LIFF へ
+app.get("/", (_req, res) => res.redirect("/liff/index.html"));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`listening on ${PORT}`));
+
+
+
 /* ===========================
    LIFF 静的配信 + env.js
    =========================== */
