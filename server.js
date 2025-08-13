@@ -581,3 +581,12 @@ async function finalizeAndNotifyPush(userId) {
 
 function esc(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 function replyText(rt, text){ return client.replyMessage(rt, { type:'text', text }); }
+
+
+// 追加：フロントに LIFF_ID を渡すための動的JS
+app.get('/liff/config.js', (_, res) => {
+  res.type('application/javascript')
+     .send(`window.__LIFF_ID__=${JSON.stringify(process.env.LIFF_ID || '')};`);
+});
+
+
