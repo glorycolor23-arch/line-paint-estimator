@@ -199,72 +199,74 @@ async function handleEvent(event) {
     const { message } = event;
 
     // テキスト
-    if (message.type === 'text') {
-      const text = (message.text || '').trim();
-      const s = getSession(userId);
+ if (message.type === 'text') {
+  const text = (message.text || '').trim();
+  const s = getSession(userId);
 
-      if (/^(最初から|リセット)$/i.test(text)) {
-        resetSession(userId);
-        return replyText(
-          event.replyToken,
-          '回答をリセットしました。\n「見積もり」または「スタート」と送ってください。'
-        );
-      }
+  // 1) リセット最優先
+  if (/^(最初から|リセット)$/i.test(text)) {
+    resetSession(userId);
+    return replyText(
+      event.replyToken,
+      '回答をリセットしました。\n「見積もり」または「スタート」と送ってください。'
+    );
+  }
 
-      // 連絡先入力フロー
-      if (s.step === 'contact_name') {
-        s.contact.name = text;
-        s.step = 'contact_postal';
-        return replyText(event.replyToken, '郵便番号を入力してください（7桁。ハイフン可）');
-      }
-      if (s.step === 'contact_postal') {
-        s.contact.postal = text.replace(/[^\d]/g, '');
-        s.step = 'contact_addr1';
-        return replyText(event.replyToken, '住所（都道府県・市区町村・番地など）を入力してください');
-      }
-      if (s.step === 'contact_addr1') {
-        s.contact.addr1 = text;
-        s.step = 'contact_addr2';
-        return replyText(event.replyToken, '建物名・部屋番号など（あれば）。無ければ「なし」と入力');
-      }
-      if (s.step === 'contact_addr2') {
-        s.contact.addr2 = text === 'なし' ? '' : text;
-        return finalizeAndNotify(event.replyToken, userId);
-      }
+  // 2) 見積もり開始は “常に” 最優先で受け付ける（途中状態を上書き）
+  if (/^(見積もり|スタート|start)$/i.test(text)) {
+    resetSession(userId);
+    return askQ1(event.replyToken, userId);
+  }
 
-      // 見積もり開始
-      if (/^(見積もり|スタート|start)$/i.test(text)) {
-        resetSession(userId);
-        return askQ1(event.replyToken, userId);
+  // 3) 写真待ちのとき（スキップ／完了／その他テキスト）
+  if (s.expectingPhoto) {
+    if (/^(スキップ|skip)$/i.test(text)) {
+      s.photoIndex += 1;
+      if (s.photoIndex >= PHOTO_STEPS.length) {
+        s.expectingPhoto = false;
+        return askContact(event.replyToken, userId);
       }
-
-      // 写真待ち中のテキスト（スキップ・完了）
-      if (s.expectingPhoto) {
-        if (/^(スキップ|skip)$/i.test(text)) {
-          s.photoIndex += 1;
-          if (s.photoIndex >= PHOTO_STEPS.length) {
-            s.expectingPhoto = false;
-            return askContact(event.replyToken, userId);
-          }
-          return askNextPhoto(event.replyToken, userId);
-        }
-        if (/^(完了|おわり|終了)$/i.test(text)) {
-          s.photoIndex = PHOTO_STEPS.length;
-          s.expectingPhoto = false;
-          return askContact(event.replyToken, userId);
-        }
-        return replyText(
-          event.replyToken,
-          '画像を送ってください。送れない場合は「スキップ」と送信できます。'
-        );
-      }
-
-      // それ以外
-      return replyText(
-        event.replyToken,
-        '「見積もり」または「スタート」と送ってください。'
-      );
+      return askNextPhoto(event.replyToken, userId);
     }
+    if (/^(完了|おわり|終了)$/i.test(text)) {
+      s.photoIndex = PHOTO_STEPS.length;
+      s.expectingPhoto = false;
+      return askContact(event.replyToken, userId);
+    }
+    return replyText(
+      event.replyToken,
+      '画像を送ってください。送れない場合は「スキップ」と送信できます。'
+    );
+  }
+
+  // 4) 連絡先入力フロー（名前 → 郵便 → 住所1 → 住所2）
+  if (s.step === 'contact_name') {
+    s.contact.name = text;
+    s.step = 'contact_postal';
+    return replyText(event.replyToken, '郵便番号を入力してください（7桁。ハイフン可）');
+  }
+  if (s.step === 'contact_postal') {
+    s.contact.postal = text.replace(/[^\d]/g, '');
+    s.step = 'contact_addr1';
+    return replyText(event.replyToken, '住所（都道府県・市区町村・番地など）を入力してください');
+  }
+  if (s.step === 'contact_addr1') {
+    s.contact.addr1 = text;
+    s.step = 'contact_addr2';
+    return replyText(event.replyToken, '建物名・部屋番号など（あれば）。無ければ「なし」と入力');
+  }
+  if (s.step === 'contact_addr2') {
+    s.contact.addr2 = text === 'なし' ? '' : text;
+    return finalizeAndNotify(event.replyToken, userId);
+  }
+
+  // 5) それ以外
+  return replyText(
+    event.replyToken,
+    '「見積もり」または「スタート」と送ってください。'
+  );
+}
+
 
     // 画像
     if (message.type === 'image') {
