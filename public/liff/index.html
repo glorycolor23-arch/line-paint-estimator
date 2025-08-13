@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>現地調査なしで見積を依頼</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Leaflet（地図ピン用） -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>詳細見積りのご依頼</h1>
+      <div id="progress"><div id="bar"></div></div>
+      <p id="stepLabel">1 / 5</p>
+    </header>
+
+    <!-- Step 1: お名前 -->
+    <section class="step active" data-step="1">
+      <label>お名前（フルネーム）</label>
+      <input id="name" placeholder="山田 太郎" autocomplete="name">
+      <div class="nav">
+        <button class="next">次へ</button>
+      </div>
+    </section>
+
+    <!-- Step 2: 郵便番号 -->
+    <section class="step" data-step="2">
+      <label>郵便番号（7桁・数字のみ）</label>
+      <input id="postal" inputmode="numeric" pattern="[0-9]*" maxlength="7" placeholder="1234567" autocomplete="postal-code">
+      <small>※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</small>
+      <div class="nav">
+        <button class="back">戻る</button>
+        <button class="next">次へ</button>
+      </div>
+    </section>
+
+    <!-- Step 3: 住所 -->
+    <section class="step" data-step="3">
+      <label>住所（都道府県・市区町村・番地など）</label>
+      <input id="addr1" placeholder="東京都渋谷区○○ 1-2-3">
+      <label>建物名・部屋番号など（任意）</label>
+      <input id="addr2" placeholder="○○マンション 101">
+      <small>番地など以降の住所や建物名・部屋番号などを入力してください。無ければ空欄のままでOKです。</small>
+      <div class="nav">
+        <button class="back">戻る</button>
+        <button class="next">次へ</button>
+      </div>
+    </section>
+
+    <!-- Step 4: 地図ピン -->
+    <section class="step" data-step="4">
+      <label>位置の目安（任意）</label>
+      <div id="map"></div>
+      <small>住所の中心にピンを置いてください（任意）。</small>
+      <div class="nav">
+        <button class="back">戻る</button>
+        <button class="next">次へ</button>
+      </div>
+    </section>
+
+    <!-- Step 5: プレビュー＋同意 -->
+    <section class="step" data-step="5">
+      <h2>送信前の確認</h2>
+      <div id="preview"></div>
+      <label class="consent"><input type="checkbox" id="consent"> 入力内容と個人情報の取扱いに同意します</label>
+      <div class="nav">
+        <button class="back">戻る</button>
+        <button id="submitBtn" class="primary">送信する</button>
+      </div>
+    </section>
+
+    <footer>
+      <p class="hint">※ 送信後は1〜2営業日以内にLINEで正式見積りをご案内します。</p>
+    </footer>
+  </div>
+
+  <script>
+    window.__SUBMIT_ENDPOINT__ = '/liff/submit'; // サーバの提出先
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
