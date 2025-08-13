@@ -1,79 +1,89 @@
-// window.LIFF_ID は /liff/env.js で定義される
-const $ = (id) => document.getElementById(id);
-const show = (el) => el.classList.remove('hidden');
-const hide = (el) => el.classList.add('hidden');
+/* liff/app.js — 連絡先フォーム（数値KB・郵便→住所自動・戻る/プレビュー/送信） */
 
-(async function main(){
-  try {
-    if (!window.LIFF_ID) throw new Error('LIFF_ID not found');
-    await liff.init({ liffId: window.LIFF_ID });
+(async function () {
+  const $ = (sel) => document.querySelector(sel);
+  const show = (id) => { document.querySelectorAll('.step').forEach(n => n.classList.add('hidden')); $(id).classList.remove('hidden'); };
+  const bar = (pct) => { $('#bar').style.width = pct + '%'; };
 
-    // 必要に応じてログイン
-    if (!liff.isLoggedIn()) liff.login();
+  // 状態
+  const state = { userId: '', name: '', postal: '', addr1: '', addr2: '' };
 
-    $('status').textContent = 'ログイン済み';
-    show($('form'));
+  // LIFF 初期化
+  await liff.init({ liffId: window.__ENV?.LIFF_ID });
+  if (!liff.isLoggedIn()) await liff.login();
+  const decoded = liff.getDecodedIDToken();
+  state.userId = decoded?.sub || '';
 
-    // 送信前プレビュー
-    $('previewBtn').onclick = () => {
-      const name  = $('name').value.trim();
-      const post  = $('postal').value.trim();
-      const addr1 = $('addr1').value.trim();
-      const addr2 = $('addr2').value.trim();
+  // 進捗
+  let step = 1; bar(20); show('#step-name');
 
-      if (!name || !post || !addr1) {
-        alert('お名前・郵便番号・住所は必須です。');
-        return;
-      }
-      $('previewBody').innerHTML = `
-        <div class="card">
-          <p><b>お名前：</b>${escapeHtml(name)}</p>
-          <p><b>郵便番号：</b>${escapeHtml(post)}</p>
-          <p><b>住所：</b>${escapeHtml(addr1)}</p>
-          <p><b>建物名等：</b>${escapeHtml(addr2)}</p>
-        </div>
-      `;
-      hide($('form'));
-      show($('preview'));
-    };
+  // イベント
+  $('#next1').onclick = () => {
+    state.name = $('#name').value.trim();
+    if (!state.name) return alert('お名前を入力してください');
+    step = 2; bar(40); show('#step-postal');
+    $('#postal').focus();
+  };
 
-    // 戻る
-    $('backBtn').onclick = () => {
-      hide($('preview'));
-      show($('form'));
-    };
+  $('#back2').onclick = () => { step = 1; bar(20); show('#step-name'); };
+  $('#next2').onclick = async () => {
+    const z = $('#postal').value.replace(/[^\d]/g, '');
+    if (!/^\d{7}$/.test(z)) return alert('郵便番号は7桁で入力してください');
+    state.postal = z;
+    // 郵便→住所
+    try {
+      const r = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
+      const j = await r.json();
+      const a = j?.results?.[0];
+      const addr = a ? `${a.address1}${a.address2}${a.address3}` : '';
+      $('#addr1').value = addr;
+      state.addr1 = addr;
+    } catch (e) { /* noop */ }
+    step = 3; bar(60); show('#step-addr1');
+    $('#addr1').focus();
+  };
 
-    // LIFF からトークへ送信
-    $('confirmBtn').onclick = sendMessage;
-    $('sendBtn').onclick = sendMessage;
+  $('#back3').onclick = () => { step = 2; bar(40); show('#step-postal'); };
+  $('#next3').onclick = () => {
+    state.addr1 = $('#addr1').value.trim();
+    if (!state.addr1) return alert('住所（都道府県・市区町村・番地など）を入力してください');
+    step = 4; bar(80); show('#step-addr2');
+    $('#addr2').focus();
+  };
 
-  } catch (e) {
-    console.error(e);
-    $('status').textContent = '初期化に失敗しました。';
+  $('#back4').onclick = () => { step = 3; bar(60); show('#step-addr1'); };
+
+  const openPreview = () => {
+    state.addr2 = ($('#addr2').value.trim() || '');
+    $('#pv-name').textContent = state.name;
+    $('#pv-postal').textContent = state.postal;
+    $('#pv-addr1').textContent = state.addr1;
+    $('#pv-addr2').textContent = state.addr2 || '（なし）';
+    bar(90);
+    show('#preview-pane');
+  };
+
+  $('#preview').onclick = openPreview;
+
+  async function submitNow() {
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state)
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.message || '送信に失敗しました');
+      bar(100); show('#done');
+      try { await liff.sendMessages([{ type: 'text', text: '連絡先を送信しました。担当者から折り返します。' }]); } catch (e) {}
+      setTimeout(() => { try { liff.closeWindow(); } catch (e) {} }, 1200);
+    } catch (e) {
+      alert('送信に失敗しました。通信環境をご確認のうえ再度お試しください。');
+    }
   }
+
+  $('#submit').onclick = openPreview;
+  $('#backPrev').onclick = () => { show('#step-addr2'); bar(80); };
+  $('#submit2').onclick = submitNow;
+  $('#close').onclick = () => { try { liff.closeWindow(); } catch (e) { window.history.back(); } };
 })();
-
-async function sendMessage(){
-  const name  = $('name').value.trim();
-  const post  = $('postal').value.trim();
-  const addr1 = $('addr1').value.trim();
-  const addr2 = $('addr2').value.trim();
-
-  const msg = [
-    { type:'text', text:'【詳細見積りの依頼】' },
-    { type:'text', text:
-      `お名前：${name}\n郵便番号：${post}\n住所：${addr1}\n建物名等：${addr2 || 'なし'}` }
-  ];
-
-  try {
-    await liff.sendMessages(msg);
-    await liff.closeWindow();
-  } catch (e) {
-    console.error(e);
-    alert('送信に失敗しました。');
-  }
-}
-
-function escapeHtml(s){
-  return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-}
