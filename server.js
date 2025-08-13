@@ -1,146 +1,199 @@
-import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-import dotenv from "dotenv";
-import crypto from "crypto";
-import axios from "axios";
-import * as line from "@line/bot-sdk";
+// server.js
+import 'dotenv/config';
+import express from 'express';
+import crypto from 'crypto';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { Client as LineClient, middleware as lineMiddleware } from '@line/bot-sdk';
+import axios from 'axios';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { google } from 'googleapis';
 
-dotenv.config();
-
-const app = express();
-
-// ---------- 基本設定 ----------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+/* ============= 基本設定 ============= */
 const {
-  CHANNEL_SECRET = "",
-  CHANNEL_ACCESS_TOKEN = "",
-  LIFF_ID = "",
-  FRIEND_ADD_URL = "",
-  SUPABASE_URL = "",
-  SUPABASE_SERVICE_ROLE_KEY = "",
-  GOOGLE_SERVICE_ACCOUNT_EMAIL = "",
-  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = "",
-  GSHEET_SPREADSHEET_ID = "",
-  GSHEET_SHEET_NAME = "Entries",
-  EMAIL_TO = "",
-  EMAIL_WEBAPP_URL = ""
+  CHANNEL_SECRET,
+  CHANNEL_ACCESS_TOKEN,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  GSHEET_SPREADSHEET_ID,
+  GSHEET_SHEET_NAME = 'Entries',
+  GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+  EMAIL_TO,
+  EMAIL_WEBAPP_URL,
+  LIFF_ID,
+  LIFF_CHANNEL_ID, // 参照のみ（現在は未使用）
+  FRIEND_ADD_URL,  // 参照のみ（必要があればカードに表示）
 } = process.env;
 
-// LINE SDK クライアント
-const lineClient = new line.Client({
+const app = express();
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// 静的ファイル（/liff配下）
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use('/liff', express.static(path.join(__dirname, 'liff')));
+
+// /liff/env.js を動的に返す（LIFF_ID）
+app.get('/liff/env.js', (_req, res) => {
+  res.set('Content-Type', 'application/javascript; charset=utf-8');
+  res.send(`window.__LIFF_ENV__ = { LIFF_ID: "${LIFF_ID || ''}" };`);
+});
+
+// ヘルスチェック
+app.get('/health', (_req, res) => res.type('text').send('ok'));
+
+/* ============= LINE SDK ============= */
+const lineConfig = {
+  channelSecret: CHANNEL_SECRET,
   channelAccessToken: CHANNEL_ACCESS_TOKEN
-});
+};
+const lineClient = new LineClient(lineConfig);
 
-// 署名検証に必要な生バイトを保持
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    }
-  })
-);
-
-// ---------- ヘルスチェック ----------
-app.get("/health", (_req, res) => {
-  res.type("text/plain").send("ok");
-});
-
-// ---------- LIFF 用の環境JS（動的に返す） ----------
-app.get("/liff/env.js", (_req, res) => {
-  const payload = {
-    LIFF_ID: LIFF_ID || "",
-    FRIEND_ADD_URL: FRIEND_ADD_URL || ""
-  };
-  res
-    .type("application/javascript")
-    .send(`window.__LIFF_ENV__=${JSON.stringify(payload)};`);
-});
-
-// ---------- LIFF の静的配信 ----------
-app.use("/liff", express.static(path.join(__dirname, "liff"), { index: "index.html" }));
-
-// ---------- ルート ----------
-app.get("/", (_req, res) => res.redirect("/liff/index.html"));
-
-// =============================================================
-// Webhook（署名検証 → イベント分岐）
-// =============================================================
-function validateLineSignature(req) {
-  const signature = req.get("x-line-signature");
-  if (!signature) return false;
-  const body = req.rawBody || Buffer.from(JSON.stringify(req.body), "utf8");
-  const hmac = crypto
-    .createHmac("sha256", CHANNEL_SECRET)
-    .update(body)
-    .digest("base64");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hmac));
-}
-
-// 簡易ステート（本番は永続化推奨）
-const sessions = new Map();
-
-function startSession(userId, scope) {
-  const base = {
-    step: 0,
-    scope, // 'wall' | 'roof' | 'both'
-    answers: {},
-    asking: []
-  };
-  if (scope === "wall") {
-    base.asking = [
-      { k: "wallMaterial", q: "外壁の種類は？", img: "https://i.imgur.com/5QS0v7S.png", choices: ["モルタル", "サイディング", "ALC"] },
-      { k: "wallDamage", q: "外壁の損傷状況は？", img: "https://i.imgur.com/g9hOqV6.png", choices: ["ひび割れ", "チョーキング", "欠損", "軽微"] }
-    ];
-  } else if (scope === "roof") {
-    base.asking = [
-      { k: "roofType", q: "屋根の種類は？", img: "https://i.imgur.com/V1V2P2E.png", choices: ["スレート", "瓦", "ガルバリウム"] },
-      { k: "roofLeak", q: "雨漏りの状況は？", img: "https://i.imgur.com/M1h7yQk.png", choices: ["なし", "シミ有り", "漏れている"] }
-    ];
-  } else {
-    // both
-    base.asking = [
-      { k: "roofType", q: "屋根の種類は？", img: "https://i.imgur.com/V1V2P2E.png", choices: ["スレート", "瓦", "ガルバリウム"] },
-      { k: "roofLeak", q: "雨漏りの状況は？", img: "https://i.imgur.com/M1h7yQk.png", choices: ["なし", "シミ有り", "漏れている"] },
-      { k: "wallMaterial", q: "外壁の種類は？", img: "https://i.imgur.com/5QS0v7S.png", choices: ["モルタル", "サイディング", "ALC"] },
-      { k: "wallDamage", q: "外壁の損傷状況は？", img: "https://i.imgur.com/g9hOqV6.png", choices: ["ひび割れ", "チョーキング", "欠損", "軽微"] }
-    ];
+// Webhook 署名検証（LINE SDK ミドルウェア）
+app.post('/webhook', lineMiddleware(lineConfig), async (req, res) => {
+  try {
+    const events = req.body.events;
+    await Promise.all(events.map(handleEvent));
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('Webhook error', e);
+    res.sendStatus(500);
   }
-  sessions.set(userId, base);
-  return base;
+});
+
+/* ============= 外部サービス ============= */
+// Supabase（画像保存）
+const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  : null;
+
+// Google Sheets
+let sheets = null;
+if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GSHEET_SPREADSHEET_ID) {
+  const auth = new google.auth.JWT(
+    GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    undefined,
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    ['https://www.googleapis.com/auth/spreadsheets']
+  );
+  sheets = google.sheets({ version: 'v4', auth });
 }
 
-function buildFlexImageButtons(title, heroUrl, buttons) {
+/* ============= 会話状態（簡易：メモリ） ============= */
+// 実運用ではKV等へ載せ替え推奨
+const session = new Map(); // key: userId, value: { idx, data, photos, multiBuffer }
+
+function getState(userId) {
+  if (!session.has(userId)) {
+    session.set(userId, { idx: 0, data: {}, photos: {}, cracks: [] });
+  }
+  return session.get(userId);
+}
+
+function resetState(userId) {
+  session.delete(userId);
+}
+
+/* ============= 質問定義 ============= */
+/**
+ * kind:
+ *  - 'choice' : ボタン選択（画像付きFlex）
+ *  - 'image'  : 画像アップロード（1枚、任意でスキップ）
+ *  - 'images' : 複数画像（完了ボタンで次へ）
+ *
+ * when(state) で分岐可
+ */
+const Q = [
+  { id: 'floors', kind: 'choice', title: '工事物件の階数は？', options: ['1階建て', '2階建て', '3階建て'] },
+  { id: 'layout', kind: 'choice', title: '物件の間取りは？', options: ['1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '4K', '4DK', '4LDK'] },
+  { id: 'age', kind: 'choice', title: '物件の築年数は？', options: ['新築', '〜10年', '〜20年', '〜30年', '〜40年', '〜50年', '51年以上'] },
+  { id: 'paintedBefore', kind: 'choice', title: '過去に塗装をした経歴は？', options: ['ある', 'ない', 'わからない'] },
+  {
+    id: 'lastPaint',
+    kind: 'choice',
+    title: '前回の塗装はいつ頃？',
+    options: ['〜5年', '5〜10年', '10〜20年', '20〜30年', 'わからない'],
+    when: s => s.data.paintedBefore === 'ある'
+  },
+  { id: 'scope', kind: 'choice', title: 'ご希望の工事内容は？', options: ['外壁塗装', '屋根塗装', '外壁塗装+屋根塗装'] },
+
+  /* 分岐：外壁 */
+  {
+    id: 'wallType',
+    kind: 'choice',
+    title: '外壁の種類は？',
+    options: ['モルタル', 'サイディング', 'タイル', 'ALC'],
+    when: s => s.data.scope === '外壁塗装' || s.data.scope === '外壁塗装+屋根塗装'
+  },
+  /* 分岐：屋根 */
+  {
+    id: 'roofType',
+    kind: 'choice',
+    title: '屋根の種類は？',
+    options: ['瓦', 'スレート', 'ガルバリウム', 'トタン'],
+    when: s => s.data.scope === '屋根塗装' || s.data.scope === '外壁塗装+屋根塗装'
+  },
+
+  { id: 'leak', kind: 'choice', title: '雨漏りや漏水の症状はありますか？', options: ['雨の日に水滴が落ちる', '天井にシミがある', 'ない'] },
+  {
+    id: 'gap',
+    kind: 'choice',
+    title: '隣や裏の家との距離は？',
+    note: '周囲で一番近い距離の数値をお答えください。',
+    options: ['30cm以下', '50cm以下', '70cm以下', '70cm以上']
+  },
+
+  // 図面・写真（個別）
+  { id: 'elevation', kind: 'image', title: '立面図をアップロードしてください。' },
+  { id: 'plan', kind: 'image', title: '平面図をアップロードしてください。' },
+  { id: 'section', kind: 'image', title: '断面図をアップロードしてください。' },
+  {
+    id: 'front', kind: 'image',
+    title: '正面から撮影した物件の写真をアップロードしてください。',
+    note: '※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。'
+  },
+  {
+    id: 'right', kind: 'image',
+    title: '右側から撮影した物件の写真をアップロードしてください。',
+    note: '※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。'
+  },
+  {
+    id: 'left', kind: 'image',
+    title: '左側から撮影した物件の写真をアップロードしてください。',
+    note: '※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。'
+  },
+  {
+    id: 'back', kind: 'image',
+    title: '後ろ側から撮影した物件の写真をアップロードしてください。',
+    note: '※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。'
+  },
+  { id: 'garage', kind: 'image', title: '車庫の位置がわかる写真をアップロードしてください。' },
+  { id: 'cracks', kind: 'images', title: '外壁や屋根にヒビや割れがある場合アップロードしてください。（複数可・「完了」で次へ）' },
+];
+
+/* ============= Flex（カード）生成 ============= */
+function choiceFlex(title, options, note) {
+  // 画像つきカード（シンプルなヒーロー無し）
   return {
-    type: "flex",
+    type: 'flex',
     altText: title,
     contents: {
-      type: "bubble",
-      hero: {
-        type: "image",
-        url: heroUrl,
-        size: "full",
-        aspectRatio: "20:13",
-        aspectMode: "cover"
-      },
+      type: 'bubble',
       body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
+        type: 'box',
+        layout: 'vertical',
         contents: [
-          { type: "text", text: title, weight: "bold", size: "lg" },
-          ...buttons.map((b) => ({
-            type: "button",
-            style: "secondary",
-            color: "#f0f0f0",
-            action: {
-              type: "postback",
-              label: b.label,
-              data: b.data,
-              displayText: b.displayText || b.label
-            }
+          { type: 'text', text: title, weight: 'bold', size: 'md', wrap: true },
+          ...(note ? [{ type: 'text', text: note, size: 'sm', color: '#666666', wrap: true, margin: 'sm' }] : []),
+          { type: 'separator', margin: 'md' },
+          ...options.map(o => ({
+            type: 'button',
+            action: { type: 'postback', label: o, data: `ans=${encodeURIComponent(o)}` },
+            style: 'primary',
+            color: '#00b900',
+            margin: 'md'
           }))
         ]
       }
@@ -148,176 +201,319 @@ function buildFlexImageButtons(title, heroUrl, buttons) {
   };
 }
 
-function buildQuestionFlex(question, choices) {
-  return {
-    type: "flex",
-    altText: question.q,
-    contents: {
-      type: "bubble",
-      hero: {
-        type: "image",
-        url: question.img,
-        size: "full",
-        aspectRatio: "20:13",
-        aspectMode: "cover"
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
-        contents: [
-          { type: "text", text: question.q, weight: "bold", wrap: true },
-          ...choices.map((c) => ({
-            type: "button",
-            style: "primary",
-            color: "#00b900",
-            action: {
-              type: "postback",
-              label: c,
-              data: `ans=${encodeURIComponent(question.k)}&v=${encodeURIComponent(c)}`,
-              displayText: c
-            }
-          }))
-        ]
-      }
-    }
-  };
+function quickForImage(kind) {
+  const items = [];
+  if (kind === 'image') {
+    items.push({ type: 'action', action: { type: 'message', label: 'スキップ', text: 'スキップ' } });
+  }
+  if (kind === 'images') {
+    items.push({ type: 'action', action: { type: 'message', label: '完了', text: '完了' } });
+  }
+  return items.length
+    ? { items, type: 'quickReply' }
+    : undefined;
 }
 
-function buildLiffCard() {
-  const liffUrl = `https://liff.line.me/${LIFF_ID}`;
+function estimateCard(amountYen, userId) {
+  const liffUrl = `https://liff.line.me/${LIFF_ID}?uid=${encodeURIComponent(userId)}`;
   return {
-    type: "flex",
-    altText: "詳しい見積もりをご希望の方へ",
+    type: 'flex',
+    altText: '概算見積り',
     contents: {
-      type: "bubble",
+      type: 'bubble',
       body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
+        type: 'box',
+        layout: 'vertical',
         contents: [
-          { type: "text", text: "詳しい見積もりをご希望の方へ", weight: "bold", size: "lg" },
-          { type: "box", layout: "vertical", backgroundColor: "#F6F6F6FF", cornerRadius: "md", paddingAll: "12px", contents: [
-              { type: "text", text: "見積り金額", weight: "bold" },
-              { type: "text", text: "¥ 000,000", size: "xl" },
-              { type: "text", text: "上記はご入力内容を元に算出した概算金額です。", wrap: true, size: "sm" }
-            ]
+          { type: 'text', text: 'ありがとうございます。', weight: 'bold', size: 'md' },
+          {
+            type: 'text',
+            text: `工事代金は ¥${amountYen.toLocaleString()} です。`,
+            size: 'xl',
+            weight: 'bold',
+            margin: 'md'
           },
-          { type: "text", text: "正式なお見積りが必要な方は続けてご入力をお願いします。", wrap: true, size: "sm" },
-          { type: "button", style: "primary", color: "#00B900", action: { type: "uri", label: "現地調査なしで見積を依頼", uri: liffUrl } }
+          {
+            type: 'text',
+            text: '※ご入力いただいた情報を元に計算した概算見積もりです。',
+            size: 'sm',
+            color: '#666666',
+            wrap: true,
+            margin: 'sm'
+          },
+          { type: 'separator', margin: 'lg' },
+          {
+            type: 'text',
+            text: '1〜3営業日以内にLINEでお見積書をお送りします。',
+            size: 'sm',
+            color: '#666666',
+            wrap: true,
+            margin: 'md'
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#00b900',
+            action: { type: 'uri', label: '現地調査なしでLINE見積もり', uri: liffUrl },
+            margin: 'lg'
+          }
         ]
       }
     }
   };
 }
 
-async function reply(replyToken, messages) {
-  try {
-    await lineClient.replyMessage(replyToken, Array.isArray(messages) ? messages : [messages]);
-  } catch (e) {
-    console.error("reply error", e?.response?.data || e);
+/* ============= 概算の計算（簡易係数） ============= */
+function calcEstimate(data) {
+  // 基礎面積（間取り→目安㎡）
+  const layoutArea = {
+    '1K': 30, '1DK': 35, '1LDK': 40,
+    '2K': 45, '2DK': 55, '2LDK': 60,
+    '3K': 70, '3DK': 80,
+    '4K': 85, '4DK': 95, '4LDK': 100
+  };
+  let area = layoutArea[data.layout] || 60;
+  // 階数で外壁面積増
+  const floorMul = { '1階建て': 1.0, '2階建て': 1.25, '3階建て': 1.5 };
+  area *= floorMul[data.floors] || 1.2;
+
+  // ベース単価（円/㎡）
+  let unit = 2800;
+  // 外壁/屋根の種別係数
+  if (data.scope?.includes('外壁')) {
+    if (data.wallType === 'タイル') unit += 400;
+    if (data.wallType === 'ALC') unit += 600;
+  }
+  if (data.scope?.includes('屋根')) {
+    unit += 600;
+    if (data.roofType === 'ガルバリウム') unit += 300;
+    if (data.roofType === '瓦') unit += 200;
+  }
+  // 漏水補正
+  if (data.leak === '雨の日に水滴が落ちる') unit += 800;
+  if (data.leak === '天井にシミがある') unit += 400;
+  // 近接補正（足場）  
+  const gapMul = { '30cm以下': 1.15, '50cm以下': 1.1, '70cm以下': 1.05, '70cm以上': 1.0 };
+  const amount = Math.round(area * unit * (gapMul[data.gap] || 1.0));
+  return amount;
+}
+
+/* ============= 次質問出し分け ============= */
+function nextIndex(state) {
+  // 現在idx以降で when がtrue の最初
+  for (let i = state.idx; i < Q.length; i++) {
+    const q = Q[i];
+    if (!q.when || q.when(state)) return i;
+  }
+  return Q.length; // 終了
+}
+
+async function askNext(userId) {
+  const state = getState(userId);
+  state.idx = nextIndex(state);
+
+  if (state.idx >= Q.length) {
+    // 全回答 → 概算提示カード
+    const amount = calcEstimate(state.data);
+    const flex = estimateCard(amount, userId);
+    await lineClient.pushMessage(userId, [
+      { type: 'text', text: 'ありがとうございます。概算見積りを作成しました。' },
+      flex
+    ]);
+    return;
+  }
+
+  const q = Q[state.idx];
+  if (q.kind === 'choice') {
+    await lineClient.pushMessage(userId, choiceFlex(q.title, q.options, q.note));
+  } else if (q.kind === 'image') {
+    await lineClient.pushMessage(userId, {
+      type: 'text',
+      text: [q.title, q.note].filter(Boolean).join('\n'),
+      quickReply: quickForImage('image')
+    });
+  } else if (q.kind === 'images') {
+    await lineClient.pushMessage(userId, {
+      type: 'text',
+      text: q.title,
+      quickReply: quickForImage('images')
+    });
   }
 }
 
-app.post("/webhook", async (req, res) => {
-  if (!validateLineSignature(req)) {
-    return res.status(403).end();
+/* ============= 画像保存（Supabase） ============= */
+async function saveImageToSupabase(userId, messageId, tag) {
+  if (!supabase) return null;
+  const content = await lineClient.getMessageContent(messageId);
+  const chunks = [];
+  for await (const c of content) chunks.push(c);
+  const buff = Buffer.concat(chunks);
+  const filePath = `${userId}/${Date.now()}_${tag}.jpg`;
+  const { data, error } = await supabase.storage.from('uploads').upload(filePath, buff, {
+    contentType: 'image/jpeg', upsert: false
+  });
+  if (error) throw error;
+  const { data: pub } = supabase.storage.from('uploads').getPublicUrl(filePath);
+  return pub?.publicUrl || null;
+}
+
+/* ============= イベントハンドラ ============= */
+async function handleEvent(event) {
+  const userId = event.source?.userId;
+  if (!userId) return;
+
+  const state = getState(userId);
+
+  // Postback（選択肢）
+  if (event.type === 'postback') {
+    const data = new URLSearchParams(event.postback.data);
+    const ans = data.get('ans');
+    if (ans) {
+      const q = Q[state.idx];
+      state.data[q.id] = decodeURIComponent(ans);
+      state.idx++;
+      await askNext(userId);
+    }
+    return;
   }
-  const events = req.body.events || [];
-  for (const ev of events) {
-    try {
-      if (ev.type === "message" && ev.message?.type === "text") {
-        const text = (ev.message.text || "").trim();
-        if (/^(見積もり|スタート)$/i.test(text)) {
-          const flex = buildFlexImageButtons(
-            "どの工事をご希望ですか？",
-            "https://i.imgur.com/a8J8Y8s.jpeg",
-            [
-              { label: "外壁塗装", data: "scope=wall", displayText: "外壁塗装" },
-              { label: "屋根塗装", data: "scope=roof", displayText: "屋根塗装" },
-              { label: "外壁+屋根", data: "scope=both", displayText: "外壁+屋根" }
-            ]
-          );
-          await reply(ev.replyToken, [flex, buildLiffCard()]);
-          continue;
-        }
-        if (/^リセット$/i.test(text)) {
-          sessions.delete(ev.source.userId);
-          await reply(ev.replyToken, { type: "text", text: "会話状態をリセットしました。もう一度「見積もり」と送信してください。" });
-          continue;
-        }
-      }
 
-      if (ev.type === "postback") {
-        const data = new URLSearchParams(ev.postback.data || "");
-        if (data.has("scope")) {
-          const scope = data.get("scope");
-          const sess = startSession(ev.source.userId, scope);
-          const q = sess.asking[0];
-          await reply(ev.replyToken, buildQuestionFlex(q, q.choices));
-          continue;
-        }
-        if (data.has("ans")) {
-          const k = data.get("ans");
-          const v = data.get("v");
-          const sess = sessions.get(ev.source.userId);
-          if (!sess) {
-            await reply(ev.replyToken, { type: "text", text: "最初からやり直します。「見積もり」と送信してください。" });
-            continue;
-          }
-          sess.answers[k] = v;
-          sess.step += 1;
+  if (event.type === 'message') {
+    const msg = event.message;
 
-          if (sess.step < sess.asking.length) {
-            const q = sess.asking[sess.step];
-            await reply(ev.replyToken, buildQuestionFlex(q, q.choices));
-          } else {
-            // すべての質問が終わり。メールやスプレッドシートへの通知は「完了」時に LIFF から送信される想定。
-            await reply(ev.replyToken, [
-              { type: "text", text: "回答ありがとうございました。続けて詳細見積りをご希望の方は、下のボタンから入力してください。" },
-              buildLiffCard()
-            ]);
-          }
-          continue;
-        }
+    // キーワードで最初から
+    if (msg.type === 'text') {
+      const t = (msg.text || '').trim();
+      if (['リセット', 'reset'].includes(t)) {
+        resetState(userId);
+        await lineClient.replyMessage(event.replyToken, { type: 'text', text: '状態をリセットしました。「見積もり」と送ると開始します。' });
+        return;
       }
-    } catch (err) {
-      console.error("event error", err?.response?.data || err);
+      if (['見積もり', '見積り', 'スタート', '開始'].includes(t)) {
+        resetState(userId);
+        await lineClient.replyMessage(event.replyToken, { type: 'text', text: '見積もりを開始します。' });
+        await askNext(userId);
+        return;
+      }
+      // 画像系ステップの制御（スキップ/完了）
+      const q = Q[state.idx];
+      if (q?.kind === 'image' && t === 'スキップ') {
+        state.photos[q.id] = null;
+        state.idx++;
+        await askNext(userId);
+        return;
+      }
+      if (q?.kind === 'images' && t === '完了') {
+        state.idx++;
+        await askNext(userId);
+        return;
+      }
+      // それ以外は無視
+      return;
+    }
+
+    // 画像メッセージ処理
+    if (msg.type === 'image') {
+      const q = Q[state.idx];
+      if (!q || (q.kind !== 'image' && q.kind !== 'images')) {
+        // 想定外のタイミングは無視
+        await lineClient.replyMessage(event.replyToken, { type: 'text', text: '現在は画像の受付フェーズではありません。' });
+        return;
+      }
+      // 保存
+      let url = null;
+      try {
+        url = await saveImageToSupabase(userId, msg.id, q.id);
+      } catch (e) {
+        console.error('save image error', e);
+      }
+      if (q.kind === 'image') {
+        state.photos[q.id] = url;
+        await lineClient.replyMessage(event.replyToken, { type: 'text', text: '受け取りました。' });
+        state.idx++;
+        await askNext(userId);
+      } else {
+        // 複数可
+        state.cracks.push(url);
+        await lineClient.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '受け取りました。続けて送信できます。完了する場合は「完了」と送ってください。',
+          quickReply: quickForImage('images')
+        });
+      }
+      return;
     }
   }
-  res.status(200).end();
-});
+}
 
-// =============================================================
-// 詳細見積り送信 API（LIFF から呼ばれる）
-//  - QA中は管理者通知を送らず、送信完了時のみメール/スプレッドシート登録
-// =============================================================
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-app.post("/api/submit", async (req, res) => {
+/* ============= LIFF 連絡先受け取り ============= */
+/**
+ * LIFF 側から POST:
+ * { uid, name, tel, zip, address, address2 }
+ * - uid はカードのURLに付与（?uid=xxx）
+ * - ここでシート追加＆メール通知
+ */
+app.post('/liff/submit', async (req, res) => {
   try {
-    const payload = req.body || {};
-    // Google Apps Script WebAppへ転送（メール送信）
-    if (EMAIL_WEBAPP_URL) {
-      await axios.post(EMAIL_WEBAPP_URL, {
-        ...payload,
-        emailTo: EMAIL_TO
+    const { uid, name, tel, zip, address, address2 } = req.body || {};
+    if (!uid || !name || !tel || !zip || !address) {
+      return res.status(400).json({ ok: false, error: 'missing fields' });
+    }
+    const state = getState(uid);
+    const data = state?.data || {};
+    const photos = state?.photos || {};
+    const cracks = state?.cracks || [];
+
+    // スプレッドシート追記
+    if (sheets && GSHEET_SPREADSHEET_ID) {
+      const values = [[
+        name, tel, zip, address, address2 || '',
+        data.floors || '', data.layout || '', data.age || '', data.paintedBefore || '', data.lastPaint || '',
+        data.scope || '', data.wallType || '', data.roofType || '', data.leak || '', data.gap || '',
+        photos.elevation || '', photos.plan || '', photos.section || '',
+        photos.front || '', photos.right || '', photos.left || '', photos.back || '', photos.garage || '',
+        cracks.filter(Boolean).join(','),
+        uid,
+        calcEstimate(data),
+        new Date().toISOString()
+      ]];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: GSHEET_SPREADSHEET_ID,
+        range: `${GSHEET_SHEET_NAME}!A1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values }
       });
     }
 
-    // スプレッドシート（Apps Script側で同時書込している前提／ここで直接書く場合は Google API を利用）
-    // ここでは最小限（Apps Script に集約推奨）
-    // 必要であれば server 側で googleapis を使って append する処理を追加してください。
+    // メール（Apps Script）— フォーム送信内容＋URL 群
+    if (EMAIL_WEBAPP_URL && EMAIL_TO) {
+      const payload = {
+        to: EMAIL_TO,
+        subject: 'LINE見積りの依頼',
+        name, tel, zip, address, address2,
+        data,
+        photos,
+        cracks
+      };
+      await axios.post(EMAIL_WEBAPP_URL, payload, { timeout: 15000 });
+    }
+
+    // 完了メッセージ（質問中の通知はオフ。ここだけ返信）
+    await lineClient.pushMessage(uid, {
+      type: 'text',
+      text: '見積もりのご依頼を受け付けました。1〜3営業日以内にLINEでお見積書をお送りします。'
+    });
+
+    // セッション破棄
+    resetState(uid);
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("/api/submit error", e?.response?.data || e);
+    console.error('/liff/submit error', e);
     res.status(500).json({ ok: false });
   }
 });
 
-// ---------- 起動 ----------
+/* ============= サーバ起動 ============= */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
