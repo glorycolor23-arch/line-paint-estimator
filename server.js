@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import axios from "axios";
-import line from "@line/bot-sdk";
+import * as line from "@line/bot-sdk";
 
 dotenv.config();
 
