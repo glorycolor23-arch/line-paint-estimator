@@ -45,6 +45,10 @@ if (!config.channelSecret || !config.channelAccessToken) {
 const client = new line.Client(config);
 const app = express();
 
+// すでにある app = express() の下あたり
+app.use('/liff', express.static('liff'));   // ← 追加
+
+
 // Health
 app.get('/health', (_, res) => res.status(200).send('healthy'));
 
