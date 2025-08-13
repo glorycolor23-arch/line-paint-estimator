@@ -4,6 +4,10 @@
   let state = { name:'', postal:'', addr1:'', addr2:'', lat:null, lng:null };
   let idToken = '';
 
+  // liff/app.js
+const LIFF_ID = '2007914959-XP5Rpoay';   // ← あなたの LIFF ID
+
+  
   // LIFF 初期化（IDはチャネルに紐づく設定値が使われる）
   await liff.init({});
   if(!liff.isLoggedIn()){ liff.login(); return; }
@@ -139,3 +143,4 @@
   function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
   setProgress();
 })();
+
