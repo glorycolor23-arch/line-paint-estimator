@@ -6,77 +6,80 @@
   <title>外装工事オンライン見積もり</title>
   <link rel="stylesheet" href="./style.css" />
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <!-- サーバが動的に返す env.js -->
-  <script src="/liff/env.js"></script>
+  <script src="./env.js"></script>
 </head>
 <body>
   <main class="container">
     <h1>外装工事オンライン見積もり</h1>
 
-    <section class="lead">
-      <strong>現地調査なしで、詳細な見積りを LINE でお知らせします。</strong>
-    </section>
+    <p class="lead notice">
+      <strong>現地調査なしで、詳細な見積もりをLINEでお知らせします。</strong>
+    </p>
 
-    <div id="progress"><div id="bar" style="width: 10%;"></div></div>
-
-    <form id="form" novalidate>
-      <!-- STEP 1: お名前 -->
-      <div class="step" data-step="1">
-        <label>お名前</label>
-        <input type="text" id="name" placeholder="例）山田 太郎" autocomplete="name" />
-        <div class="note global-hide" id="note-name"></div>
-        <button type="button" class="btn primary next">次へ</button>
+    <div class="step" id="step1">
+      <label>お名前 <span class="req">必須</span></label>
+      <input id="name" type="text" placeholder="例）山田 太郎" />
+      <div class="actions">
+        <button id="next1" class="btn">次へ</button>
       </div>
+    </div>
 
-      <!-- STEP 2: 郵便番号 -->
-      <div class="step" data-step="2" hidden>
-        <label>郵便番号（7桁・ハイフン可）</label>
-        <input id="zip" inputmode="numeric" pattern="[0-9]*" placeholder="例）1000001" />
-        <p class="note">お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</p>
-        <div class="actions">
-          <button type="button" class="btn prev">戻る</button>
-          <button type="button" class="btn primary next">次へ</button>
-        </div>
+    <div class="step" id="step2" hidden>
+      <label>電話番号 <span class="req">必須</span></label>
+      <input id="tel" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="09012345678" />
+      <div class="actions">
+        <button id="prev2" class="btn ghost">戻る</button>
+        <button id="next2" class="btn">次へ</button>
       </div>
+    </div>
 
-      <!-- STEP 3: 住所（都道府県 市区町村 番地） -->
-      <div class="step" data-step="3" hidden>
-        <label>住所（都道府県・市区町村・番地など）</label>
-        <input id="addr1" placeholder="例）東京都千代田区千代田1-1" />
-        <p class="note">お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</p>
-        <div class="actions">
-          <button type="button" class="btn prev">戻る</button>
-          <button type="button" class="btn primary next">次へ</button>
-        </div>
+    <div class="step" id="step3" hidden>
+      <label>郵便番号 <span class="req">必須</span></label>
+      <input id="zip" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="123-4567" />
+      <p class="hint">
+        ※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。
+      </p>
+      <div class="actions">
+        <button id="prev3" class="btn ghost">戻る</button>
+        <button id="next3" class="btn">次へ</button>
       </div>
+    </div>
 
-      <!-- STEP 4: 建物名・部屋番号 など（任意） -->
-      <div class="step" data-step="4" hidden>
-        <label>建物名・部屋番号など（あれば）</label>
-        <input id="addr2" placeholder="無ければ「なし」" />
-        <div class="actions">
-          <button type="button" class="btn prev">戻る</button>
-          <button type="button" class="btn primary next">次へ</button>
-        </div>
+    <div class="step" id="step4" hidden>
+      <label>ご住所（自動入力） <span class="req">必須</span></label>
+      <input id="address" type="text" placeholder="大阪府○○市○○区…" />
+      <p class="hint">
+        ※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。
+      </p>
+      <div class="actions">
+        <button id="prev4" class="btn ghost">戻る</button>
+        <button id="next4" class="btn">次へ</button>
       </div>
+    </div>
 
-      <!-- STEP 5: 送信前プレビュー -->
-      <div class="step" data-step="5" hidden>
-        <h2>送信前のご確認</h2>
-        <div id="preview" class="card"></div>
-        <div class="actions">
-          <button type="button" class="btn prev">戻る</button>
-          <button type="button" id="submit" class="btn primary">送信する</button>
-        </div>
+    <div class="step" id="step5" hidden>
+      <label>以降の住所（番地・建物名・部屋番号など）</label>
+      <input id="address2" type="text" placeholder="番地・建物名・部屋番号など。無ければ「なし」" />
+      <div class="actions">
+        <button id="prev5" class="btn ghost">戻る</button>
+        <button id="preview" class="btn">確認へ</button>
       </div>
-    </form>
+    </div>
 
-    <footer class="thanks card" id="thanks" hidden>
-      <p>お見積りのご依頼ありがとうございます。送信された内容を確認し、1〜2営業日程度で詳細なお見積りを LINE でご返信致します。</p>
-      <a id="backToChat" class="btn link" href="#">トーク画面へ戻る</a>
-    </footer>
+    <div class="step" id="confirm" hidden>
+      <h2>最終確認</h2>
+      <div id="summary" class="card"></div>
+      <div class="actions">
+        <button id="backEdit" class="btn ghost">戻る</button>
+        <button id="submitBtn" class="btn primary">見積もりを依頼</button>
+      </div>
+    </div>
+
+    <div id="thanks" class="center" hidden>
+      <p>送信中…</p>
+    </div>
   </main>
 
-  <script type="module" src="./app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
