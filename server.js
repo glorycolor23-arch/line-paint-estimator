@@ -1,39 +1,35 @@
-// server.js  — LINE 外壁塗装 見積もりBot（LIFF連携、写真保存、GSheet/メールは確定時のみ）
-// 1行目から最終行まで、コピペで差し替え可。
+// server.js — 外壁塗装 見積もりBot + LIFF 連携（完全版）
 
 import 'dotenv/config';
 import express from 'express';
 import * as line from '@line/bot-sdk';
-import qs from 'qs';
 import axios from 'axios';
+import qs from 'qs';
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-/* ─────────────────────────────────────────────
- * 必須環境変数
- * CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN
- * SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
- * GSHEET_SPREADSHEET_ID / GSHEET_SHEET_NAME
- * GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
- * EMAIL_TO / EMAIL_WEBAPP_URL
- * FRIEND_ADD_URL（任意）
- * ───────────────────────────────────────────── */
-
+/* ===========================
+   基本設定（環境変数）
+   =========================== */
 const config = {
   channelSecret: process.env.CHANNEL_SECRET,
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN
 };
 if (!config.channelSecret || !config.channelAccessToken) {
-  console.error('CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN が未設定です');
+  console.error('CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN が未設定です。');
   process.exit(1);
 }
-
 const client = new line.Client(config);
-const app = express();
 
-// for raw body signature validate (line.middleware)
+/* ===========================
+   Express 準備
+   =========================== */
+const app = express();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/* 署名検証のため /webhook だけ raw で受ける */
 app.post('/webhook', express.raw({ type: '*/*' }), line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events || [];
@@ -45,21 +41,30 @@ app.post('/webhook', express.raw({ type: '*/*' }), line.middleware(config), asyn
   }
 });
 
-// JSON body for other endpoints
+/* その他のルートは JSON でOK */
 app.use(express.json());
 
-// Health
+/* Health */
 app.get('/health', (_, res) => res.status(200).send('ok'));
 
-/* ─────────────────────────────────────────────
- * 静的配信（LIFFフロント）
- * ───────────────────────────────────────────── */
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/* ===========================
+   LIFF 静的配信 + env.js
+   =========================== */
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
 
-/* ─────────────────────────────────────────────
- * 外部サービス（Supabase / Google Sheets / Email）
- * ───────────────────────────────────────────── */
+app.get('/liff/env.js', (_, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  const env = {
+    LIFF_ID: process.env.LIFF_ID || '',
+    FRIEND_ADD_URL: process.env.FRIEND_ADD_URL || 'https://line.me/R/ti/p/@004szogc'
+  };
+  res.send(`window.__ENV=${JSON.stringify(env)};`);
+});
+
+/* ===========================
+   Supabase / Google Sheets / メール
+   =========================== */
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function appendToSheet(row) {
@@ -77,11 +82,11 @@ async function appendToSheet(row) {
     range: `${process.env.GSHEET_SHEET_NAME || 'Sheet1'}!A1`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [row] },
+    requestBody: { values: [row] }
   });
 }
 
-// Apps Script WebApp: メール送信（本文＋写真URL）
+// Apps Script WebApp（HTMLメール送信）
 async function sendAdminEmail({ htmlBody, photoUrls = [] }) {
   const endpoint = process.env.EMAIL_WEBAPP_URL;
   const to = process.env.EMAIL_TO;
@@ -89,9 +94,9 @@ async function sendAdminEmail({ htmlBody, photoUrls = [] }) {
   await axios.post(endpoint, { to, subject: '【外壁塗装】最終入力（概算＋回答＋写真）', htmlBody, photoUrls }, { timeout: 15000 });
 }
 
-/* ─────────────────────────────────────────────
- * セッション（メモリ）
- * ───────────────────────────────────────────── */
+/* ===========================
+   セッション（メモリ）
+   =========================== */
 const sessions = new Map(); // userId → session
 
 function blankSession() {
@@ -101,20 +106,17 @@ function blankSession() {
     expectingPhoto: false,
     photoIndex: 0,
     photoUrls: [],
+    askWall: true,
+    askRoof: true,
     contact: { name: '', postal: '', addr1: '', addr2: '' }
   };
 }
-function getSession(userId) {
-  if (!sessions.has(userId)) sessions.set(userId, blankSession());
-  return sessions.get(userId);
-}
-function resetSession(userId) {
-  sessions.set(userId, blankSession());
-}
+function getSession(userId) { if (!sessions.has(userId)) sessions.set(userId, blankSession()); return sessions.get(userId); }
+function resetSession(userId) { sessions.set(userId, blankSession()); }
 
-/* ─────────────────────────────────────────────
- * UI 素材
- * ───────────────────────────────────────────── */
+/* ===========================
+   UI 素材
+   =========================== */
 const FRIEND_ADD_URL = process.env.FRIEND_ADD_URL || 'https://line.me/R/ti/p/@004szogc';
 
 const ICONS = {
@@ -128,7 +130,7 @@ const ICONS = {
   roof: 'https://cdn-icons-png.flaticon.com/512/2933/2933922.png',
   leak: 'https://cdn-icons-png.flaticon.com/512/415/415734.png',
   distance: 'https://cdn-icons-png.flaticon.com/512/535/535285.png',
-  camera: 'https://cdn-icons-png.flaticon.com/512/685/685655.png',
+  camera: 'https://cdn-icons-png.flaticon.com/512/685/685655.png'
 };
 
 const PHOTO_STEPS = [
@@ -136,12 +138,12 @@ const PHOTO_STEPS = [
   { key: 'right',  label: '外観写真：右側' },
   { key: 'left',   label: '外観写真：左側' },
   { key: 'back',   label: '外観写真：後ろ側' },
-  { key: 'damage', label: '損傷箇所（任意）' },
+  { key: 'damage', label: '損傷箇所（任意）' }
 ];
 
-/* ─────────────────────────────────────────────
- * イベントハンドラ
- * ───────────────────────────────────────────── */
+/* ===========================
+   Webhook イベント
+   =========================== */
 async function handleEvent(event) {
   const userId = event.source?.userId;
   if (!userId) return;
@@ -163,12 +165,9 @@ async function handleEvent(event) {
       if (!s.expectingPhoto) {
         return replyText(event.replyToken, 'ありがとうございます。いま質問中です。ボタンから続きにお進みください。');
       }
-      // いま要求している写真のインデックスを固定して保存タスクへ
-      const idxForSave = s.photoIndex;
+      const idxForSave = s.photoIndex; // 固定
       const keyForSave = PHOTO_STEPS[idxForSave]?.key || `photo${idxForSave}`;
       saveImageToSupabase(userId, msg.id, keyForSave, s).catch(e => console.error('saveImage:', e));
-
-      // 返信は即時に「次へ」
       return askNextPhoto(event.replyToken, userId);
     }
 
@@ -176,44 +175,24 @@ async function handleEvent(event) {
     if (msg.type === 'text') {
       const text = (msg.text || '').trim();
 
-      // 強制リセット
       if (/^(最初から|リセット)$/i.test(text)) {
         resetSession(userId);
         return replyText(event.replyToken, '回答をリセットしました。\n「見積もり」または「スタート」と送ってください。');
       }
 
-      // 連絡先入力フロー
       const s = getSession(userId);
-      if (s.step === 'contact_name') {
-        s.contact.name = text;
-        s.step = 'contact_postal';
-        return replyText(event.replyToken, '郵便番号を入力してください（ハイフンなし7桁OK）\n※お住まいの区画確認のため。現地調査や営業訪問は致しません。');
-      }
-      if (s.step === 'contact_postal') {
-        s.contact.postal = text.replace(/[^\d]/g, '');
-        s.step = 'contact_addr1';
-        return replyText(event.replyToken, '住所（都道府県・市区町村・番地など）を入力してください\n※お住まいの区画確認のため。現地調査や営業訪問は致しません。');
-      }
-      if (s.step === 'contact_addr1') {
-        s.contact.addr1 = text;
-        s.step = 'contact_addr2';
-        return replyText(event.replyToken, '番地など以降の住所や建物名・部屋番号などを入力してください。無ければ「なし」を入力してください。');
-      }
-      if (s.step === 'contact_addr2') {
-        s.contact.addr2 = (text === 'なし') ? '' : text;
-        return finalizeAndNotify(event.replyToken, userId);
-      }
 
-      // 写真待受け中の補助文言
+      // LIFFの確認項目は LIFF 側で完結。ここは会話用のみ。
+
+      // 写真待ちの補助
       if (s.expectingPhoto) {
         if (/^(スキップ|skip)$/i.test(text)) {
           return askNextPhoto(event.replyToken, userId, true);
         }
         if (/^(完了|おわり|終了)$/i.test(text)) {
-          // 次は強制的に連絡先へ
           s.photoIndex = PHOTO_STEPS.length;
           s.expectingPhoto = false;
-          return askContact(event.replyToken, userId);
+          return inviteLiffForContact(event.replyToken);
         }
         return replyText(event.replyToken, '画像を送信してください。スキップは「スキップ」、すべて終えたら「完了」と送ってください。');
       }
@@ -240,50 +219,60 @@ async function handleEvent(event) {
 
     s.answers[`q${q}`] = v;
 
-    // Q4=「ない」「わからない」はQ5スキップ
-    if (q === 4) {
-      if (v === 'ない' || v === 'わからない') {
-        s.answers.q5 = '該当なし';
-        s.step = 6;
-        return askQ6(event.replyToken, event.source.userId);
-      }
+    // Q3 で分岐（外壁/屋根）
+    if (q === 3) {
+      s.askWall = (v === '外壁塗装' || v === '外壁塗装＋屋根塗装');
+      s.askRoof = (v === '屋根塗装' || v === '外壁塗装＋屋根塗装');
     }
 
-    s.step = q + 1;
-    switch (s.step) {
-      case 2: return askQ2(event.replyToken, event.source.userId);
-      case 3: return askQ3(event.replyToken, event.source.userId);
-      case 4: return askQ4(event.replyToken, event.source.userId);
-      case 5: return askQ5(event.replyToken, event.source.userId);
-      case 6: return askQ6(event.replyToken, event.source.userId);
-      case 7: return askQ7(event.replyToken, event.source.userId);
-      case 8: return askQ8(event.replyToken, event.source.userId);
-      case 9: return askQ9(event.replyToken, event.source.userId);
-      case 10: return askQ10_Begin(event.replyToken, event.source.userId);
-      case 11: return askContact(event.replyToken, event.source.userId);
-      default: return askContact(event.replyToken, event.source.userId);
+    // Q4=「ない/わからない」はQ5スキップ
+    if (q === 4 && (v === 'ない' || v === 'わからない')) {
+      s.answers.q5 = '該当なし';
+      // 次の質問は「壁/屋根」分岐を考慮
+      return routeNextFrom(5, event.replyToken, event.source.userId, s);
     }
+
+    return routeNextFrom(q, event.replyToken, event.source.userId, s);
   }
 }
 
-/* ─────────────────────────────────────────────
- * 質問UI（画像アイコン付きクイックリプライ固定）
- * ───────────────────────────────────────────── */
+/* q の次に進む（外壁/屋根のスキップを考慮） */
+function routeNextFrom(q, rt, userId, s) {
+  let next = q + 1;
+  if (next === 6 && !s.askWall) next = 7;     // 外壁不要 → Q6を飛ばす
+  if (next === 7 && !s.askRoof) next = 8;     // 屋根不要 → Q7を飛ばす
+  if (next === 10) return askQ10_Begin(rt, userId);
+
+  switch (next) {
+    case 2: return askQ2(rt);
+    case 3: return askQ3(rt);
+    case 4: return askQ4(rt);
+    case 5: return askQ5(rt);
+    case 6: return askQ6(rt);
+    case 7: return askQ7(rt);
+    case 8: return askQ8(rt);
+    case 9: return askQ9(rt);
+    default: return askQ10_Begin(rt, userId);
+  }
+}
+
+/* ===========================
+   問い合わせ UI（画像アイコン付）
+   =========================== */
 const qr = (items) => ({ items });
 const pb = (label, data, imageUrl) =>
   ({ type: 'action', imageUrl, action: { type: 'postback', label, data, displayText: label } });
 
-async function askQ1(rt, userId) {
-  const s = getSession(userId); s.step = 1;
+async function askQ1(rt){
   const items = [
-    pb('1階建て', qs.stringify({ q: 1, v: '1階建て' }), ICONS.floor),
-    pb('2階建て', qs.stringify({ q: 1, v: '2階建て' }), ICONS.floor),
-    pb('3階建て', qs.stringify({ q: 1, v: '3階建て' }), ICONS.floor),
+    pb('1階建て', qs.stringify({q:1,v:'1階建て'}), ICONS.floor),
+    pb('2階建て', qs.stringify({q:1,v:'2階建て'}), ICONS.floor),
+    pb('3階建て', qs.stringify({q:1,v:'3階建て'}), ICONS.floor)
   ];
-  return client.replyMessage(rt, { type: 'text', text: '1/10 階数を選んでください', quickReply: qr(items) });
+  return client.replyMessage(rt,{ type:'text', text:'1/10 階数を選んでください', quickReply: qr(items) });
 }
 async function askQ2(rt){
-  const L = ['1DK','1LDK','2DK','2LDK','3DK','3LDK','4DK','4LDK','5DK','5LDK'];
+  const L=['1DK','1LDK','2DK','2LDK','3DK','3LDK','4DK','4LDK','5DK','5LDK'];
   return client.replyMessage(rt,{ type:'text', text:'2/10 間取りを選んでください',
     quickReply: qr(L.map(v=>pb(v, qs.stringify({q:2,v}), ICONS.layout)))});
 }
@@ -291,7 +280,7 @@ async function askQ3(rt){
   const items = [
     pb('外壁塗装', qs.stringify({q:3,v:'外壁塗装'}), ICONS.paint),
     pb('屋根塗装', qs.stringify({q:3,v:'屋根塗装'}), ICONS.paint),
-    pb('外壁塗装＋屋根塗装', qs.stringify({q:3,v:'外壁塗装＋屋根塗装'}), ICONS.paint),
+    pb('外壁塗装＋屋根塗装', qs.stringify({q:3,v:'外壁塗装＋屋根塗装'}), ICONS.paint)
   ];
   return client.replyMessage(rt,{ type:'text', text:'3/10 希望する工事内容を選んでください', quickReply: qr(items)});
 }
@@ -299,7 +288,7 @@ async function askQ4(rt){
   const items = [
     pb('ある', qs.stringify({q:4,v:'ある'}), ICONS.yes),
     pb('ない', qs.stringify({q:4,v:'ない'}), ICONS.no),
-    pb('わからない', qs.stringify({q:4,v:'わからない'}), ICONS.no),
+    pb('わからない', qs.stringify({q:4,v:'わからない'}), ICONS.no)
   ];
   return client.replyMessage(rt,{ type:'text', text:'4/10 これまで外壁塗装をしたことはありますか？', quickReply: qr(items)});
 }
@@ -329,75 +318,77 @@ async function askQ9(rt){
     quickReply: qr(L.map(v=>pb(v, qs.stringify({q:9,v}), ICONS.distance)))});
 }
 
-async function askQ10_Begin(rt, userId) {
+/* 10 写真シリーズ開始 */
+async function askQ10_Begin(rt, userId){
   const s = getSession(userId);
-  s.expectingPhoto = true;
-  s.photoIndex = 0;
+  s.expectingPhoto = true; s.photoIndex = 0;
   return askNextPhoto(rt, userId, false, true);
 }
-
-async function askNextPhoto(rt, userId, _skipped=false, first=false) {
+async function askNextPhoto(rt, userId, _skipped=false, first=false){
   const s = getSession(userId);
   if (!first) s.photoIndex += 1;
-
-  // すべて終わったら連絡先へ
   if (s.photoIndex >= PHOTO_STEPS.length) {
     s.expectingPhoto = false;
-    try {
-      return await askContact(rt, userId);
-    } catch (e) {
-      // 返信トークン失効などの異常時は push にフォールバック
-      console.warn('askContact reply failed. try push:', e?.message || e);
-      return client.pushMessage(userId, await buildContactMessages(userId));
-    }
+    return inviteLiffForContact(rt);
   }
-
   const cur = PHOTO_STEPS[s.photoIndex];
   const items = [
-    { type:'action', imageUrl: ICONS.camera, action:{ type:'camera',      label:'カメラを起動' } },
-    { type:'action', imageUrl: ICONS.camera, action:{ type:'cameraRoll',  label:'アルバムから選択' } },
-    { type:'action', imageUrl: ICONS.no,     action:{ type:'message',     label:'スキップ', text:'スキップ' } },
-    { type:'action', imageUrl: ICONS.yes,    action:{ type:'message',     label:'完了',     text:'完了' } },
+    { type:'action', imageUrl: ICONS.camera, action:{ type:'camera',     label:'カメラを起動' } },
+    { type:'action', imageUrl: ICONS.camera, action:{ type:'cameraRoll', label:'アルバムから選択' } },
+    { type:'action', imageUrl: ICONS.no,     action:{ type:'message',    label:'スキップ', text:'スキップ' } },
+    { type:'action', imageUrl: ICONS.yes,    action:{ type:'message',    label:'完了',     text:'完了' } }
   ];
   return client.replyMessage(rt, {
     type:'text',
     text:`10/10 写真アップロード\n「${cur.label}」を送ってください。`,
-    quickReply: { items }
+    quickReply:{ items }
   });
 }
 
-/* ─────────────────────────────────────────────
- * 画像保存（非同期で実施／返信は先に返す）
- * ───────────────────────────────────────────── */
-async function streamToBuffer(stream) {
-  const chunks = [];
-  for await (const c of stream) chunks.push(c);
-  return Buffer.concat(chunks);
+/* LIFF へ誘導（連絡先入力） */
+function inviteLiffForContact(rt){
+  const liffId = process.env.LIFF_ID || '';
+  const url = liffId ? `https://liff.line.me/${liffId}` : FRIEND_ADD_URL;
+  return client.replyMessage(rt, [
+    { type:'text', text:'写真の受け取りが完了しました。' },
+    {
+      type:'flex', altText:'詳しい見積りをご希望の方へ',
+      contents:{
+        type:'bubble',
+        body:{ type:'box', layout:'vertical', spacing:'md', contents:[
+          { type:'text', text:'見積り金額（概算）', size:'sm', color:'#888888' },
+          { type:'text', text:'上記はご入力内容を元に算出した概算金額です。', wrap:true, size:'sm', color:'#666' },
+          { type:'text', text:'正式なお見積りが必要な方は続けてご入力をお願いします。', wrap:true }
+        ]},
+        footer:{ type:'box', layout:'vertical', contents:[
+          { type:'button', style:'primary', action:{ type:'uri', label:'現地調査なしで見積を依頼', uri:url } }
+        ]}
+      }
+    }
+  ]);
 }
-async function saveImageToSupabase(userId, messageId, key, sessionRef) {
-  try {
+
+/* 画像保存（非同期） */
+async function streamToBuffer(stream){ const chunks=[]; for await (const c of stream) chunks.push(c); return Buffer.concat(chunks); }
+async function saveImageToSupabase(userId, messageId, key, sessionRef){
+  try{
     const stream = await client.getMessageContent(messageId);
     const buf = await streamToBuffer(stream);
     const filename = `${key}_${Date.now()}.jpg`;
     const filepath = `line/${userId}/${filename}`;
-
-    const { error } = await supabase.storage.from('photos')
-      .upload(filepath, buf, { contentType: 'image/jpeg', upsert: true });
+    const { error } = await supabase.storage.from('photos').upload(filepath, buf, { contentType:'image/jpeg', upsert:true });
     if (error) throw error;
-
     const { data: pub } = supabase.storage.from('photos').getPublicUrl(filepath);
     const publicUrl = pub?.publicUrl;
     if (publicUrl) sessionRef.photoUrls.push(publicUrl);
-  } catch (e) {
-    console.error('Supabase upload failed:', e);
-  }
+  }catch(e){ console.error('Supabase upload failed:', e); }
 }
 
-/* ─────────────────────────────────────────────
- * 連絡先入力・概算
- * ───────────────────────────────────────────── */
-function estimateCost(a) {
-  const base = { '外壁塗装':700000,'屋根塗装':300000,'外壁塗装＋屋根塗装':900000 };
+/* ===========================
+   概算 & 最終確定（LIFF -> /api/contact）
+   =========================== */
+function estimateCost(a){
+  const base = { '外壁塗装':700000, '屋根塗装':300000, '外壁塗装＋屋根塗装':900000 };
   const floor={'1階建て':1.0,'2階建て':1.2,'3階建て':1.4};
   const layout={'1DK':0.9,'1LDK':0.95,'2DK':1.0,'2LDK':1.05,'3DK':1.1,'3LDK':1.15,'4DK':1.2,'4LDK':1.25,'5DK':1.3,'5LDK':1.35};
   const wall={'モルタル':1.05,'サイディング':1.0,'タイル':1.15,'ALC':1.1};
@@ -414,109 +405,81 @@ function estimateCost(a) {
   cost *= leak[a.q8] || 1.0;
   cost *= dist[a.q9] || 1.0;
   if (a.q4 === 'ある') cost *= years[a.q5] || 1.0;
-
-  return Math.round(cost / 1000) * 1000;
+  return Math.round(cost/1000)*1000;
 }
-const yen = (n) => n.toLocaleString('ja-JP', { style:'currency', currency:'JPY', maximumFractionDigits:0 });
+const yen = (n)=>n.toLocaleString('ja-JP',{style:'currency',currency:'JPY',maximumFractionDigits:0});
+const esc = (s)=>String(s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 
-function summaryText(a, count){
-  return [
-    '【回答の確認】',
-    `・階数: ${a.q1||'-'} / 間取り: ${a.q2||'-'} / 工事: ${a.q3||'-'}`,
-    `・過去塗装: ${a.q4||'-'} / 前回から: ${a.q5||'該当なし'}`,
-    `・外壁: ${a.q6||'-'} / 屋根: ${a.q7||'-'} / 雨漏り: ${a.q8||'-'}`,
-    `・最短距離: ${a.q9||'-'} / 受領写真: ${count}枚`
-  ].join('\n');
-}
+/* LIFF からの連絡先確定 */
+app.post('/api/contact', async (req, res) => {
+  try{
+    const { userId, name, postal, addr1, addr2 } = req.body || {};
+    if (!userId) return res.status(400).json({ ok:false, message:'userId required' });
 
-async function buildContactMessages(userId){
-  const s = getSession(userId);
-  const est = estimateCost(s.answers);
-  return [
-    { type:'text', text: summaryText(s.answers, s.photoUrls.length) },
-    {
-      type:'flex', altText:'詳しい見積もりをご希望の方へ',
-      contents:{
-        type:'bubble',
-        body:{ type:'box', layout:'vertical', spacing:'md', contents:[
-          { type:'text', text:'見積り金額', size:'sm', color:'#888888' },
-          { type:'text', text: yen(est), weight:'bold', size:'xl' },
-          { type:'text', text:'上記はご入力内容を元に算出した概算金額です。', wrap:true, size:'sm', color:'#666666' },
-          { type:'separator', margin:'md' },
-          { type:'text', text:'正式なお見積りが必要な方は続けてご入力をお願いします。', wrap:true },
-        ]},
-        footer:{ type:'box', layout:'vertical', contents:[
-          { type:'button', style:'primary', action:{ type:'message', label:'現地調査なしで見積を依頼', text:'詳しい見積もりを依頼する' } }
-        ]}
-      }
-    },
-    { type:'text', text:'詳しい見積もりを依頼する を押して、お名前・住所をご入力ください。' }
-  ];
-}
+    const s = getSession(userId); // 既存の回答・写真を利用
+    s.contact = { name, postal, addr1, addr2 };
 
-async function askContact(rt, userId) {
-  const s = getSession(userId);
-  const msgs = await buildContactMessages(userId);
-  await client.replyMessage(rt, msgs);
-  s.step = 'contact_name';
-}
+    const a = s.answers;
+    const est = estimateCost(a);
+    const now = new Date();
 
-// 完了：スプレッドシート + メール + お礼
-async function finalizeAndNotify(replyToken, userId) {
-  const s = getSession(userId);
-  const a = s.answers;
-  const est = estimateCost(a);
-  const now = new Date();
+    // Sheet
+    const row = [
+      now.toISOString(), userId,
+      name||'', postal||'', addr1||'', (addr2||''),
+      a.q1||'', a.q2||'', a.q3||'', a.q4||'', a.q5||'', a.q6||'', a.q7||'', a.q8||'', a.q9||'',
+      s.photoUrls.length, est
+    ];
+    try{ await appendToSheet(row); }catch(e){ console.error('appendToSheet:', e?.response?.data || e); }
 
-  const row = [
-    now.toISOString(), userId,
-    s.contact.name, s.contact.postal, s.contact.addr1, s.contact.addr2,
-    a.q1||'',a.q2||'',a.q3||'',a.q4||'',a.q5||'',a.q6||'',a.q7||'',a.q8||'',a.q9||'',
-    s.photoUrls.length, est
-  ];
-  try { await appendToSheet(row); } catch(e){ console.error('appendToSheet:', e?.response?.data || e); }
+    // Email
+    const html = `
+      <div style="font-family:system-ui,Segoe UI,Helvetica,Arial">
+        <h2>外壁塗装 — 最終入力</h2>
+        <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse">
+          <tr><th align="left">LINEユーザーID</th><td>${esc(userId)}</td></tr>
+          <tr><th align="left">お名前</th><td>${esc(name)}</td></tr>
+          <tr><th align="left">郵便番号</th><td>${esc(postal)}</td></tr>
+          <tr><th align="left">住所1</th><td>${esc(addr1)}</td></tr>
+          <tr><th align="left">住所2</th><td>${esc(addr2)}</td></tr>
+          <tr><th align="left">階数</th><td>${esc(a.q1||'')}</td></tr>
+          <tr><th align="left">間取り</th><td>${esc(a.q2||'')}</td></tr>
+          <tr><th align="left">工事内容</th><td>${esc(a.q3||'')}</td></tr>
+          <tr><th align="left">過去塗装</th><td>${esc(a.q4||'')}</td></tr>
+          <tr><th align="left">前回から</th><td>${esc(a.q5||'')}</td></tr>
+          <tr><th align="left">外壁</th><td>${esc(a.q6||'')}</td></tr>
+          <tr><th align="left">屋根</th><td>${esc(a.q7||'')}</td></tr>
+          <tr><th align="left">雨漏り</th><td>${esc(a.q8||'')}</td></tr>
+          <tr><th align="left">距離</th><td>${esc(a.q9||'')}</td></tr>
+          <tr><th align="left">受領写真</th><td>${s.photoUrls.length} 枚</td></tr>
+          <tr><th align="left">概算金額</th><td>${esc(yen(est))}</td></tr>
+          <tr><th align="left">タイムスタンプ</th><td>${now.toLocaleString('ja-JP')}</td></tr>
+        </table>
+        ${s.photoUrls.length ? `<p>写真リンク：</p><ol>${s.photoUrls.map(u=>`<li><a href="${u}">${u}</a></li>`).join('')}</ol>` : ''}
+      </div>`;
+    try{ await sendAdminEmail({ htmlBody: html, photoUrls: s.photoUrls }); }catch(e){ console.error('sendAdminEmail:', e?.response?.data || e); }
 
-  const html = `
-  <div style="font-family:system-ui,Segoe UI,Helvetica,Arial">
-    <h2>外壁塗装 — 最終入力</h2>
-    <table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse">
-      <tr><th align="left">LINEユーザーID</th><td>${esc(userId)}</td></tr>
-      <tr><th align="left">お名前</th><td>${esc(s.contact.name)}</td></tr>
-      <tr><th align="left">郵便番号</th><td>${esc(s.contact.postal)}</td></tr>
-      <tr><th align="left">住所1</th><td>${esc(s.contact.addr1)}</td></tr>
-      <tr><th align="left">住所2</th><td>${esc(s.contact.addr2)}</td></tr>
-      <tr><th align="left">階数</th><td>${esc(a.q1||'')}</td></tr>
-      <tr><th align="left">間取り</th><td>${esc(a.q2||'')}</td></tr>
-      <tr><th align="left">工事内容</th><td>${esc(a.q3||'')}</td></tr>
-      <tr><th align="left">過去塗装</th><td>${esc(a.q4||'')}</td></tr>
-      <tr><th align="left">前回から</th><td>${esc(a.q5||'')}</td></tr>
-      <tr><th align="left">外壁</th><td>${esc(a.q6||'')}</td></tr>
-      <tr><th align="left">屋根</th><td>${esc(a.q7||'')}</td></tr>
-      <tr><th align="left">雨漏り</th><td>${esc(a.q8||'')}</td></tr>
-      <tr><th align="left">距離</th><td>${esc(a.q9||'')}</td></tr>
-      <tr><th align="left">受領写真</th><td>${s.photoUrls.length} 枚</td></tr>
-      <tr><th align="left">概算金額</th><td>${esc(yen(est))}</td></tr>
-      <tr><th align="left">タイムスタンプ</th><td>${now.toLocaleString('ja-JP')}</td></tr>
-    </table>
-    ${s.photoUrls.length ? `<p>写真リンク：</p><ol>${s.photoUrls.map(u=>`<li><a href="${u}">${u}</a></li>`).join('')}</ol>` : ''}
-  </div>`;
-  try { await sendAdminEmail({ htmlBody: html, photoUrls: s.photoUrls }); } catch(e){ console.error('sendAdminEmail:', e?.response?.data || e); }
+    // お礼メッセージ（push）
+    await client.pushMessage(userId, {
+      type:'text',
+      text:'お見積りのご依頼ありがとうございます。送信内容を確認し、1〜2営業日程度で詳細なお見積りをLINEでご返信いたします。'
+    });
 
-  await client.replyMessage(replyToken, [
-    { type:'text', text:'お見積りのご依頼ありがとうございます。送信された内容を確認し、1〜2営業日程度で詳細なお見積りをLINEでご返信致します。' }
-  ]);
+    resetSession(userId);
+    return res.json({ ok:true });
+  }catch(e){
+    console.error('/api/contact error:', e);
+    return res.status(500).json({ ok:false, message:'server error' });
+  }
+});
 
-  resetSession(userId);
-}
-
-/* ─────────────────────────────────────────────
- * ユーティリティ
- * ───────────────────────────────────────────── */
-function esc(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+/* ===========================
+   汎用ユーティリティ
+   =========================== */
 function replyText(rt, text){ return client.replyMessage(rt, { type:'text', text }); }
 
-/* ─────────────────────────────────────────────
- * 起動
- * ───────────────────────────────────────────── */
+/* ===========================
+   起動
+   =========================== */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log('listening on', PORT));
