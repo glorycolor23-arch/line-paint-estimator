@@ -1,17 +1,19 @@
 /**
- * 外壁塗装 見積もりBot（画像カード版＋分岐／通知最小化）
- * - QAはすべて Flex の画像カード（ポストバック）で実施 → 管理者通知が来にくい
+ * 外壁塗装 見積もりBot（画像カード版＋分岐／通知最小化／リッチメニュー制御）
+ * - 質問は全て Flex の画像カード（postback）→ 管理者通知が来にくい
  * - 分岐：外壁のみ→Q6のみ／屋根のみ→Q7のみ／外壁＋屋根→Q6→Q7
- * - 住所入力時の安心文言、最後の案内文言を追加
+ * - 住所入力時の安心文言、郵便番号の自動補完（zipcloud）
+ * - 連絡先入力開始でリッチメニューを一時的に非表示（完了時に再表示可）
  * - 写真は Supabase Storage（photos バケット）
- * - 最終確定時のみ スプレッドシート追記＆メール送信（GAS WebApp、写真添付）
+ * - 最終確定のみ スプレッドシート＋メール送信（GAS WebApp、写真添付）
  *
- * 必須環境変数：
+ * 必要環境変数：
  *  CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN
  *  SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
  *  GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
  *  GSHEET_SPREADSHEET_ID / GSHEET_SHEET_NAME
  *  EMAIL_TO / EMAIL_WEBAPP_URL
+ *  RICH_MENU_ID                // 任意：完了時に再リンクするリッチメニューID
  */
 
 import 'dotenv/config';
@@ -22,7 +24,7 @@ import axios from 'axios';
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 
-// ───────────── LINE 基本 ─────────────
+// ───────────────────────────────── LINE 基本 ─────────────────────────────────
 const config = {
   channelSecret: process.env.CHANNEL_SECRET,
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -31,7 +33,8 @@ if (!config.channelSecret || !config.channelAccessToken) {
   console.error('CHANNEL_* 未設定'); process.exit(1);
 }
 const client = new line.Client(config);
-const app = express(); // ※ express.json()は付けない（署名検証に干渉させない）
+const app = express(); // ※ express.json() は付けない（署名検証へ影響させない）
+
 app.get('/health', (_,res)=>res.status(200).send('healthy'));
 app.post('/webhook', line.middleware(config), async (req,res)=>{
   try{
@@ -40,15 +43,14 @@ app.post('/webhook', line.middleware(config), async (req,res)=>{
     res.status(200).end();
   }catch(e){
     console.error('webhook error:', e?.response?.data || e);
-    res.status(200).end(); // LINEの再送を誘発しない
+    res.status(200).end(); // 再送防止
   }
 });
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, ()=>console.log('listening', PORT));
 
-// ──────────── 外部サービス ────────────
+// ──────────────────────────────── 外部サービス ────────────────────────────────
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
 async function appendToSheet(valuesRow){
   const jwt = new google.auth.JWT(
     process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -67,14 +69,12 @@ async function appendToSheet(valuesRow){
     requestBody: { values: [valuesRow] }
   });
 }
-
 async function sendAdminEmail({ htmlBody, photoUrls=[] }){
   const url = process.env.EMAIL_WEBAPP_URL;
   const to  = process.env.EMAIL_TO;
   if(!url || !to) return;
   await axios.post(url, { to, subject:'【外壁塗装】最終入力', htmlBody, photoUrls }, { timeout: 20000 });
 }
-
 async function lookupAddr(zip7){
   try{
     const z = (zip7||'').replace(/[^\d]/g,'');
@@ -86,7 +86,7 @@ async function lookupAddr(zip7){
   }catch{ return null; }
 }
 
-// ───────────── セッション ─────────────
+// ──────────────────────────────── セッション ────────────────────────────────
 const sessions = new Map(); // userId → state
 function newSession(){
   return {
@@ -101,7 +101,7 @@ function newSession(){
 function getSession(uid){ if(!sessions.has(uid)) sessions.set(uid, newSession()); return sessions.get(uid); }
 function resetSession(uid){ sessions.set(uid, newSession()); }
 
-// ───────────── 素材 ─────────────
+// ──────────────────────────────── 素材 ────────────────────────────────
 const ICONS = {
   floor:'https://cdn-icons-png.flaticon.com/512/8911/8911331.png',
   layout:'https://cdn-icons-png.flaticon.com/512/9193/9193091.png',
@@ -124,7 +124,7 @@ const PHOTO_STEPS = [
   { key:'damage', label:'損傷箇所（任意）' },
 ];
 
-// ───────────── 共通ユーティリティ ─────────────
+// ──────────────────────────────── ユーティリティ ────────────────────────────────
 const START_WORDS = ['見積もり','見積り','見積','スタート','開始','start'];
 const RESET_WORDS = ['リセット','最初から','やり直し','reset'];
 const isStart = t => START_WORDS.some(w => (t||'').replace(/\s+/g,'').includes(w));
@@ -133,7 +133,15 @@ const replyText = (rt, text) => client.replyMessage(rt, { type:'text', text });
 const esc = s => String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const yen = n => n.toLocaleString('ja-JP',{style:'currency',currency:'JPY',maximumFractionDigits:0});
 
-// Flexカード（画像＋ボタン）を作る
+// リッチメニュー制御
+async function hideRichMenu(uid){ try{ await client.unlinkRichMenuFromUser(uid); }catch{} }
+async function showRichMenu(uid){
+  const id = process.env.RICH_MENU_ID;
+  if(!id) return;
+  try{ await client.linkRichMenuToUser(uid, id); }catch{}
+}
+
+// Flexカード（画像＋ボタン）
 function buildCard(title, imageUrl, actionLabel, data){
   return {
     type:'bubble',
@@ -147,7 +155,6 @@ function buildCard(title, imageUrl, actionLabel, data){
   };
 }
 function sendCardChoices(replyToken, headline, cards){
-  // 最大10 bubble/メッセージ
   const chunks = [];
   for (let i=0;i<cards.length;i+=10) chunks.push(cards.slice(i,i+10));
   const msgs = chunks.map(group => ({
@@ -155,12 +162,11 @@ function sendCardChoices(replyToken, headline, cards){
     altText: headline,
     contents: { type:'carousel', contents: group }
   }));
-  // 冒頭にタイトル文を1つ出す
   msgs.unshift({ type:'text', text: headline });
   return client.replyMessage(replyToken, msgs);
 }
 
-// ───────────── メイン ─────────────
+// ──────────────────────────────── メイン ────────────────────────────────
 async function handleEvent(event){
   const uid = event.source?.userId;
   if(!uid) return;
@@ -186,7 +192,7 @@ async function handleEvent(event){
       if(s.step==='contact_name'){
         s.contact.name = text;
         s.step = 'contact_postal';
-        return replyText(event.replyToken, '郵便番号（7桁・ハイフン可）を入力してください。\n\n※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。');
+        return replyText(event.replyToken, '郵便番号（7桁・数字のみ／例: 1234567）をご入力ください。\n\n※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。');
       }
       if(s.step==='contact_postal'){
         const z = text.replace(/[^\d]/g,'').slice(0,7);
@@ -195,22 +201,27 @@ async function handleEvent(event){
         if(found){
           s.contact.addr1 = found;
           s.step = 'contact_addr2';
-          return replyText(event.replyToken, `住所を自動入力しました：\n${found}\n\n建物名・部屋番号など（あれば）を入力してください。無ければ「なし」\n\n※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しません。`);
+          return replyText(event.replyToken,
+            `住所を自動入力しました：\n${found}\n\n` +
+            '番地など以降の住所や建物名・部屋番号などを入力してください。無ければ「なし」を入力してください。\n\n' +
+            '※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しません。');
         }
         s.step = 'contact_addr1';
-        return replyText(event.replyToken, '住所（都道府県・市区町村・番地など）を入力してください。\n\n※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。');
+        return replyText(event.replyToken,
+          '住所（都道府県・市区町村・番地など）を入力してください。\n\n' +
+          '※お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。');
       }
       if(s.step==='contact_addr1'){
         s.contact.addr1 = text;
         s.step = 'contact_addr2';
-        return replyText(event.replyToken, '建物名・部屋番号など（あれば）を入力してください。無ければ「なし」');
+        return replyText(event.replyToken, '番地など以降の住所や建物名・部屋番号などを入力してください。無ければ「なし」を入力してください。');
       }
       if(s.step==='contact_addr2'){
         s.contact.addr2 = (text==='なし')?'':text;
         return finalizeAndNotify(event.replyToken, uid);
       }
 
-      // 写真待ち時（スキップ/完了）
+      // 写真待ち（スキップ/完了）
       if(s.expectingPhoto){
         if(/^スキップ$/i.test(text)) return askNextPhoto(event.replyToken, uid, true);
         if(/^(完了|終了|おわり)$/i.test(text)){ s.photoIndex = PHOTO_STEPS.length-1; return askNextPhoto(event.replyToken, uid, false); }
@@ -235,8 +246,12 @@ async function handleEvent(event){
     const data = qs.parse(event.postback.data || '');
     const s = getSession(uid);
 
-    // 連絡先開始
-    if(data.contact==='start'){ s.step='contact_name'; return replyText(event.replyToken, 'お名前をご入力ください（フルネーム）'); }
+    // 連絡先開始（リッチメニューを隠す）
+    if(data.contact==='start'){
+      s.step='contact_name';
+      await hideRichMenu(uid);
+      return replyText(event.replyToken, 'お名前をご入力ください（フルネーム）');
+    }
 
     // 通常QA
     const q = Number(data.q);
@@ -244,25 +259,31 @@ async function handleEvent(event){
     if(!q || typeof v==='undefined'){ return replyText(event.replyToken,'入力を受け取れませんでした。もう一度お試しください。'); }
     s.answers[`q${q}`] = v;
 
-    // 分岐：次の質問に進む
+    // Q4が「ない／わからない」→ Q5スキップ
+    if(q===4 && (v==='ない' || v==='わからない')){
+      s.answers.q5 = '該当なし';
+      return routeAfterQ5(event.replyToken, uid); // Q5をスキップした扱いで次へ
+    }
+
+    // 次の質問へ
     return routeNext(event.replyToken, uid, q);
   }
 }
 
-// ───────────── 質問（画像カード） ─────────────
+// ──────────────────────────────── 質問（Flexカード） ────────────────────────────────
+function buildChoices(headline, list, img, qnum){
+  const cards = list.map(v => buildCard(v, img, v, qs.stringify({q:qnum, v})));
+  return { headline, cards };
+}
+
 async function askQ1(rt, uid){
   getSession(uid).step = 1;
-  const cards = [
-    buildCard('1階建て', ICONS.floor, '1階建て', qs.stringify({q:1,v:'1階建て'})),
-    buildCard('2階建て', ICONS.floor, '2階建て', qs.stringify({q:1,v:'2階建て'})),
-    buildCard('3階建て', ICONS.floor, '3階建て', qs.stringify({q:1,v:'3階建て'})),
-  ];
-  return sendCardChoices(rt, '1/10 住宅の階数を選んでください', cards);
+  const { headline, cards } = buildChoices('1/10 住宅の階数を選んでください', ['1階建て','2階建て','3階建て'], ICONS.floor, 1);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ2(rt){
-  const layouts = ['1DK','1LDK','2DK','2LDK','3DK','3LDK','4DK','4LDK','5DK','5LDK'];
-  const cards = layouts.map(l => buildCard(l, ICONS.layout, l, qs.stringify({q:2,v:l})));
-  return sendCardChoices(rt, '2/10 住宅の間取りを選んでください', cards);
+  const { headline, cards } = buildChoices('2/10 住宅の間取りを選んでください', ['1DK','1LDK','2DK','2LDK','3DK','3LDK','4DK','4LDK','5DK','5LDK'], ICONS.layout, 2);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ3(rt){
   const cards = [
@@ -281,29 +302,24 @@ async function askQ4(rt){
   return sendCardChoices(rt, '4/10 これまで外壁塗装をしたことはありますか？', cards);
 }
 async function askQ5(rt){
-  const years = ['1〜5年','5〜10年','10〜15年','15〜20年','20〜30年','30〜40年','40年以上','0年（新築）'];
-  const cards = years.map(y => buildCard(y, ICONS.years, y, qs.stringify({q:5,v:y})));
-  return sendCardChoices(rt, '5/10 前回の外壁塗装からどのくらい経っていますか？', cards);
+  const { headline, cards } = buildChoices('5/10 前回の外壁塗装からどれくらい経っていますか？', ['1〜5年','5〜10年','10〜15年','15〜20年','20〜30年','30〜40年','40年以上','0年（新築）'], ICONS.years, 5);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ6(rt){ // 外壁
-  const walls = ['モルタル','サイディング','タイル','ALC'];
-  const cards = walls.map(w => buildCard(w, ICONS.wall, w, qs.stringify({q:6,v:w})));
-  return sendCardChoices(rt, '6/10 外壁の種類を選んでください', cards);
+  const { headline, cards } = buildChoices('6/10 外壁の種類を選んでください', ['モルタル','サイディング','タイル','ALC'], ICONS.wall, 6);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ7(rt){ // 屋根
-  const roofs = ['瓦','スレート','ガルバリウム','トタン'];
-  const cards = roofs.map(r => buildCard(r, ICONS.roof, r, qs.stringify({q:7,v:r})));
-  return sendCardChoices(rt, '7/10 屋根の種類を選んでください', cards);
+  const { headline, cards } = buildChoices('7/10 屋根の種類を選んでください', ['瓦','スレート','ガルバリウム','トタン'], ICONS.roof, 7);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ8(rt){
-  const leak = ['雨の日に水滴が落ちる','天井にシミがある','雨漏りはない'];
-  const cards = leak.map(v => buildCard(v, ICONS.leak, v, qs.stringify({q:8,v})));
-  return sendCardChoices(rt, '8/10 雨漏りの状況を選んでください', cards);
+  const { headline, cards } = buildChoices('8/10 雨漏りの状況を選んでください', ['雨の日に水滴が落ちる','天井にシミがある','雨漏りはない'], ICONS.leak, 8);
+  return sendCardChoices(rt, headline, cards);
 }
 async function askQ9(rt){
-  const dist = ['30cm以下','50cm以下','70cm以下','70cm以上'];
-  const cards = dist.map(v => buildCard(v, ICONS.distance, v, qs.stringify({q:9,v})));
-  return sendCardChoices(rt, '9/10 周辺との最短距離を選んでください（足場の目安）', cards);
+  const { headline, cards } = buildChoices('9/10 周辺との最短距離を選んでください（足場の目安）', ['30cm以下','50cm以下','70cm以下','70cm以上'], ICONS.distance, 9);
+  return sendCardChoices(rt, headline, cards);
 }
 
 async function askQ10_Begin(rt, uid){
@@ -331,41 +347,37 @@ async function askNextPhoto(rt, uid, skipped){
 }
 
 // 分岐制御
-async function routeNext(rt, uid, justAnsweredQ){
+async function routeNext(rt, uid, justQ){
   const s = getSession(uid);
   const work = s.answers.q3; // 外壁塗装 / 屋根塗装 / 外壁塗装＋屋根塗装
 
-  // Q4の分岐：ない／わからない → Q5スキップ
-  if(justAnsweredQ===4 && (s.answers.q4==='ない' || s.answers.q4==='わからない')){
-    s.answers.q5 = '該当なし';
-    // 次は外壁か屋根へ
-    if(work==='外壁塗装') return askQ6(rt);
-    if(work==='屋根塗装') return askQ7(rt);
-    return askQ6(rt); // 両方 → まず外壁
-  }
-
-  // 通常遷移
-  switch(justAnsweredQ){
+  switch(justQ){
     case 1: return askQ2(rt);
     case 2: return askQ3(rt);
     case 3: return askQ4(rt);
-    case 5: // 前回から → 外壁 or 屋根
-      if(work==='外壁塗装') return askQ6(rt);
-      if(work==='屋根塗装') return askQ7(rt);
-      return askQ6(rt); // 両方 → 外壁→屋根
-    case 6: // 外壁回答
-      if(work==='外壁塗装') return askQ8(rt);       // 屋根は不要
-      if(work==='外壁塗装＋屋根塗装') return askQ7(rt); // 次は屋根
-      return askQ8(rt); // 念のため
-    case 7: // 屋根回答 → 8
+    case 4: // 「ある」はここに来るので Q5 へ
+      return askQ5(rt);
+    case 5: // workに応じて外壁/屋根へ
+      return routeAfterQ5(rt, uid);
+    case 6: // 外壁回答後
+      if(work==='外壁塗装＋屋根塗装') return askQ7(rt); // 両方 → 屋根へ
+      return askQ8(rt); // 外壁のみ → 8へ
+    case 7: // 屋根回答後
       return askQ8(rt);
     case 8: return askQ9(rt);
     case 9: return askQ10_Begin(rt, uid);
     default: return askContact(rt, uid);
   }
 }
+async function routeAfterQ5(rt, uid){
+  const s = getSession(uid);
+  const work = s.answers.q3;
+  if(work==='外壁塗装') return askQ6(rt);
+  if(work==='屋根塗装') return askQ7(rt);
+  return askQ6(rt); // 外壁＋屋根 → まず外壁、次にQ7で屋根へ
+}
 
-// 連絡先導線（Flex／文言を追加）
+// 連絡先導線（Flex／文言追加）
 async function askContact(rt, uid){
   const s = getSession(uid);
   const a = s.answers;
@@ -394,7 +406,7 @@ async function askContact(rt, uid){
   ]);
 }
 
-// ───────────── 保存／見積り ─────────────
+// ──────────────────────────────── 保存／見積り ────────────────────────────────
 async function streamToBuffer(stream){
   return new Promise((resolve,reject)=>{
     const bufs=[]; stream.on('data',c=>bufs.push(c));
@@ -426,8 +438,8 @@ function estimateCost(a){
   let cost = base[a.q3] || 600000;
   cost *= floor[a.q1] || 1.0;
   cost *= layout[a.q2] || 1.0;
-  if (a.q3!=='屋根塗装') cost *= wall[a.q6] || 1.0; // 外壁がある時のみ反映
-  if (a.q3!=='外壁塗装') cost *= roof[a.q7] || 1.0; // 屋根がある時のみ反映
+  if (a.q3!=='屋根塗装') cost *= wall[a.q6] || 1.0; // 外壁がある時のみ
+  if (a.q3!=='外壁塗装') cost *= roof[a.q7] || 1.0; // 屋根がある時のみ
   cost *= leak[a.q8] || 1.0;
   cost *= dist[a.q9] || 1.0;
   if (a.q4==='ある') cost *= years[a.q5] || 1.0;
@@ -448,6 +460,7 @@ async function finalizeAndNotify(rt, uid){
   const est = estimateCost(a);
   const now = new Date();
 
+  // スプレッドシート（列順固定）
   const row = [
     now.toISOString(), uid,
     s.contact.name, s.contact.postal, s.contact.addr1, s.contact.addr2,
@@ -457,6 +470,7 @@ async function finalizeAndNotify(rt, uid){
   ];
   try{ await appendToSheet(row); }catch(e){ console.error('sheet', e?.response?.data || e); }
 
+  // 管理者メール
   const html = `
   <div style="font-family:system-ui,Segoe UI,Helvetica,Arial">
     <h2>外壁塗装 — 最終入力</h2>
@@ -483,6 +497,22 @@ async function finalizeAndNotify(rt, uid){
   </div>`;
   try{ await sendAdminEmail({ htmlBody: html, photoUrls: s.photoUrls }); }catch(e){ console.error('mail', e?.response?.data || e); }
 
-  await client.replyMessage(rt, { type:'text', text:'ありがとうございます。連絡先を受け付けました。1営業日以内に正式なお見積もりをこのLINEでお送りします。' });
+  // 完了カード（目立つメッセージ）
+  await client.replyMessage(rt, {
+    type:'flex',
+    altText:'お見積りのご依頼ありがとうございます',
+    contents:{
+      type:'bubble',
+      hero:{ type:'image', url: ICONS.card, size:'full', aspectRatio:'16:9', aspectMode:'cover' },
+      body:{ type:'box', layout:'vertical', spacing:'md', contents:[
+        { type:'text', text:'お見積りのご依頼ありがとうございます', weight:'bold', wrap:true },
+        { type:'text', text:'送信された内容を確認し、1〜2営業日程度で詳細なお見積りをLINEでご返信致します。', wrap:true }
+      ]}
+    }
+  });
+
+  // リッチメニューを再表示（任意）
+  await showRichMenu(uid);
+
   resetSession(uid);
 }
