@@ -2,60 +2,81 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>外壁塗装 見積りフォーム（LIFF）</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>外装工事オンライン見積もり</title>
   <link rel="stylesheet" href="./style.css" />
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.4/sdk.js"></script>
+  <script src="./env.js"></script>
 </head>
 <body>
-  <main class="container">
-    <h1>外壁塗装 LINE 見積もり</h1>
-
-    <div id="status" class="status">初期化中...</div>
-
-    <section id="form" class="card hidden">
-      <p>必要事項をご入力ください。</p>
-
-      <label>お名前
-        <input id="name" type="text" placeholder="山田 太郎" inputmode="text" />
-      </label>
-
-      <label>郵便番号
-        <input id="postal" type="text" placeholder="1234567" inputmode="numeric" pattern="[0-9]*" />
-      </label>
-
-      <label>住所（都道府県・市区町村・番地）
-        <input id="addr1" type="text" placeholder="東京都千代田区1-2-3" inputmode="text" />
-      </label>
-
-      <label>建物名・部屋番号（任意）
-        <input id="addr2" type="text" placeholder="〇〇マンション101" inputmode="text" />
-      </label>
-
-      <div class="actions">
-        <button id="previewBtn">送信前プレビュー</button>
-        <button id="sendBtn" class="primary">送信</button>
+  <div id="app">
+    <header class="hero">
+      <h1>外装工事オンライン見積もり</h1>
+      <div class="notice">
+        <strong>現地調査なしで、詳細な見積りをLINEでお知らせします。</strong>
       </div>
-    </section>
+    </header>
 
-    <section id="preview" class="card hidden">
-      <h2>プレビュー</h2>
-      <div id="previewBody"></div>
-      <div class="actions">
-        <button id="backBtn">戻る</button>
-        <button id="confirmBtn" class="primary">この内容で送信</button>
+    <div class="card">
+      <div class="progress"><div id="bar" class="bar"></div></div>
+
+      <div id="step-name" class="step">
+        <label class="label">お名前</label>
+        <input id="name" class="input" type="text" placeholder="例）山田 太郎" autocomplete="name" />
+        <button id="next1" class="btn primary">次へ</button>
       </div>
-    </section>
 
-    <footer class="hint">
-      ※本フォームは LIFF（LINE Front-end Framework）で動作しています。
-    </footer>
-  </main>
+      <div id="step-postal" class="step hidden">
+        <label class="label">郵便番号（7桁）</label>
+        <input id="postal" class="input" inputmode="numeric" pattern="[0-9]*" placeholder="例）1234567" />
+        <p class="hint">お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</p>
+        <div class="actions">
+          <button id="back2" class="btn">戻る</button>
+          <button id="next2" class="btn primary">次へ</button>
+        </div>
+      </div>
 
-  <!-- LIFF SDK -->
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <!-- 環境値（window.LIFF_ID を定義） -->
-  <script src="/liff/env.js"></script>
-  <!-- アプリ本体 -->
+      <div id="step-addr1" class="step hidden">
+        <label class="label">住所（都道府県・市区町村・番地など）</label>
+        <input id="addr1" class="input" type="text" placeholder="自動入力されます／編集可" />
+        <p class="hint">お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</p>
+        <div class="actions">
+          <button id="back3" class="btn">戻る</button>
+          <button id="next3" class="btn primary">次へ</button>
+        </div>
+      </div>
+
+      <div id="step-addr2" class="step hidden">
+        <label class="label">番地など以降の住所や建物名・部屋番号などを入力してください。無ければ「なし」を入力してください。</label>
+        <input id="addr2" class="input" type="text" placeholder="例）サンプルマンション101号室／なし" />
+        <div class="actions">
+          <button id="back4" class="btn">戻る</button>
+          <button id="preview" class="btn">プレビュー</button>
+          <button id="submit" class="btn primary">送信</button>
+        </div>
+      </div>
+
+      <div id="preview-pane" class="step hidden">
+        <h3>送信前プレビュー</h3>
+        <ul class="preview">
+          <li><span>お名前</span><b id="pv-name"></b></li>
+          <li><span>郵便番号</span><b id="pv-postal"></b></li>
+          <li><span>住所1</span><b id="pv-addr1"></b></li>
+          <li><span>住所2</span><b id="pv-addr2"></b></li>
+        </ul>
+        <div class="actions">
+          <button id="backPrev" class="btn">戻る</button>
+          <button id="submit2" class="btn primary">この内容で送信</button>
+        </div>
+      </div>
+
+      <div id="done" class="step hidden">
+        <p>送信しました。ウィンドウを閉じてLINEに戻ってください。</p>
+        <button id="close" class="btn primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
   <script src="./app.js"></script>
 </body>
 </html>
