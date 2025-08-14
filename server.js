@@ -1,15 +1,15 @@
 // server.js
 // ======================================================================
-// 外装工事オンライン見積もり：LINE Webhook（画像カード+写真アップロード）
-// 仕様まとめ：
-//  - 起動ワードは「カンタン見積りを依頼」のみ（完全一致・NFKC正規化で空白差吸収）
-//  - 指定の質問フロー（条件分岐あり）を全て画像カード（Flex）で表示
-//  - 写真は Quick Reply の「カメラ/アルバム/スキップ」
-//  - 画像受信時は「受け取りました」＋「次質問」を**同一返信**で返して確実に進行
-//  - 最終は概算カード（見積金額＋注意書き＋LIFF起動ボタン）
-//  - 管理者通知/メール送信/スプレッドシート連携は本ファイルでは実装しない（別層）
+// 外装工事オンライン見積もり（LINE Bot）完全版
+//  - 起動語は「カンタン見積りを依頼」完全一致のみ（不可視文字/全角半角を吸収）
+//  - 全質問を画像カード（Flex）で提示（10バブル超は自動分割）
+//  - 条件分岐（外壁/屋根/両方）
+//  - 写真は Quick Reply（カメラ/アルバム/スキップ）。画像受信時は必ず「次へ」も同時返信。
+//  - 最終は概算見積りカード＋LIFF起動ボタン
+//  - メモリセッション（本番はDB/Redisへ）
+//  - 既知の落とし穴回避：express.json()は使わない（署名検証に干渉しないため）
 //
-// Node: "type": "module" を前提
+// Node: >=18, package.json は既存のままで動作
 // ======================================================================
 
 import 'dotenv/config';
@@ -19,18 +19,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ────────────────────────────────────────────────────────────
-// 基本設定
+// 基本設定・クライアント
 // ────────────────────────────────────────────────────────────
 const {
   PORT = 10000,
   CHANNEL_ACCESS_TOKEN,
   CHANNEL_SECRET,
-  LIFF_ID,
-  FRIEND_ADD_URL, // 任意（なければ LIFF を使う）
+  LIFF_ID,           // 例: 2007914959-XXXXXXXX
+  FRIEND_ADD_URL,    // 任意：LIFF未使用時の代替誘導URL
 } = process.env;
 
 if (!CHANNEL_ACCESS_TOKEN || !CHANNEL_SECRET) {
-  console.error('[ERROR] CHANNEL_ACCESS_TOKEN / CHANNEL_SECRET が未設定です。');
+  console.error('[ERROR] CHANNEL_ACCESS_TOKEN / CHANNEL_SECRET が未設定');
   process.exit(1);
 }
 
@@ -38,24 +38,23 @@ const lineClient = new line.Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN })
 const middlewareConfig = { channelSecret: CHANNEL_SECRET };
 
 const app = express();
-app.use(express.json());
 
-// ヘルスチェック
+// Health
 app.get('/health', (_, res) => res.status(200).send('ok'));
 
-// （任意）/liff 配下の静的配信を有効にしておく（存在しなくてもエラーにはならない）
+// （任意）/liff の静的配信（存在しなくてもOK）
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/liff', express.static(path.join(__dirname, 'public', 'liff')));
 
-// Webhook
+// Webhook（※ express.json() は使わないこと）
 app.post('/webhook', line.middleware(middlewareConfig), async (req, res) => {
   try {
-    const events = req.body.events || [];
+    const events = req.body?.events || [];
     await Promise.all(events.map(handleEvent));
     res.status(200).send('OK');
   } catch (e) {
-    console.error('Webhook error:', e);
+    console.error('Webhook error:', e?.message || e);
     res.status(500).send('Error');
   }
 });
@@ -63,20 +62,29 @@ app.post('/webhook', line.middleware(middlewareConfig), async (req, res) => {
 app.listen(PORT, () => console.log(`LINE bot listening on ${PORT}`));
 
 // ────────────────────────────────────────────────────────────
-// [MEMO-1] トリガー文言（ここを変えるだけで起動語の変更が可能）
+// [MEMO] 起動語（ここを書き換えれば変更可能）
 // ────────────────────────────────────────────────────────────
 const START_TRIGGER = 'カンタン見積りを依頼';
-const normalize = (s = '') => String(s).normalize('NFKC').trim();
-const isStartTextStrict = (raw) => normalize(raw) === normalize(START_TRIGGER);
+
+// 目に見えない不可視文字も除去して厳密一致させる
+function normalizeStrict(s = '') {
+  return String(s)
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // ZWSP 等
+    .trim();
+}
+function isExactStart(text = '') {
+  return normalizeStrict(text) === normalizeStrict(START_TRIGGER);
+}
 
 // ────────────────────────────────────────────────────────────
-/** セッション：メモリ保持（本番ではDB/Redisへ差し替え推奨） */
+// セッション（メモリ）
 // ────────────────────────────────────────────────────────────
 /**
  * step … 進行中のステップ
  * ans  … 回答オブジェクト
- *   - floors, layout, age, painted, lastPaint, work, wallType, roofType, leak, distance
- *   - photos: { elevation, plan, section, front, right, left, back, garage, cracks }  ※URLの保管は別層で
+ *   floors, layout, age, painted, lastPaint, work, wallType, roofType, leak, distance
+ *   photos: { elevation, plan, section, front, right, left, back, garage, cracks } ※URL保存は別レイヤ
  */
 const sessions = new Map(); // userId -> { step, ans }
 
@@ -87,11 +95,10 @@ const STEPS = {
   PAINTED: 'q_painted',
   LAST_PAINT: 'q_last_paint',
   WORK: 'q_work',
-  WALLTYPE: 'q_wall_type', // 条件：外壁 or 両方のとき必須
-  ROOFTYPE: 'q_roof_type', // 条件：屋根 or 両方のとき必須
+  WALLTYPE: 'q_wall_type',
+  ROOFTYPE: 'q_roof_type',
   LEAK: 'q_leak',
   DISTANCE: 'q_distance',
-
   // 写真
   UP_ELEVATION: 'up_elevation',
   UP_PLAN: 'up_plan',
@@ -101,8 +108,8 @@ const STEPS = {
   UP_LEFT: 'up_left',
   UP_BACK: 'up_back',
   UP_GARAGE: 'up_garage',
-  UP_CRACKS: 'up_cracks', // 任意
-
+  UP_CRACKS: 'up_cracks',
+  // 終了
   ESTIMATE: 'estimate',
   DONE: 'done',
 };
@@ -122,15 +129,13 @@ function resetSession(userId) {
 }
 
 // ────────────────────────────────────────────────────────────
-// 画像素材（ダミー。自由に差替可）
-// 注意：Flex Carousel は 1メッセージにつきバブル最大10。超える場合は自動分割する。
+// ダミー画像（ボタンの背景）
 // ────────────────────────────────────────────────────────────
 const IMG = {
-  // 階数
   FLOOR_1: 'https://placehold.co/800x530/0B8F3F/FFFFFF?text=1%E9%9A%8E%E5%BB%BA%E3%81%A6',
   FLOOR_2: 'https://placehold.co/800x530/0B8F3F/FFFFFF?text=2%E9%9A%8E%E5%BB%BA%E3%81%A6',
   FLOOR_3: 'https://placehold.co/800x530/0B8F3F/FFFFFF?text=3%E9%9A%8E%E5%BB%BA%E3%81%A6',
-  // 間取り
+
   LAYOUT_1K: 'https://placehold.co/800x530/2266AA/FFFFFF?text=1K',
   LAYOUT_1DK: 'https://placehold.co/800x530/2266AA/FFFFFF?text=1DK',
   LAYOUT_1LDK: 'https://placehold.co/800x530/2266AA/FFFFFF?text=1LDK',
@@ -143,7 +148,7 @@ const IMG = {
   LAYOUT_4K: 'https://placehold.co/800x530/2266AA/FFFFFF?text=4K',
   LAYOUT_4DK: 'https://placehold.co/800x530/2266AA/FFFFFF?text=4DK',
   LAYOUT_4LDK: 'https://placehold.co/800x530/2266AA/FFFFFF?text=4LDK',
-  // 築年
+
   AGE_NEW: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=%E6%96%B0%E7%AF%89',
   AGE_10: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=%E3%80%9C10%E5%B9%B4',
   AGE_20: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=%E3%80%9C20%E5%B9%B4',
@@ -151,35 +156,35 @@ const IMG = {
   AGE_40: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=%E3%80%9C40%E5%B9%B4',
   AGE_50: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=%E3%80%9C50%E5%B9%B4',
   AGE_51: 'https://placehold.co/800x530/7A4EC2/FFFFFF?text=51%E5%B9%B4%E4%BB%A5%E4%B8%8A',
-  // 過去塗装
+
   PAINTED_YES: 'https://placehold.co/800x530/FF8C00/FFFFFF?text=%E3%81%82%E3%82%8B',
   PAINTED_NO: 'https://placehold.co/800x530/FF8C00/FFFFFF?text=%E3%81%AA%E3%81%84',
   PAINTED_UNKNOWN: 'https://placehold.co/800x530/FF8C00/FFFFFF?text=%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84',
-  // 前回時期
-  LAST_5: 'https://placehold.co/800x530/FFBD2F/333333?text=%E3%80%9C5%E5%B9%B4',
-  LAST_5_10: 'https://placehold.co/800x530/FFBD2F/333333?text=5%E3%80%9C10%E5%B9%B4',
-  LAST_10_20: 'https://placehold.co/800x530/FFBD2F/333333?text=10%E3%80%9C20%E5%B9%B4',
-  LAST_20_30: 'https://placehold.co/800x530/FFBD2F/333333?text=20%E3%80%9C30%E5%B9%B4',
-  LAST_UNKNOWN: 'https://placehold.co/800x530/FFBD2F/333333?text=%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84',
-  // 工事種別
+
+  LAST_5: 'https://placehold.co/800x530/FFBD2F/333?text=%E3%80%9C5%E5%B9%B4',
+  LAST_5_10: 'https://placehold.co/800x530/FFBD2F/333?text=5%E3%80%9C10%E5%B9%B4',
+  LAST_10_20: 'https://placehold.co/800x530/FFBD2F/333?text=10%E3%80%9C20%E5%B9%B4',
+  LAST_20_30: 'https://placehold.co/800x530/FFBD2F/333?text=20%E3%80%9C30%E5%B9%B4',
+  LAST_UNKNOWN: 'https://placehold.co/800x530/FFBD2F/333?text=%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84',
+
   WORK_WALL: 'https://placehold.co/800x530/00B8A9/FFFFFF?text=%E5%A4%96%E5%A3%81%E5%A1%97%E8%A3%85',
   WORK_ROOF: 'https://placehold.co/800x530/00B8A9/FFFFFF?text=%E5%B1%8B%E6%A0%B9%E5%A1%97%E8%A3%85',
   WORK_BOTH: 'https://placehold.co/800x530/00B8A9/FFFFFF?text=%E5%A4%96%E5%A3%81%2B%E5%B1%8B%E6%A0%B9',
-  // 外壁種
+
   WALL_MORTAR: 'https://placehold.co/800x530/DB2B39/FFFFFF?text=%E3%83%A2%E3%83%AB%E3%82%BF%E3%83%AB',
   WALL_SIDING: 'https://placehold.co/800x530/DB2B39/FFFFFF?text=%E3%82%B5%E3%82%A4%E3%83%87%E3%82%A3%E3%83%B3%E3%82%B0',
   WALL_TILE: 'https://placehold.co/800x530/DB2B39/FFFFFF?text=%E3%82%BF%E3%82%A4%E3%83%AB',
   WALL_ALC: 'https://placehold.co/800x530/DB2B39/FFFFFF?text=ALC',
-  // 屋根種
+
   ROOF_KAWARA: 'https://placehold.co/800x530/118AB2/FFFFFF?text=%E7%93%A6',
   ROOF_SLATE: 'https://placehold.co/800x530/118AB2/FFFFFF?text=%E3%82%B9%E3%83%AC%E3%83%BC%E3%83%88',
   ROOF_GALVA: 'https://placehold.co/800x530/118AB2/FFFFFF?text=%E3%82%AC%E3%83%AB%E3%83%90%E3%83%AA%E3%82%A6%E3%83%A0',
   ROOF_TOTAN: 'https://placehold.co/800x530/118AB2/FFFFFF?text=%E3%83%88%E3%82%BF%E3%83%B3',
-  // 雨漏り
+
   LEAK_DROP: 'https://placehold.co/800x530/2D3142/FFFFFF?text=%E6%B0%B4%E6%BB%B4%E3%81%8C%E8%90%BD%E3%81%A1%E3%82%8B',
   LEAK_STAIN: 'https://placehold.co/800x530/2D3142/FFFFFF?text=%E5%A4%A9%E4%BA%95%E3%81%AB%E3%82%B7%E3%83%9F',
   LEAK_NONE: 'https://placehold.co/800x530/2D3142/FFFFFF?text=%E3%81%AA%E3%81%84',
-  // 距離
+
   DIST_30: 'https://placehold.co/800x530/3A8EBA/FFFFFF?text=30cm%E4%BB%A5%E4%B8%8B',
   DIST_50: 'https://placehold.co/800x530/3A8EBA/FFFFFF?text=50cm%E4%BB%A5%E4%B8%8B',
   DIST_70: 'https://placehold.co/800x530/3A8EBA/FFFFFF?text=70cm%E4%BB%A5%E4%B8%8B',
@@ -187,14 +192,13 @@ const IMG = {
 };
 
 // ────────────────────────────────────────────────────────────
-// Flex生成ヘルパー（10バブルで分割）
+// Flex生成（10バブル自動分割）
 // ────────────────────────────────────────────────────────────
-function chunk(items, size) {
+function chunk(arr, size) {
   const out = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
-
 function flexImageOptions(title, subtitle, key, options) {
   const bubbles = options.map(opt => ({
     type: 'bubble',
@@ -226,10 +230,7 @@ function flexImageOptions(title, subtitle, key, options) {
       }]
     }
   }));
-
-  // 10バブルごとに分割
-  const pages = chunk(bubbles, 10);
-  return pages.map(pg => ({
+  return chunk(bubbles, 10).map(pg => ({
     type: 'flex',
     altText: title,
     contents: { type: 'carousel', contents: pg }
@@ -237,7 +238,7 @@ function flexImageOptions(title, subtitle, key, options) {
 }
 
 // ────────────────────────────────────────────────────────────
-// 写真アップロード制御
+// 写真アップロード誘導（Quick Reply）
 // ────────────────────────────────────────────────────────────
 const UPLOAD_ORDER = [
   STEPS.UP_ELEVATION, // 立面図
@@ -247,29 +248,26 @@ const UPLOAD_ORDER = [
   STEPS.UP_RIGHT,     // 右側
   STEPS.UP_LEFT,      // 左側
   STEPS.UP_BACK,      // 後ろ側
-  STEPS.UP_GARAGE,    // 車庫の位置
+  STEPS.UP_GARAGE,    // 車庫
   STEPS.UP_CRACKS,    // ヒビ/割れ（任意）
 ];
 const UPLOAD_LABELS = {
   [STEPS.UP_ELEVATION]: '立面図',
   [STEPS.UP_PLAN]: '平面図',
   [STEPS.UP_SECTION]: '断面図',
-  [STEPS.UP_FRONT]: '正面から撮影した物件の写真（周囲の地面が見えるように）',
-  [STEPS.UP_RIGHT]: '右側から撮影した物件の写真（周囲の地面が見えるように）',
-  [STEPS.UP_LEFT]: '左側から撮影した物件の写真（周囲の地面が見えるように）',
-  [STEPS.UP_BACK]: '後ろ側から撮影した物件の写真（周囲の地面が見えるように）',
+  [STEPS.UP_FRONT]: '正面から撮影（周囲の地面が見えるように）',
+  [STEPS.UP_RIGHT]: '右側から撮影（周囲の地面が見えるように）',
+  [STEPS.UP_LEFT]: '左側から撮影（周囲の地面が見えるように）',
+  [STEPS.UP_BACK]: '後ろ側から撮影（周囲の地面が見えるように）',
   [STEPS.UP_GARAGE]: '車庫の位置がわかる写真',
-  [STEPS.UP_CRACKS]: '外壁や屋根にヒビ/割れがある場合の写真（なければスキップ）',
+  [STEPS.UP_CRACKS]: '外壁や屋根のヒビ/割れ（任意・なければスキップ）',
 };
-function isUploadStep(step) {
-  return UPLOAD_ORDER.includes(step);
-}
-function nextUploadStep(step) {
-  const i = UPLOAD_ORDER.indexOf(step);
-  return i >= 0 && i < UPLOAD_ORDER.length - 1 ? UPLOAD_ORDER[i + 1] : null;
-}
+function isUploadStep(step) { return UPLOAD_ORDER.includes(step); }
 function firstUploadStep() { return UPLOAD_ORDER[0]; }
-
+function nextUploadStep(cur) {
+  const i = UPLOAD_ORDER.indexOf(cur);
+  return (i >= 0 && i < UPLOAD_ORDER.length - 1) ? UPLOAD_ORDER[i + 1] : null;
+}
 function buildUploadPrompt(step) {
   const label = UPLOAD_LABELS[step] || '写真';
   return {
@@ -280,13 +278,13 @@ function buildUploadPrompt(step) {
         { type: 'action', action: { type: 'camera', label: 'カメラを起動' } },
         { type: 'action', action: { type: 'cameraRoll', label: 'アルバムから' } },
         { type: 'action', action: { type: 'postback', label: 'スキップ', data: 'NEXT' } },
-      ],
-    },
+      ]
+    }
   };
 }
 
 // ────────────────────────────────────────────────────────────
-// 質問カード（Flex）
+/** 質問カード（Flex） */
 // ────────────────────────────────────────────────────────────
 function buildQuestionMessages(step) {
   switch (step) {
@@ -296,7 +294,6 @@ function buildQuestionMessages(step) {
         { label: '2階建て', value: '2階建て', image: IMG.FLOOR_2 },
         { label: '3階建て', value: '3階建て', image: IMG.FLOOR_3 },
       ]);
-
     case STEPS.LAYOUT:
       return flexImageOptions('物件の間取りは？', '', 'layout', [
         { label: '1K', value: '1K', image: IMG.LAYOUT_1K },
@@ -312,7 +309,6 @@ function buildQuestionMessages(step) {
         { label: '4DK', value: '4DK', image: IMG.LAYOUT_4DK },
         { label: '4LDK', value: '4LDK', image: IMG.LAYOUT_4LDK },
       ]);
-
     case STEPS.AGE:
       return flexImageOptions('物件の築年数は？', '', 'age', [
         { label: '新築', value: '新築', image: IMG.AGE_NEW },
@@ -323,14 +319,12 @@ function buildQuestionMessages(step) {
         { label: '〜50年', value: '〜50年', image: IMG.AGE_50 },
         { label: '51年以上', value: '51年以上', image: IMG.AGE_51 },
       ]);
-
     case STEPS.PAINTED:
       return flexImageOptions('過去に塗装をした経歴は？', '', 'painted', [
         { label: 'ある', value: 'ある', image: IMG.PAINTED_YES },
         { label: 'ない', value: 'ない', image: IMG.PAINTED_NO },
         { label: 'わからない', value: 'わからない', image: IMG.PAINTED_UNKNOWN },
       ]);
-
     case STEPS.LAST_PAINT:
       return flexImageOptions('前回の塗装はいつ頃？', '', 'lastPaint', [
         { label: '〜5年', value: '〜5年', image: IMG.LAST_5 },
@@ -339,14 +333,12 @@ function buildQuestionMessages(step) {
         { label: '20〜30年', value: '20〜30年', image: IMG.LAST_20_30 },
         { label: 'わからない', value: 'わからない', image: IMG.LAST_UNKNOWN },
       ]);
-
     case STEPS.WORK:
       return flexImageOptions('ご希望の工事内容は？', '', 'work', [
         { label: '外壁塗装', value: '外壁塗装', image: IMG.WORK_WALL },
         { label: '屋根塗装', value: '屋根塗装', image: IMG.WORK_ROOF },
         { label: '外壁塗装+屋根塗装', value: '外壁塗装+屋根塗装', image: IMG.WORK_BOTH },
       ]);
-
     case STEPS.WALLTYPE:
       return flexImageOptions('外壁の種類は？', '', 'wallType', [
         { label: 'モルタル', value: 'モルタル', image: IMG.WALL_MORTAR },
@@ -354,7 +346,6 @@ function buildQuestionMessages(step) {
         { label: 'タイル', value: 'タイル', image: IMG.WALL_TILE },
         { label: 'ALC', value: 'ALC', image: IMG.WALL_ALC },
       ]);
-
     case STEPS.ROOFTYPE:
       return flexImageOptions('屋根の種類は？', '', 'roofType', [
         { label: '瓦', value: '瓦', image: IMG.ROOF_KAWARA },
@@ -362,37 +353,29 @@ function buildQuestionMessages(step) {
         { label: 'ガルバリウム', value: 'ガルバリウム', image: IMG.ROOF_GALVA },
         { label: 'トタン', value: 'トタン', image: IMG.ROOF_TOTAN },
       ]);
-
     case STEPS.LEAK:
       return flexImageOptions('雨漏りや漏水の症状はありますか？', '', 'leak', [
         { label: '雨の日に水滴が落ちる', value: '雨の日に水滴が落ちる', image: IMG.LEAK_DROP },
         { label: '天井にシミがある', value: '天井にシミがある', image: IMG.LEAK_STAIN },
         { label: 'ない', value: 'ない', image: IMG.LEAK_NONE },
       ]);
-
     case STEPS.DISTANCE:
-      return flexImageOptions(
-        '隣や裏の家との距離は？',
-        '周囲で一番近い距離の数値をお答えください。',
-        'distance',
-        [
-          { label: '30cm以下', value: '30cm以下', image: IMG.DIST_30 },
-          { label: '50cm以下', value: '50cm以下', image: IMG.DIST_50 },
-          { label: '70cm以下', value: '70cm以下', image: IMG.DIST_70 },
-          { label: '70cm以上', value: '70cm以上', image: IMG.DIST_OVER70 },
-        ]
-      );
-
+      return flexImageOptions('隣や裏の家との距離は？', '周囲で一番近い距離の数値をお答えください。', 'distance', [
+        { label: '30cm以下', value: '30cm以下', image: IMG.DIST_30 },
+        { label: '50cm以下', value: '50cm以下', image: IMG.DIST_50 },
+        { label: '70cm以下', value: '70cm以下', image: IMG.DIST_70 },
+        { label: '70cm以上', value: '70cm以上', image: IMG.DIST_OVER70 },
+      ]);
     default:
-      return [{ type: 'text', text: '次の質問を準備中です。' }];
+      return [{ type: 'text', text: '次の質問を用意しています…' }];
   }
 }
 
 // ────────────────────────────────────────────────────────────
 // 遷移ロジック
 // ────────────────────────────────────────────────────────────
-function nextStepAfterAnswer(key, session) {
-  const a = session.ans;
+function nextStepAfterAnswer(key, s) {
+  const a = s.ans;
   switch (key) {
     case 'floors':    return STEPS.LAYOUT;
     case 'layout':    return STEPS.AGE;
@@ -403,7 +386,7 @@ function nextStepAfterAnswer(key, session) {
     case 'work':
       if (a.work === '外壁塗装') return STEPS.WALLTYPE;
       if (a.work === '屋根塗装') return STEPS.ROOFTYPE;
-      return STEPS.WALLTYPE; // 両方 → 外壁→屋根の順
+      return STEPS.WALLTYPE; // 両方 → 外壁→屋根
 
     case 'wallType':
       return (a.work === '外壁塗装+屋根塗装') ? STEPS.ROOFTYPE : STEPS.LEAK;
@@ -418,19 +401,15 @@ function nextStepAfterAnswer(key, session) {
       return firstUploadStep();
 
     default:
-      return session.step;
+      return s.step;
   }
 }
 
 // ────────────────────────────────────────────────────────────
-/** 概算（ダミー係数。実値に合わせ調整してください） */
+// 概算（調整可能な係数）
 // ────────────────────────────────────────────────────────────
 function estimateCost(ans) {
-  const base = {
-    '外壁塗装': 700000,
-    '屋根塗装': 300000,
-    '外壁塗装+屋根塗装': 980000,
-  };
+  const base = { '外壁塗装': 700000, '屋根塗装': 300000, '外壁塗装+屋根塗装': 980000 };
   const floor = { '1階建て': 1.0, '2階建て': 1.18, '3階建て': 1.36 };
   const layout = { '1K':0.9,'1DK':0.95,'1LDK':1.0,'2K':1.02,'2DK':1.05,'2LDK':1.08,'3K':1.12,'3DK':1.15,'3LDK':1.18,'4K':1.2,'4DK':1.23,'4LDK':1.26 };
   const age = { '新築':0.9,'〜10年':1.0,'〜20年':1.05,'〜30年':1.1,'〜40年':1.15,'〜50年':1.2,'51年以上':1.25 };
@@ -444,29 +423,19 @@ function estimateCost(ans) {
   cost *= floor[ans.floors] || 1.0;
   cost *= layout[ans.layout] || 1.0;
   cost *= age[ans.age] || 1.0;
-  if (ans.work === '外壁塗装' || ans.work === '外壁塗装+屋根塗装') {
-    cost *= wall[ans.wallType] || 1.0;
-  }
-  if (ans.work === '屋根塗装' || ans.work === '外壁塗装+屋根塗装') {
-    cost *= roof[ans.roofType] || 1.0;
-  }
+  if (ans.work === '外壁塗装' || ans.work === '外壁塗装+屋根塗装') cost *= (wall[ans.wallType] || 1.0);
+  if (ans.work === '屋根塗装' || ans.work === '外壁塗装+屋根塗装') cost *= (roof[ans.roofType] || 1.0);
   cost *= leak[ans.leak] || 1.0;
   cost *= dist[ans.distance] || 1.0;
-
-  if (ans.painted === 'ある') {
-    cost *= last[ans.lastPaint] || 1.0;
-  }
+  if (ans.painted === 'ある') cost *= (last[ans.lastPaint] || 1.0);
 
   return Math.round(cost / 1000) * 1000;
 }
 const yen = (n) => n.toLocaleString('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 });
 
-// ────────────────────────────────────────────────────────────
-// 概算カード（Flex） + LIFF遷移ボタン
-// ────────────────────────────────────────────────────────────
+// 概算カード + LIFFボタン
 function buildEstimateFlex(ans) {
   const total = estimateCost(ans);
-
   const liffUrl = LIFF_ID ? `https://liff.line.me/${LIFF_ID}` : (FRIEND_ADD_URL || 'https://line.me/');
   return {
     type: 'flex',
@@ -480,43 +449,36 @@ function buildEstimateFlex(ans) {
         contents: [
           { type: 'text', text: '見積り金額', weight: 'bold', size: 'lg' },
           { type: 'text', text: `${yen(total)}`, weight: 'bold', size: 'xxl' },
-          { type: 'text', text: '上記はご入力いただいた内容を元に算出した概算金額です。', size: 'sm', color: '#666', wrap: true },
+          { type: 'text', text: '上記はご入力内容をもとに算出した概算金額です。', size: 'sm', color: '#666', wrap: true },
           { type: 'separator', margin: 'md' },
-          { type: 'text', text: '正確なお見積もりが必要な方は続けてご入力をお願いします。', size: 'sm', color: '#444', wrap: true },
+          { type: 'text', text: '正確なお見積もりが必要な方は続けてご入力ください。', size: 'sm', color: '#444', wrap: true },
         ],
       },
       footer: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#00B900',
-            action: { type: 'uri', label: '現地調査なしで見積を依頼', uri: liffUrl }
-          }
+          { type: 'button', style: 'primary', color: '#00B900', action: { type: 'uri', label: '現地調査なしで見積を依頼', uri: liffUrl } }
         ]
       }
     }
   };
 }
 
-// ────────────────────────────────────────────────────────────
-// 送信ヘルパー
-// ────────────────────────────────────────────────────────────
+// 送信ユーティリティ
 function replyMessage(replyToken, msgs) {
   const arr = Array.isArray(msgs) ? msgs : [msgs];
   return lineClient.replyMessage(replyToken, arr);
 }
 
 // ────────────────────────────────────────────────────────────
-// イベントハンドラ
+// イベントハンドラ本体
 // ────────────────────────────────────────────────────────────
 async function handleEvent(event) {
   const userId = event.source?.userId;
   if (!userId) return;
 
-  // 友だち追加時
+  // 友だち追加
   if (event.type === 'follow') {
     resetSession(userId);
     return replyMessage(event.replyToken, {
@@ -525,16 +487,16 @@ async function handleEvent(event) {
     });
   }
 
-  // メッセージ（テキスト/画像）
+  // メッセージ
   if (event.type === 'message') {
-    const { message } = event;
+    const msg = event.message;
 
     // テキスト
-    if (message.type === 'text') {
-      const tx = normalize(message.text);
+    if (msg.type === 'text') {
+      const text = normalizeStrict(msg.text);
 
-      // 起動
-      if (isStartTextStrict(tx)) {
+      // 起動（完全一致）
+      if (isExactStart(text)) {
         const s = resetSession(userId);
         s.step = STEPS.FLOORS;
         const qs = buildQuestionMessages(STEPS.FLOORS);
@@ -544,30 +506,38 @@ async function handleEvent(event) {
         ]);
       }
 
-      // 写真フェーズ中の自由テキスト
+      // セッション状態に応じた応答
       const s = getSession(userId);
+
+      // 写真待ち中にテキストが来た場合
       if (isUploadStep(s.step)) {
         return replyMessage(event.replyToken, '写真を送信するか、右下の「スキップ」を押してください。');
       }
 
-      // その他
+      // 任意：リセット対応（必要なければコメントアウトでOK）
+      if (text === 'リセット') {
+        resetSession(userId);
+        return replyMessage(event.replyToken, `回答をリセットしました。\n「${START_TRIGGER}」と送ると再開します。`);
+      }
+
+      // ガイド
       return replyMessage(event.replyToken, `「${START_TRIGGER}」と送ると見積もりを開始します。`);
     }
 
     // 画像
-    if (message.type === 'image') {
+    if (msg.type === 'image') {
       const s = getSession(userId);
+
+      // 画像が期待されていないとき
       if (!isUploadStep(s.step)) {
         return replyMessage(event.replyToken, 'ありがとうございます。ボタンから続きの質問にお進みください。');
       }
 
-      const curr = s.step;
-      const label = UPLOAD_LABELS[curr] || '写真';
+      const current = s.step;
+      const label = UPLOAD_LABELS[current] || '写真';
 
-      // （保存が必要ならここに保存処理を実装：Supabase等）
-      // ここでは保存せず、「受け取りました」→「次案内」を同一返信で返す
-
-      const next = nextUploadStep(curr);
+      // ここで保存する場合は実装（Supabase/Storage等）。本実装は省略し、次に進める。
+      const next = nextUploadStep(current);
       if (next) {
         s.step = next;
         return replyMessage(event.replyToken, [
@@ -575,7 +545,7 @@ async function handleEvent(event) {
           buildUploadPrompt(next),
         ]);
       } else {
-        // 最後（ヒビ/割れ）→ 概算カード
+        // 最後（ヒビ/割れ）→ 概算
         s.step = STEPS.ESTIMATE;
         return replyMessage(event.replyToken, [
           { type: 'text', text: `受け取りました（${label}）` },
@@ -584,16 +554,17 @@ async function handleEvent(event) {
       }
     }
 
-    // 他のメッセージ種別は無視
+    // 他タイプは無視
     return;
   }
 
-  // Postback（ANS|key|value or NEXT）
+  // Postback
   if (event.type === 'postback') {
-    const data = event.postback.data || '';
+    const data = String(event.postback?.data || '');
+
     const s = getSession(userId);
 
-    // 写真のスキップ
+    // 写真スキップ
     if (data === 'NEXT') {
       if (!isUploadStep(s.step)) {
         return replyMessage(event.replyToken, '次へ進めませんでした。もう一度お試しください。');
@@ -614,7 +585,7 @@ async function handleEvent(event) {
       }
     }
 
-    // 選択回答
+    // 回答（ANS|key|value）
     if (data.startsWith('ANS|')) {
       const [, key, encVal] = data.split('|');
       const value = decodeURIComponent(encVal || '');
@@ -624,7 +595,7 @@ async function handleEvent(event) {
       const next = nextStepAfterAnswer(key, s);
       s.step = next;
 
-      // 次の質問またはアップロード誘導
+      // 次の表示
       if (isUploadStep(next)) {
         return replyMessage(event.replyToken, buildUploadPrompt(next));
       } else if (next === STEPS.ESTIMATE) {
@@ -635,7 +606,7 @@ async function handleEvent(event) {
       }
     }
 
-    // その他
+    // 不明なポストバック
     return replyMessage(event.replyToken, '入力を受け取れませんでした。もう一度お試しください。');
   }
 }
