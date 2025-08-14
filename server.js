@@ -1,294 +1,404 @@
 /**
- * 外壁塗装オンライン相談 – Botサーバ
- * 修正点：
- *  - すべての「次の質問」は reply ではなく push で送る（ACK は reply）。
- *  - 「距離」以降で止まる問題を解消（競合・トークン使い切り対策）。
- *  - 送信の再試行／詳細ログを追加。
+ * ============================================================
+ *  server.js  (Render / LINE Messaging API / LIFF 連携)
+ * ------------------------------------------------------------
+ *  目的：
+ *    - Render のヘルスチェックを最優先で 200 を返す
+ *    - LINE 署名検証は /webhook のみに限定
+ *    - 「カンタン見積りを依頼」で会話が必ず開始
+ *    - Flex メッセージ（画像カード風）で選択肢を提示
+ *    - すべての質問が完了したら概算結果＋LIFF へ誘導
+ *
+ *  注意：
+ *    - .env（Render の Environment）に以下が必要
+ *        CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET
+ *        LIFF_ID（例: 2007914959-XXXXXXX）
+ *        FRIEND_ADD_URL（任意：友だち追加リンク）
+ *    - /liff ディレクトリを静的配信します
+ *
+ *  変更箇所の目印：
+ *    // ===== [A] 質問定義 =====      … 質問内容・順序の編集
+ *    // ===== [B] Flex生成関数 =====  … 見た目の調整（画像/文言）
+ *    // ===== [C] 返信テンプレ =====  … 定型の返信テキスト
+ *    // ===== [D] 状態管理ヘルパ ===== … セッション状態処理
+ *    // ===== [E] イベント処理 =====   … トリガー/メッセージ/ポストバック
+ * ============================================================
  */
 
-import 'dotenv/config';
 import express from 'express';
-import { Client, middleware as lineMiddleware } from '@line/bot-sdk';
+import line from '@line/bot-sdk';
+import dotenv from 'dotenv';
 
-// ====== [A] LINE SDK 設定 =====================================================
-const config = {
-  channelSecret: process.env.CHANNEL_SECRET,
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-};
-const client = new Client(config);
+dotenv.config();
 
-// ====== [B] アプリ基本設定 =====================================================
 const app = express();
-app.use(express.json());
-app.use(lineMiddleware(config));
+const PORT = process.env.PORT || 3000;
 
-// Memory セッション（本番はRedis推奨）
-const sessions = new Map(); // userId -> { stepIndex, answers:{} }
+// -------------------- Health Check（最上部で 200 を返す） --------------------
+app.get('/health', (_req, res) => res.status(200).send('ok'));
+// -----------------------------------------------------------------------------
 
-// ステップ定義（質問の順番）
-const STEPS = [
-  'FLOOR',              // 工事物件の階数
-  'LAYOUT',             // 間取り
-  'AGE',                // 築年数
-  'PAINT_HISTORY',      // 過去に塗装
-  'PAINT_HISTORY_AGE',  // 前回の塗装時期
-  'WORK_KIND',          // A. 希望工事
-  'WALL_TYPE',          // 外壁の種類（条件付き）
-  'ROOF_TYPE',          // 屋根の種類（条件付き）
-  'LEAK',               // 雨漏り
-  'DISTANCE',           // 周囲距離（←ここで止まっていた）
-  'BLUEPRINT_ELEV',     // 立面図
-  'BLUEPRINT_PLAN',     // 平面図
-  'BLUEPRINT_SEC',      // 断面図
-  'PHOTO_FRONT',        // 正面
-  'PHOTO_RIGHT',        // 右
-  'PHOTO_LEFT',         // 左
-  'PHOTO_BACK',         // 後ろ
-  'PHOTO_GARAGE',       // 車庫
-  'PHOTO_CRACK',        // ヒビ/割れ
-  'SUMMARY'             // 概算提示 → LIFF誘導
-];
+// JSON ボディ
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ====== [C] 質問文と選択肢 =====================================================
+// LIFF 静的配信
+app.use('/liff', express.static('liff'));
 
-// 画像（ダミー）URL
-const IMG = {
-  pick: 'https://dummyimage.com/600x340/efefef/333&text=%E9%81%B8%E6%8A%9E',
+// ----------------------------- LINE Bot 設定 -------------------------------
+const config = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET
 };
+const client = new line.Client(config);
+// --------------------------------------------------------------------------
 
-// 各ステップのメッセージ生成
-function buildQuestion(step, userAnswers) {
-  switch (step) {
-    case 'FLOOR':
-      return quickPick('工事物件の階数は？', ['1階建て', '2階建て', '3階建て']);
-    case 'LAYOUT':
-      return quickPick('物件の間取りは？', ['1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','4K','4DK','4LDK']);
-    case 'AGE':
-      return quickPick('物件の築年数は？', ['新築','〜10年','〜20年','〜30年','〜40年','〜50年','51年以上']);
-    case 'PAINT_HISTORY':
-      return quickPick('過去に塗装をした経歴は？', ['ある','ない','わからない']);
-    case 'PAINT_HISTORY_AGE':
-      // 「ない」を選んでいればスキップ
-      if (userAnswers.PAINT_HISTORY === 'ない') return null;
-      return quickPick('前回の塗装はいつ頃？', ['〜5年','5〜10年','10〜20年','20〜30年','わからない']);
-    case 'WORK_KIND':
-      return quickPick('ご希望の工事内容は？', ['外壁塗装','屋根塗装','外壁塗装+屋根塗装']);
-    case 'WALL_TYPE':
-      if (!['外壁塗装','外壁塗装+屋根塗装'].includes(userAnswers.WORK_KIND)) return null;
-      return quickPick('外壁の種類は？', ['モルタル','サイディング','タイル','ALC']);
-    case 'ROOF_TYPE':
-      if (!['屋根塗装','外壁塗装+屋根塗装'].includes(userAnswers.WORK_KIND)) return null;
-      return quickPick('屋根の種類は？', ['瓦','スレート','ガルバリウム','トタン']);
-    case 'LEAK':
-      return quickPick('雨漏りや漏水の症状はありますか？', ['雨の日に水滴が落ちる','天井にシミがある','ない']);
-    case 'DISTANCE':
-      return quickPick('隣や裏の家との距離は？（周囲で一番近い距離）', ['30cm以下','50cm以下','70cm以下','70cm以上']);
-    case 'BLUEPRINT_ELEV':
-      return textForUpload('立面図をアップロードしてください。');
-    case 'BLUEPRINT_PLAN':
-      return textForUpload('平面図をアップロードしてください。');
-    case 'BLUEPRINT_SEC':
-      return textForUpload('断面図をアップロードしてください。');
-    case 'PHOTO_FRONT':
-      return textForUpload('正面から撮影した物件の写真をアップロードしてください。\n※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。');
-    case 'PHOTO_RIGHT':
-      return textForUpload('右側から撮影した物件の写真をアップロードしてください。\n※周囲の地面が見える写真でお願いします。');
-    case 'PHOTO_LEFT':
-      return textForUpload('左側から撮影した物件の写真をアップロードしてください。');
-    case 'PHOTO_BACK':
-      return textForUpload('後ろ側から撮影した物件の写真をアップロードしてください。');
-    case 'PHOTO_GARAGE':
-      return textForUpload('車庫の位置がわかる写真をアップロードしてください。');
-    case 'PHOTO_CRACK':
-      return textForUpload('外壁や屋根にヒビ/割れがある場合は写真をアップしてください。（なければ「スキップ」）');
-    case 'SUMMARY':
-      return {
-        type: 'flex',
-        altText: '概算見積',
-        contents: summaryBubble(userAnswers)
-      };
-    default:
-      return { type: 'text', text: 'エラーが発生しました。' };
+// ===== [A] 質問定義（編集可） ===============================================
+// ここを書き換えるだけで順序と内容を差し替えられます。
+// options: [{label: ボタンに出す文字列, value: 保存される値}]
+const QUESTIONS = [
+  {
+    id: 'kaisuu',
+    title: '工事物件の階数は？',
+    options: [
+      { label: '1階建て', value: '1階建て' },
+      { label: '2階建て', value: '2階建て' },
+      { label: '3階建て', value: '3階建て' }
+    ]
+  },
+  {
+    id: '間取り',
+    title: '物件の間取りは？',
+    options: [
+      { label: '1K', value: '1K' }, { label: '1DK', value: '1DK' }, { label: '1LDK', value: '1LDK' },
+      { label: '2K', value: '2K' }, { label: '2DK', value: '2DK' }, { label: '2LDK', value: '2LDK' },
+      { label: '3K', value: '3K' }, { label: '3DK', value: '3DK' }, { label: '3LDK', value: '3LDK' },
+      { label: '4K', value: '4K' }, { label: '4DK', value: '4DK' }, { label: '4LDK', value: '4LDK' }
+    ]
+  },
+  {
+    id: '築年数',
+    title: '物件の築年数は？',
+    options: [
+      { label: '新築', value: '新築' },
+      { label: '〜10年', value: '〜10年' },
+      { label: '〜20年', value: '〜20年' },
+      { label: '〜30年', value: '〜30年' },
+      { label: '〜40年', value: '〜40年' },
+      { label: '〜50年', value: '〜50年' },
+      { label: '51年以上', value: '51年以上' }
+    ]
+  },
+  {
+    id: '塗装歴',
+    title: '過去に塗装をした経歴は？',
+    options: [
+      { label: 'ある', value: 'ある' },
+      { label: 'ない', value: 'ない' },
+      { label: 'わからない', value: 'わからない' }
+    ]
+  },
+  {
+    id: '前回塗装',
+    title: '前回の塗装はいつ頃？',
+    options: [
+      { label: '〜5年', value: '〜5年' },
+      { label: '5〜10年', value: '5〜10年' },
+      { label: '10〜20年', value: '10〜20年' },
+      { label: '20〜30年', value: '20〜30年' },
+      { label: 'わからない', value: 'わからない' }
+    ]
+  },
+  {
+    id: '工事内容',
+    title: 'ご希望の工事内容は？',
+    options: [
+      { label: '外壁塗装', value: '外壁塗装' },
+      { label: '屋根塗装', value: '屋根塗装' },
+      { label: '外壁塗装+屋根塗装', value: '外壁塗装+屋根塗装' }
+    ]
+  },
+  {
+    id: '外壁種類',
+    title: '外壁の種類は？（外壁塗装を選択時のみ）',
+    depends: { key: '工事内容', values: ['外壁塗装', '外壁塗装+屋根塗装'] },
+    options: [
+      { label: 'モルタル', value: 'モルタル' },
+      { label: 'サイディング', value: 'サイディング' },
+      { label: 'タイル', value: 'タイル' },
+      { label: 'ALC', value: 'ALC' }
+    ]
+  },
+  {
+    id: '屋根種類',
+    title: '屋根の種類は？（屋根塗装を選択時のみ）',
+    depends: { key: '工事内容', values: ['屋根塗装', '外壁塗装+屋根塗装'] },
+    options: [
+      { label: '瓦', value: '瓦' },
+      { label: 'スレート', value: 'スレート' },
+      { label: 'ガルバリウム', value: 'ガルバリウム' },
+      { label: 'トタン', value: 'トタン' }
+    ]
+  },
+  {
+    id: '雨漏り',
+    title: '雨漏りや漏水の症状はありますか？',
+    options: [
+      { label: '雨の日に水滴が落ちる', value: '雨の日に水滴が落ちる' },
+      { label: '天井にシミがある', value: '天井にシミがある' },
+      { label: 'ない', value: 'ない' }
+    ]
+  },
+  {
+    id: '距離',
+    title: '隣や裏の家との距離は？（周囲で一番近い距離）',
+    options: [
+      { label: '30cm以下', value: '30cm以下' },
+      { label: '50cm以下', value: '50cm以下' },
+      { label: '70cm以下', value: '70cm以下' },
+      { label: '70cm以上', value: '70cm以上' }
+    ]
   }
-}
+];
+// ========================================================================
 
-// QuickPick（ボタン3～12個）
-function quickPick(title, items) {
-  const columns = items.map(label => ({
-    thumbnailImageUrl: IMG.pick,
-    imageBackgroundColor: '#f5f5f5',
-    text: label,
-    actions: [{ type: 'message', label: '選ぶ', text: label }]
-  }));
+// ===== [B] Flex 生成（編集可） =============================================
+// 画像はダミー（placehold.jp）を使用
+const DUMMY_IMAGE = 'https://placehold.jp/600x300.png';
 
-  return {
-    type: 'template',
-    altText: title,
-    template: {
-      type: 'carousel',
-      columns
-    }
-  };
-}
-
-function textForUpload(text) {
-  return { type: 'text', text: `${text}\n（画像をそのまま送信してください）` };
-}
-
-function summaryBubble(ans) {
-  const lines = [
-    `階数：${ans.FLOOR ?? '-'}`,
-    `間取り：${ans.LAYOUT ?? '-'}`,
-    `築年数：${ans.AGE ?? '-'}`,
-    `過去の塗装：${ans.PAINT_HISTORY ?? '-'}`,
-    (ans.PAINT_HISTORY !== 'ない') ? `前回塗装：${ans.PAINT_HISTORY_AGE ?? '-'}` : null,
-    `工事内容：${ans.WORK_KIND ?? '-'}`,
-    (['外壁塗装','外壁塗装+屋根塗装'].includes(ans.WORK_KIND) ? `外壁：${ans.WALL_TYPE ?? '-'}` : null),
-    (['屋根塗装','外壁塗装+屋根塗装'].includes(ans.WORK_KIND) ? `屋根：${ans.ROOF_TYPE ?? '-'}` : null),
-    `最短距離：${ans.DISTANCE ?? '-'}`,
-  ].filter(Boolean).join('\n');
-
+function buildOptionBubble(title, optLabel, dataPayload) {
   return {
     type: 'bubble',
+    hero: {
+      type: 'image',
+      url: DUMMY_IMAGE,
+      size: 'full',
+      aspectRatio: '20:10',
+      aspectMode: 'cover'
+    },
     body: {
       type: 'box',
       layout: 'vertical',
       contents: [
-        { type: 'text', text: 'ありがとうございます。', weight: 'bold', size: 'md' },
-        { type: 'text', text: '工事代金は', margin: 'md' },
-        { type: 'text', text: '¥0,000,000', size: 'xxl', weight: 'bold', color: '#0E9E44' },
-        { type: 'text', text: '※ご入力いただいた情報を元に計算した概算見積もりです。', wrap: true, margin: 'md', size: 'sm', color: '#555' },
-        { type: 'separator', margin: 'md' },
-        { type: 'text', text: lines, wrap: true, margin: 'md' },
-        { type: 'separator', margin: 'md' },
-        { type: 'text', text: '正確なお見積もりが必要な方はこちら', margin: 'md' },
+        { type: 'text', text: optLabel, weight: 'bold', size: 'lg', wrap: true }
       ]
     },
     footer: {
       type: 'box',
       layout: 'vertical',
-      contents: [{
-        type: 'button',
-        style: 'primary',
-        color: '#00C853',
-        action: {
-          type: 'uri',
-          label: '現地調査なしでLINE見積もり',
-          uri: `https://liff.line.me/${process.env.LIFF_ID}` // ここでLIFFへ
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#1DB446',
+          action: {
+            type: 'postback',
+            label: '選ぶ',
+            data: JSON.stringify(dataPayload)
+          }
         }
-      }]
+      ],
+      flex: 0
     }
   };
 }
 
-// ====== [D] 送信ユーティリティ =================================================
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+function buildQuestionFlex(question, index) {
+  const bubbles = question.options.slice(0, 10).map(opt => {
+    const payload = { type: 'answer', qIndex: index, key: question.id, value: opt.value };
+    return buildOptionBubble(question.title, opt.label, payload);
+  });
 
-async function safeReply(replyToken, messages) {
-  try {
-    await client.replyMessage(replyToken, Array.isArray(messages) ? messages : [messages]);
-  } catch (e) {
-    console.error('[safeReply] error', e?.response?.data || e);
-  }
+  return {
+    type: 'flex',
+    altText: question.title,
+    contents: { type: 'carousel', contents: bubbles }
+  };
+}
+// ========================================================================
+
+// ===== [C] 返信テンプレート ================================================
+function replyText(token, text) {
+  return client.replyMessage(token, { type: 'text', text });
 }
 
-async function safePush(to, messages, retry = 1) {
-  try {
-    await client.pushMessage(to, Array.isArray(messages) ? messages : [messages]);
-  } catch (e) {
-    console.error('[safePush] error', e?.response?.data || e);
-    if (retry > 0) {
-      await sleep(400);
-      return safePush(to, messages, retry - 1);
+function pushText(to, text) {
+  return client.pushMessage(to, { type: 'text', text });
+}
+
+function replyFlex(token, flex) {
+  return client.replyMessage(token, flex);
+}
+// ========================================================================
+
+// ===== [D] 状態管理ヘルパ ==================================================
+const sessions = new Map(); // userId -> { step, answers }
+
+function startSession(userId) {
+  sessions.set(userId, { step: 0, answers: {} });
+}
+
+function getSession(userId) {
+  let s = sessions.get(userId);
+  if (!s) {
+    s = { step: 0, answers: {} };
+    sessions.set(userId, s);
+  }
+  return s;
+}
+
+function nextQuestionFor(userId) {
+  const s = getSession(userId);
+
+  for (let i = s.step; i < QUESTIONS.length; i++) {
+    const q = QUESTIONS[i];
+    if (q.depends) {
+      const base = s.answers[q.depends.key];
+      if (!q.depends.values.includes(base)) {
+        // 条件を満たさない質問はスキップ
+        s.step = i + 1;
+        continue;
+      }
     }
+    return { index: i, question: q };
   }
+  return null; // すべて完了
 }
+// ========================================================================
 
-// 次のステップへ（pushで送る）
-async function askNext(userId) {
-  const session = sessions.get(userId);
-  if (!session) return;
-  // 次に質問すべきステップを探索（スキップ条件を考慮）
-  while (session.stepIndex < STEPS.length) {
-    const step = STEPS[session.stepIndex];
-    const msg = buildQuestion(step, session.answers);
-    if (msg) {
-      await sleep(250); // 競合回避
-      await safePush(userId, msg);
-      return;
-    }
-    session.stepIndex += 1; // スキップ
+// ===== [E] Webhook & イベント処理 ==========================================
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(events.map(handleEvent));
+    return res.status(200).json(results);
+  } catch (e) {
+    console.error('[webhook error]', e);
+    return res.status(200).end();
   }
-}
-
-// ====== [E] Webhook ハンドラ ===================================================
-app.post('/webhook', async (req, res) => {
-  const events = req.body.events;
-  await Promise.all(events.map(handleEvent));
-  res.status(200).end();
 });
 
 async function handleEvent(event) {
-  const userId = event.source?.userId;
-  if (!userId) return;
-
-  // セッション初期化
-  if (!sessions.has(userId)) {
-    sessions.set(userId, { stepIndex: -1, answers: {} });
-  }
-  const session = sessions.get(userId);
-
-  // トリガー（リッチメニュー or テキスト）
+  // テキストメッセージ
   if (event.type === 'message' && event.message.type === 'text') {
-    const text = event.message.text.trim();
+    const text = (event.message.text || '').trim();
+    const userId = event.source.userId;
+
+    // トリガー：カンタン見積りを依頼
     if (text === 'カンタン見積りを依頼') {
-      // セッション再初期化
-      session.stepIndex = 0;
-      session.answers = {};
-      await safeReply(event.replyToken, { type: 'text', text: '見積もりを開始します。以下の質問にお答えください。' });
-      return askNext(userId);
+      startSession(userId);
+      await replyText(event.replyToken, '見積もりを開始します。以下の質問にお答えください。');
+
+      const nq = nextQuestionFor(userId);
+      if (nq) {
+        return replyFlex(event.replyToken, buildQuestionFlex(nq.question, nq.index));
+      }
+      return replyText(event.replyToken, '質問が見つかりませんでした。');
     }
 
-    // 通常回答
-    const step = STEPS[session.stepIndex];
-    if (!step) return;
-
-    // アップロード系は画像でも受け付けるので、ここではテキスト回答系のみ格納
-    if (['FLOOR','LAYOUT','AGE','PAINT_HISTORY','PAINT_HISTORY_AGE','WORK_KIND','WALL_TYPE','ROOF_TYPE','LEAK','DISTANCE']
-      .includes(step)) {
-      session.answers[step] = text;
-      session.stepIndex += 1;
-      // ACK は reply、次の質問は push
-      await safeReply(event.replyToken, { type: 'text', text: '了解しました。' });
-      return askNext(userId);
-    }
-
-    // 「スキップ」の取り扱い（ヒビ/割れ写真など）
-    if (step === 'PHOTO_CRACK' && text === 'スキップ') {
-      session.answers[step] = 'なし（スキップ）';
-      session.stepIndex += 1;
-      await safeReply(event.replyToken, { type: 'text', text: '了解しました。' });
-      return askNext(userId);
-    }
+    // その他のテキストは無視（必要ならここにFAQなど）
+    return Promise.resolve(null);
   }
 
-  // 画像アップロード
-  if (event.type === 'message' && event.message.type === 'image') {
-    const step = STEPS[sessions.get(userId).stepIndex];
-    const m = event.message;
-    // 実装簡略化：画像IDだけ保存（実ファイルはLINE CDN）
-    sessions.get(userId).answers[step] = `image:${m.id}`;
-    sessions.get(userId).stepIndex += 1;
-    await safeReply(event.replyToken, { type: 'text', text: '画像を受け取りました。' });
-    return askNext(userId);
+  // Flex のボタンからくる Postback 応答
+  if (event.type === 'postback' && event.postback.data) {
+    const userId = event.source.userId;
+    let payload = {};
+    try {
+      payload = JSON.parse(event.postback.data);
+    } catch {
+      return replyText(event.replyToken, 'データ形式が不正です。やり直してください。');
+    }
+
+    if (payload.type === 'answer') {
+      // 回答を保存
+      const s = getSession(userId);
+      s.answers[payload.key] = payload.value;
+      s.step = payload.qIndex + 1;
+
+      // 次の質問へ
+      const nq = nextQuestionFor(userId);
+      if (nq) {
+        // 「了解しました」などの軽いレスを先に送ってから次のカードを返す
+        await client.replyMessage(event.replyToken, [
+          { type: 'text', text: `「${payload.value}」で承りました。次の質問です。` },
+          buildQuestionFlex(nq.question, nq.index)
+        ]);
+        return;
+      }
+
+      // すべて完了 → 概算表示 & LIFF へ
+      const estimate = calcRoughEstimate(s.answers);
+      const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}`;
+      const summaryText =
+        `ありがとうございます。概算の工事代金は *¥${estimate.toLocaleString()}* です。\n` +
+        `※ご入力いただいた情報を元に算出した概算金額です。\n\n` +
+        `詳しいお見積りをご希望の方は、下のボタンから必要事項をご入力ください。`;
+
+      const buttonFlex = {
+        type: 'flex',
+        altText: '詳しい見積りをご希望の方へ',
+        contents: {
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            spacing: 'md',
+            contents: [
+              { type: 'text', text: '詳しい見積りをご希望の方へ', weight: 'bold', size: 'lg' },
+              { type: 'text', text: '現地調査なしで、詳細なお見積りをLINEでお知らせします。', wrap: true },
+              { type: 'text', text: `見積り金額（概算）：¥${estimate.toLocaleString()}`, weight: 'bold', size: 'md' }
+            ]
+          },
+          footer: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'button',
+                style: 'primary',
+                color: '#1DB446',
+                action: { type: 'uri', label: '現地調査なしで見積を依頼', uri: liffUrl }
+              }
+            ]
+          }
+        }
+      };
+
+      await client.replyMessage(event.replyToken, [
+        { type: 'text', text: summaryText },
+        buttonFlex
+      ]);
+
+      // セッション終了
+      sessions.delete(userId);
+      return;
+    }
+
+    return replyText(event.replyToken, '不明な操作です。最初からやり直してください。');
   }
+
+  return Promise.resolve(null);
 }
 
-// ====== [F] Healthチェック ======================================================
-app.get('/health', (_, res) => res.status(200).send('ok'));
+// 概算計算のダミー（要件に合わせて実装を差し替えてください）
+function calcRoughEstimate(answers) {
+  // かなり簡略化したサンプルの概算
+  let base = 600000; // 基本
+  if (answers['工事内容'] === '外壁塗装+屋根塗装') base += 300000;
+  if (answers['工事内容'] === '屋根塗装') base += 150000;
 
-// ====== [G] 起動 ===============================================================
-const PORT = process.env.PORT || 10000;
+  if (answers['kaisuu'] === '3階建て') base += 200000;
+  if (answers['kaisuu'] === '2階建て') base += 80000;
+
+  if (answers['距離'] === '30cm以下') base += 120000; // 足場難
+  if (answers['距離'] === '50cm以下') base += 60000;
+
+  return base;
+}
+
+// ----------------------------- サーバ起動 -----------------------------------
 app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
 });
