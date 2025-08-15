@@ -10,45 +10,81 @@ const PORT = process.env.PORT || 10000;
 
 // LINE Bot設定
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || 'dummy_token',
+  channelSecret: process.env.LINE_CHANNEL_SECRET || 'dummy_secret',
 };
+
+// 環境変数チェック
+const requiredEnvVars = [
+  'LINE_CHANNEL_ACCESS_TOKEN',
+  'LINE_CHANNEL_SECRET',
+  'LIFF_ID'
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.warn('[WARN] 以下の環境変数が設定されていません:');
+  missingEnvVars.forEach(varName => console.warn(`  - ${varName}`));
+  console.warn('[WARN] LINE Bot機能は無効化されます。');
+}
+
 const client = new Client(config);
 const lineMiddleware = middleware(config);
 
 // Cloudinary設定（画像アップロード用）
 const cloudinary = require('cloudinary').v2;
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+  console.log('[INFO] Cloudinary設定完了');
+} else {
+  console.warn('[WARN] Cloudinary環境変数が未設定です。画像アップロード機能は無効化されます。');
+}
 
 // Google Sheets設定
 const sheets = google.sheets('v4');
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    type: 'service_account',
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-    token_uri: 'https://oauth2.googleapis.com/token',
-  },
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+let auth = null;
+
+if (process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+  auth = new google.auth.GoogleAuth({
+    credentials: {
+      type: 'service_account',
+      project_id: process.env.GOOGLE_PROJECT_ID,
+      private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      client_email: process.env.GOOGLE_CLIENT_EMAIL,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  console.log('[INFO] Google Sheets設定完了');
+} else {
+  console.warn('[WARN] Google Sheets環境変数が未設定です。スプレッドシート機能は無効化されます。');
+}
 
 // メール送信設定
 const nodemailer = require('nodemailer');
-const transporter = nodemailer.createTransporter({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+let transporter = null;
+
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  transporter = nodemailer.createTransporter({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+  console.log('[INFO] メール送信設定完了');
+} else {
+  console.warn('[WARN] メール送信環境変数が未設定です。メール機能は無効化されます。');
+}
 
 // 静的ファイル配信
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
@@ -681,6 +717,10 @@ async function handleEvent(ev){
 
 // Cloudinaryに画像をアップロード
 async function uploadImageToCloudinary(buffer, filename) {
+  if (!process.env.CLOUDINARY_CLOUD_NAME) {
+    throw new Error('Cloudinary環境変数が設定されていません');
+  }
+  
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream(
       {
@@ -709,8 +749,8 @@ async function uploadImageToCloudinary(buffer, filename) {
 async function writeToSpreadsheet(data) {
   try {
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-    if (!spreadsheetId) {
-      console.log('[WARN] スプレッドシートIDが設定されていません');
+    if (!spreadsheetId || !auth) {
+      console.log('[WARN] スプレッドシート機能が無効化されています');
       return;
     }
 
@@ -771,8 +811,8 @@ async function writeToSpreadsheet(data) {
 async function sendEmail(data) {
   try {
     const toEmail = process.env.EMAIL_TO;
-    if (!toEmail) {
-      console.log('[WARN] 送信先メールアドレスが設定されていません');
+    if (!toEmail || !transporter) {
+      console.log('[WARN] メール送信機能が無効化されています');
       return;
     }
 
