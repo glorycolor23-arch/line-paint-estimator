@@ -1,5 +1,5 @@
 /* =========================================================
- * server.js  完全版（最終ステップでの停止を解消）
+ * server.js  完全版（最終配信のフォールバック実装）
  * ========================================================= */
 
 import express from 'express';
@@ -106,13 +106,25 @@ async function safeReply(replyToken, messages){
     return false;
   }
 }
-async function safePush(to, messages){
-  try{
-    await client.pushMessage(to, Array.isArray(messages)?messages:[messages]);
-    return true;
-  }catch(err){
-    console.error('[safePush error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
-    return false;
+
+/** push をリトライ付きで実行。失敗したらエラー本文を返す */
+async function tryPush(userId, messages, retryDelays = [1000, 3000, 5000]) {
+  try {
+    await client.pushMessage(userId, Array.isArray(messages) ? messages : [messages]);
+    return { ok: true };
+  } catch (err) {
+    const body = err?.response?.data || err?.message || err;
+    console.error('[deliver error 1st]', JSON.stringify(body, null, 2));
+    for (const d of retryDelays) {
+      await new Promise(r => setTimeout(r, d));
+      try {
+        await client.pushMessage(userId, Array.isArray(messages) ? messages : [messages]);
+        return { ok: true };
+      } catch (e2) {
+        console.error(`[deliver error retry ${d}ms]`, JSON.stringify(e2?.response?.data || e2?.message || e2, null, 2));
+      }
+    }
+    return { ok: false, body };
   }
 }
 
@@ -178,9 +190,42 @@ function currentIndex(ans){
   return idx;
 }
 
+/** 結果を多段フォールバックで配信 */
+async function deliverEstimate(userId, answers){
+  const price = calcRoughPrice(answers);
+
+  const msgsFlex = [
+    { type:'text', text:'ありがとうございます。概算を作成しました。' },
+    { type:'text', text:`【回答の確認】\n${summarize(answers)}` },
+    buildEstimateFlex(price),
+  ];
+
+  // 1) 通常（Flex 含む）
+  let r = await tryPush(userId, msgsFlex);
+  if (r.ok) return true;
+
+  // 2) Flex なし（テキストのみ）
+  const msgsText = [
+    { type:'text', text:'ありがとうございます。概算を作成しました。' },
+    { type:'text', text:`概算金額：￥${price.toLocaleString()}` },
+    { type:'text', text:`【回答の確認】\n${summarize(answers)}` },
+    { type:'text', text:'正式なお見積りが必要な方は、メニューの「現地調査なしで見積を依頼」を押してください。' },
+  ];
+  r = await tryPush(userId, msgsText);
+  if (r.ok) return true;
+
+  // 3) 最小 (一行だけ) ―― ここまで届かなければ LINE 側/回線の一時不調の可能性が高い
+  const msgsMini = { type:'text', text:`概算：￥${price.toLocaleString()}（詳細は「見積り結果」で再送）` };
+  r = await tryPush(userId, msgsMini);
+  if (r.ok) return true;
+
+  console.error('[deliver failed all]', JSON.stringify(r.body || {}, null, 2));
+  return false;
+}
+
 // 次の質問 or 最終結果
 async function sendNext(userId, replyToken=null){
-  const sess = sessions.get(userId) || {answers:{}, step:0};
+  const sess = sessions.get(userId) || {answers:{}, last:{}, step:0};
   const idx = currentIndex(sess.answers);
 
   // ----- 最終 -----
@@ -188,19 +233,12 @@ async function sendNext(userId, replyToken=null){
     // まず即時に「作成中」返信（replyToken 可用なら）
     if (replyToken) await safeReply(replyToken, { type:'text', text:'概算を作成中です。数秒お待ちください。' });
 
-    const price = calcRoughPrice(sess.answers);
-    const msgs  = [
-      { type:'text', text:'ありがとうございます。概算を作成しました。' },
-      { type:'text', text:`【回答の確認】\n${summarize(sess.answers)}` },
-      buildEstimateFlex(price),
-    ];
-
-    const ok = await safePush(userId, msgs);  // push で必ず配信
+    const ok = await deliverEstimate(userId, sess.answers);
     if (ok) {
       sessions.delete(userId);                // 送達成功のみ削除
     } else {
       // 失敗時はセッション保持。ユーザーから「見積り結果」で再送可能。
-      await safePush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
+      await tryPush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
     }
     return;
   }
@@ -213,7 +251,7 @@ async function sendNext(userId, replyToken=null){
   ];
 
   if (replyToken) await safeReply(replyToken, messages);
-  else            await safePush(userId,   messages);
+  else            await tryPush(userId, messages);
 }
 
 // 停止確認
@@ -229,7 +267,7 @@ async function confirmStop(userId){
       ]
     }
   };
-  await safePush(userId, t);
+  await tryPush(userId, t);
 }
 
 // イベント処理
@@ -271,10 +309,11 @@ async function handleEvent(ev){
   if (ev.type === 'message' && ev.message.type === 'text'){
     const text = (ev.message.text||'').trim();
 
-    // 手動再配信
+    // 手動再配信（※ 作成中メッセージは出さず即 deliver）
     if (CMD_RESULT.includes(text)){
       if (currentIndex(sess.answers) >= QUESTIONS.length){
-        await sendNext(userId, ev.replyToken); // push で再送される
+        const ok = await deliverEstimate(userId, sess.answers);
+        if (ok) sessions.delete(userId);
       }else{
         await safeReply(ev.replyToken, { type:'text', text:'まだ最後の設問まで完了していません。' });
       }
