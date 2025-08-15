@@ -100,6 +100,24 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
 // 静的ファイル配信
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
 
+// ヘルスチェック用エンドポイント（Render用）
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'LINE Paint Estimator Server is running',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 // LIFF環境変数注入
 app.get('/liff/env.js', (req, res) => {
   const liffId = process.env.LIFF_ID;
@@ -1069,7 +1087,11 @@ app.get('/api/debug/sessions', (req, res) => {
 });
 
 // サーバー起動
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[INFO] サーバーが起動しました`);
+  console.log(`[INFO] ポート: ${PORT}`);
+  console.log(`[INFO] 環境: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`[INFO] ヘルスチェック: http://localhost:${PORT}/health`);
   console.log(`listening on ${PORT}`);
 });
 
