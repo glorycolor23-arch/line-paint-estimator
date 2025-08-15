@@ -396,6 +396,12 @@ async function confirmStop(userId){
   await safePush(userId, t);
 }
 
+// 見積りフロー中かどうかを判定
+function isInEstimateFlow(sess) {
+  // セッションが存在し、回答が1つ以上あるか、まだ完了していない場合
+  return sess && (Object.keys(sess.answers || {}).length > 0 || sess.step > 0) && currentIndex(sess.answers) < QUESTIONS.length;
+}
+
 // イベント処理
 async function handleEvent(ev){
   const userId = ev.source?.userId;
@@ -403,8 +409,8 @@ async function handleEvent(ev){
 
   console.log(`[DEBUG] イベント受信: ${ev.type}, ユーザー: ${userId}`);
 
-  if (!sessions.has(userId)) sessions.set(userId, {answers:{}, last:{}, step:0});
-  const sess = sessions.get(userId);
+  // セッション初期化は見積り開始時のみ行う
+  let sess = sessions.get(userId);
 
   // postback
   if (ev.type === 'postback'){
@@ -413,6 +419,12 @@ async function handleEvent(ev){
     console.log(`[DEBUG] postback データ:`, data);
     
     if (data.t === 'answer'){
+      // セッションが存在しない場合は作成
+      if (!sess) {
+        sess = {answers:{}, last:{}, step:0};
+        sessions.set(userId, sess);
+      }
+      
       // 重複防止：同じ質問に同じ値を連打されたら無視して次へ
       if (sess.last?.q === data.q && sess.last?.v === data.v){
         console.log(`[DEBUG] 重複回答を検出、次の質問へ`);
@@ -442,21 +454,27 @@ async function handleEvent(ev){
     const text = (ev.message.text||'').trim();
     console.log(`[DEBUG] テキストメッセージ: ${text}`);
 
-    // 手動再配信
+    // 手動再配信（見積りフロー中のみ）
     if (CMD_RESULT.includes(text)){
-      console.log(`[DEBUG] 見積り結果の再送要求`);
-      if (currentIndex(sess.answers) >= QUESTIONS.length){
+      if (sess && currentIndex(sess.answers) >= QUESTIONS.length){
+        console.log(`[DEBUG] 見積り結果の再送要求`);
         await sendNext(userId, ev.replyToken); // push で再送される
-      }else{
-        await safeReply(ev.replyToken, { type:'text', text:'まだ最後の設問まで完了していません。' });
+      } else {
+        // 見積りフロー外では普通のトーク
+        console.log(`[DEBUG] 見積りフロー外での「見積り結果」発言 - 無反応`);
       }
       return;
     }
 
-    // リセット
+    // リセット（見積りフロー中のみ）
     if (CMD_RESET.includes(text)){
-      sessions.delete(userId);
-      await safeReply(ev.replyToken, { type:'text', text:'初期化しました。もう一度「カンタン見積りを依頼」と入力してください。' });
+      if (sess && isInEstimateFlow(sess)) {
+        sessions.delete(userId);
+        await safeReply(ev.replyToken, { type:'text', text:'見積りを初期化しました。もう一度「カンタン見積りを依頼」と入力してください。' });
+      } else {
+        // 見積りフロー外では普通のトーク
+        console.log(`[DEBUG] 見積りフロー外での「リセット」発言 - 無反応`);
+      }
       return;
     }
 
@@ -469,15 +487,17 @@ async function handleEvent(ev){
       return;
     }
 
-    // 見積り途中に自由入力が来た場合
-    if (currentIndex(sess.answers) < QUESTIONS.length){
-      await safeReply(ev.replyToken, { type:'text', text:'ボタンからお選びください。選択肢を再表示します。' });
+    // 見積りフロー中の自由入力 → 停止確認
+    if (sess && isInEstimateFlow(sess)){
+      console.log(`[DEBUG] 見積りフロー中の自由入力 - 停止確認`);
+      await safeReply(ev.replyToken, { type:'text', text:'ボタンからお選びください。' });
       await confirmStop(userId);
       return;
     }
 
-    // 待受
-    await safeReply(ev.replyToken, { type:'text', text:'「カンタン見積りを依頼」と入力すると見積もりを開始します。' });
+    // 見積りフロー外 → 普通のトーク（無反応）
+    console.log(`[DEBUG] 見積りフロー外での自由発言 - 無反応`);
+    // 何も返信しない（普通のトーク）
   }
 }
 
