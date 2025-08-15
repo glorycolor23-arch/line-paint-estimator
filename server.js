@@ -1,8 +1,8 @@
 /****************************************************
- * 外装工事オンライン見積もり — 安定版（Q10後の停止対策）
- * 変更点:
- *  - すべての回答処理を「reply=確認メッセージ」「push=次の質問/概算」に分離
- *  - Q10 の直後は reply で「計算中…」を返し、push で概算＋LIFFボタンを送信
+ * 外装工事オンライン見積もり — 安定版＋中断確認
+ *  - Render のヘルスチェック: GET /health, GET /
+ *  - 各回答は reply(ACK) → push(次の質問/概算) の二段構え
+ *  - 質問以外の発言が来たら「見積りを停止しますか？」確認
  ****************************************************/
 
 import express from 'express';
@@ -21,7 +21,7 @@ const {
   CHANNEL_ACCESS_TOKEN,
   CHANNEL_SECRET,
   PORT,
-  LIFF_ID, // 例: 2007914959-XXXX
+  LIFF_ID, // 例: 2007914959-XXXX（/liff/env.js で返す用）
   EMAIL_WEBAPP_URL,
   EMAIL_TO,
   GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -41,7 +41,7 @@ if (!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !GSH
   console.warn('[WARN] Sheets 認証未設定（シート追記はスキップ）');
 }
 
-/* LIFF 遷移先 */
+/* LIFF 遷移先（Render 公開URLに合わせる） */
 const LIFF_BUTTON_URL = `https://line-paint.onrender.com/liff/index.html`;
 
 /* ---------- LINE Client ---------- */
@@ -50,7 +50,12 @@ const client = new line.Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
 /* ---------- Express ---------- */
 const app = express();
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
-app.get('/health', (_req, res) => res.send('ok'));
+
+/* ヘルスチェック（Render用） */
+app.get('/', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+/* LIFF ID を返す（フロントが読み込む） */
 app.get('/liff/env.js', (_req, res) => {
   res.type('application/javascript')
      .send(`window.__LIFF_ENV__=${JSON.stringify({ LIFF_ID })};`);
@@ -77,7 +82,7 @@ function getState(uid){
   const now = Date.now();
   const s = sessions.get(uid);
   if (!s || now - s.updated > TTL) {
-    const ns = { step: 0, answers: {}, updated: now };
+    const ns = { step: 0, answers: {}, updated: now }; // step=0 はアイドル（通常トーク）
     sessions.set(uid, ns); return ns;
   }
   s.updated = now; return s;
@@ -112,6 +117,20 @@ function carousel(title, opts){
       }))
     }
   }));
+}
+function confirmStopTemplate(){
+  return {
+    type:'template',
+    altText:'見積りを停止しますか？',
+    template:{
+      type:'confirm',
+      text:'見積りを停止しますか？',
+      actions:[
+        { type:'postback', label:'はい', data:'action=stop&v=yes', displayText:'はい' },
+        { type:'postback', label:'いいえ', data:'action=stop&v=no', displayText:'いいえ' },
+      ]
+    }
+  };
 }
 
 /* ---------- 質問（Q1〜Q10） ---------- */
@@ -223,6 +242,7 @@ function nextMessagesFor(s){
   if (s.step===9) return [ ...Q9() ];
   if (s.step===10) return [ ...Q10() ];
   if (s.step===11) {
+    const a = s.answers;
     const price = estimateCost(a);
     const summary = [
       '【回答の確認】',
@@ -384,7 +404,7 @@ app.post('/webhook', async (req,res)=>{
       const uid = ev.source.userId;
       const s   = getState(uid);
 
-      // 友だち追加など
+      /* 友だち追加/グループ参加 */
       if(ev.type==='follow' || ev.type==='join'){
         reset(uid);
         const ns = getState(uid); ns.step=1;
@@ -392,6 +412,24 @@ app.post('/webhook', async (req,res)=>{
         continue;
       }
 
+      /* Postback: 停止確認 */
+      if(ev.type==='postback'){
+        const p = new URLSearchParams(ev.postback.data || '');
+        if (p.get('action') === 'stop') {
+          const v = p.get('v');
+          if (v === 'yes') {
+            reset(uid); // step=0 (idle)
+            await reply(ev.replyToken, t('見積りを停止しました。通常のトークをどうぞ。'));
+            // idle時は何も送らない（手動で会話可能）
+          } else {
+            await reply(ev.replyToken, t('見積りを継続します。'));
+            await push(uid, nextMessagesFor(s));
+          }
+        }
+        continue;
+      }
+
+      /* メッセージ: テキスト */
       if(ev.type==='message' && ev.message.type==='text'){
         const text=(ev.message.text||'').trim();
 
@@ -411,13 +449,19 @@ app.post('/webhook', async (req,res)=>{
           continue;
         }
 
-        // 回答共通: まずは reply で ACK、続けて push で次の質問/概算
+        // idle（通常トーク）中はボット応答しない
+        if(s.step===0){
+          // ここでは返信しない → 管理側と通常トークが可能
+          continue;
+        }
+
+        // 回答ACK → 次の質問/概算を push
         const ack = async(msg='承りました。次の質問をお送りします。')=>{
           await reply(ev.replyToken, t(msg));
           await push(uid, nextMessagesFor(s));
         };
 
-        // 各ステップ
+        // 各ステップの判定
         if(s.step===1 && ['1階建て','2階建て','3階建て'].includes(text)){ s.answers.q1_floors=text; s.step=2; await ack(`「${text}」で承りました。`); continue; }
 
         if(s.step===2){
@@ -469,21 +513,24 @@ app.post('/webhook', async (req,res)=>{
           const list=['30cm以下','50cm以下','70cm以下','70cm以上'];
           if(list.includes(text)){
             s.answers.q10_dist=text; s.step=11;
-            // ★ ここが重要：まず reply で軽いメッセージ、すぐ後で push で概算＋LIFF
             await reply(ev.replyToken, t('ありがとうございます。概算を作成しました。'));
             await push(uid, nextMessagesFor(s));
             continue;
           }
         }
 
-        // 認識できない入力
-        await reply(ev.replyToken, t('カードの「選ぶ」ボタンからお答えください。'));
+        // 想定外の発言 → 中断確認を reply
+        await reply(ev.replyToken, confirmStopTemplate());
         continue;
       }
 
-      // 画像など
+      /* その他（画像など） */
       if(ev.type==='message' && ev.message.type!=='text'){
-        await reply(ev.replyToken, t('メッセージを受信しました。カードの「選ぶ」から操作してください。'));
+        if(getState(uid).step===0){
+          // idle中は何も返信しない
+          continue;
+        }
+        await reply(ev.replyToken, confirmStopTemplate());
       }
     }catch(e){ console.error('event error:', e?.response?.data || e); }
   }
