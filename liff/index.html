@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>見積り依頼フォーム</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style_step.css">
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script src="env.js"></script>
 </head>
@@ -12,7 +12,12 @@
     <div class="container">
         <header>
             <h1>見積り依頼フォーム</h1>
-            <p class="subtitle">正確なお見積りのため、以下の情報をご入力ください</p>
+            <div class="step-indicator">
+                <div class="step active" id="step-indicator-1">1</div>
+                <div class="step" id="step-indicator-2">2</div>
+                <div class="step" id="step-indicator-3">3</div>
+                <div class="step" id="step-indicator-4">4</div>
+            </div>
         </header>
 
         <div id="loading" class="loading">
@@ -25,10 +30,16 @@
             <button onclick="location.reload()">再読み込み</button>
         </div>
 
-        <form id="estimate-form" style="display: none;">
+        <!-- ステップ1: 基本情報 -->
+        <div id="step1" class="step-content" style="display: none;">
+            <div class="step-header">
+                <h2>ステップ1: 基本情報</h2>
+                <p>お名前と電話番号をご入力ください</p>
+            </div>
+
             <!-- 概算見積り表示 -->
             <div class="section">
-                <h2>概算見積り結果</h2>
+                <h3>概算見積り結果</h3>
                 <div id="estimate-summary" class="estimate-summary">
                     <div id="price-display" class="price-display">
                         <span class="price-label">概算金額</span>
@@ -38,10 +49,7 @@
                 </div>
             </div>
 
-            <!-- お客様情報入力 -->
-            <div class="section">
-                <h2>お客様情報</h2>
-                
+            <form id="step1-form">
                 <div class="form-group">
                     <label for="name">お名前 <span class="required">*</span></label>
                     <input type="text" id="name" name="name" required>
@@ -49,107 +57,146 @@
 
                 <div class="form-group">
                     <label for="phone">電話番号 <span class="required">*</span></label>
-                    <input type="tel" id="phone" name="phone" required>
+                    <input type="tel" id="phone" name="phone" inputmode="numeric" pattern="[0-9]*" required>
+                    <small>数字のみ入力してください（ハイフンなし）</small>
                 </div>
 
+                <div class="step-buttons">
+                    <button type="submit" class="next-btn">次へ</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ステップ2: 住所情報 -->
+        <div id="step2" class="step-content" style="display: none;">
+            <div class="step-header">
+                <h2>ステップ2: 住所情報</h2>
+                <div class="notice">
+                    <p><strong>ご注意</strong></p>
+                    <p>住所のご入力は物件の区画を確認するためであり、無断で営業訪問などは一切行いませんのでご安心ください。</p>
+                </div>
+            </div>
+
+            <form id="step2-form">
                 <div class="form-group">
                     <label for="zipcode">郵便番号 <span class="required">*</span></label>
-                    <input type="text" id="zipcode" name="zipcode" placeholder="例: 123-4567" required>
-                    <small>※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。</small>
+                    <input type="text" id="zipcode" name="zipcode" placeholder="例: 1234567" inputmode="numeric" pattern="[0-9]*" required>
+                    <small>7桁の数字を入力してください（ハイフンなし）</small>
                 </div>
 
                 <div class="form-group">
                     <label for="address1">ご住所（自動入力） <span class="required">*</span></label>
                     <input type="text" id="address1" name="address1" readonly required>
-                    <small>※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。</small>
                 </div>
 
                 <div class="form-group">
                     <label for="address2">以降の住所</label>
                     <input type="text" id="address2" name="address2" placeholder="建物名・部屋番号など">
-                    <small>※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。</small>
                 </div>
+
+                <div class="step-buttons">
+                    <button type="button" class="prev-btn" onclick="goToStep(1)">戻る</button>
+                    <button type="submit" class="next-btn">次へ</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ステップ3: 写真アップロード -->
+        <div id="step3" class="step-content" style="display: none;">
+            <div class="step-header">
+                <h2>ステップ3: 図面・写真アップロード</h2>
+                <p>必要な図面や写真をアップロードしてください</p>
             </div>
 
-            <!-- 図面・写真アップロード -->
-            <div class="section">
-                <h2>図面・写真アップロード</h2>
-                
-                <div class="upload-group">
-                    <label>立面図をアップロードしてください。</label>
-                    <input type="file" id="elevation" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="elevation-preview"></div>
+            <form id="step3-form">
+                <div class="upload-section">
+                    <div class="upload-group">
+                        <label>立面図</label>
+                        <input type="file" id="elevation" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="elevation-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>平面図</label>
+                        <input type="file" id="floor-plan" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="floor-plan-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>断面図</label>
+                        <input type="file" id="section" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="section-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>正面写真</label>
+                        <small>足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
+                        <input type="file" id="front-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="front-photo-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>右側写真</label>
+                        <small>足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
+                        <input type="file" id="right-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="right-photo-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>左側写真</label>
+                        <small>足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
+                        <input type="file" id="left-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="left-photo-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>後ろ側写真</label>
+                        <small>足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
+                        <input type="file" id="back-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="back-photo-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>車庫写真</label>
+                        <input type="file" id="garage-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="garage-photo-preview"></div>
+                    </div>
+
+                    <div class="upload-group">
+                        <label>損傷写真</label>
+                        <small>外壁や屋根にヒビや割れがある場合アップロードしてください。</small>
+                        <input type="file" id="damage-photo" name="photos" accept="image/*" multiple>
+                        <div class="upload-preview" id="damage-photo-preview"></div>
+                    </div>
                 </div>
 
-                <div class="upload-group">
-                    <label>平面図をアップロードしてください。</label>
-                    <input type="file" id="floor-plan" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="floor-plan-preview"></div>
+                <div class="step-buttons">
+                    <button type="button" class="prev-btn" onclick="goToStep(2)">戻る</button>
+                    <button type="submit" class="next-btn">次へ</button>
                 </div>
+            </form>
+        </div>
 
-                <div class="upload-group">
-                    <label>断面図をアップロードしてください。</label>
-                    <input type="file" id="section" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="section-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>正面から撮影した物件の写真をアップロードしてください。</label>
-                    <small>※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
-                    <input type="file" id="front-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="front-photo-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>右側から撮影した物件の写真をアップロードしてください。</label>
-                    <small>※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
-                    <input type="file" id="right-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="right-photo-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>左側から撮影した物件の写真をアップロードしてください。</label>
-                    <small>※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
-                    <input type="file" id="left-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="left-photo-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>後ろ側から撮影した物件の写真をアップロードしてください。</label>
-                    <small>※足場を設置する箇所を確認しますので、周囲の地面が見える写真でお願いします。</small>
-                    <input type="file" id="back-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="back-photo-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>車庫の位置がわかる写真をアップロードしてください。</label>
-                    <input type="file" id="garage-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="garage-photo-preview"></div>
-                </div>
-
-                <div class="upload-group">
-                    <label>外壁や屋根にヒビや割れがある場合アップロードしてください。</label>
-                    <input type="file" id="damage-photo" name="photos" accept="image/*" multiple>
-                    <div class="upload-preview" id="damage-photo-preview"></div>
-                </div>
+        <!-- ステップ4: 最終確認 -->
+        <div id="step4" class="step-content" style="display: none;">
+            <div class="step-header">
+                <h2>ステップ4: 最終確認</h2>
+                <p>入力内容をご確認ください</p>
             </div>
 
-            <!-- 最終確認 -->
-            <div class="section">
-                <h2>最終確認</h2>
+            <div class="confirmation-section">
                 <div id="final-summary" class="final-summary">
                     <!-- JavaScript で動的に生成 -->
                 </div>
             </div>
 
-            <!-- 送信ボタン -->
-            <div class="submit-section">
-                <button type="submit" id="submit-btn" class="submit-btn">
-                    見積もりを依頼
-                </button>
+            <div class="step-buttons">
+                <button type="button" class="prev-btn" onclick="goToStep(3)">戻る</button>
+                <button type="button" id="submit-btn" class="submit-btn">見積もりを依頼</button>
             </div>
-        </form>
+        </div>
 
+        <!-- 送信完了画面 -->
         <div id="success" class="success" style="display: none;">
             <div class="success-icon">✓</div>
             <h2>送信完了</h2>
@@ -157,7 +204,7 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app_step.js"></script>
 </body>
 </html>
 
