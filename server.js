@@ -436,38 +436,27 @@ async function safePush(userId, messages) {
   }
 }
 
-// 画像カード形式のFlexメッセージ作成
+// 指定された形式の画像カードFlexメッセージ作成
 function buildOptionsFlex(title, questionId, options) {
-  // 選択肢を3つずつに分割してカルーセル作成
+  // 選択肢を2つずつに分割してカルーセル作成
   const bubbles = [];
   
-  for (let i = 0; i < options.length; i += 3) {
-    const optionGroup = options.slice(i, i + 3);
+  for (let i = 0; i < options.length; i += 2) {
+    const optionGroup = options.slice(i, i + 2);
     
     const bubble = {
       type: 'bubble',
       size: 'kilo',
       body: {
         type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: title,
-            weight: 'bold',
-            size: 'md',
-            wrap: true,
-            margin: 'none'
-          },
-          {
-            type: 'separator',
-            margin: 'md'
-          }
-        ]
+        layout: 'horizontal',
+        contents: [],
+        spacing: 'sm',
+        paddingAll: '13px'
       }
     };
     
-    // 各選択肢の画像カード追加
+    // 各選択肢の大きなカード追加
     optionGroup.forEach(option => {
       bubble.body.contents.push({
         type: 'box',
@@ -478,35 +467,40 @@ function buildOptionsFlex(title, questionId, options) {
             layout: 'vertical',
             contents: [
               {
-                type: 'box',
-                layout: 'vertical',
-                contents: [
-                  {
-                    type: 'filler'
-                  }
-                ],
-                height: '80px',
-                backgroundColor: '#F0F0F0',
-                cornerRadius: '8px',
-                margin: 'md',
-                action: {
-                  type: 'postback',
-                  data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
-                  displayText: option
-                }
-              },
-              {
-                type: 'text',
-                text: option,
-                size: 'sm',
-                weight: 'bold',
-                align: 'center',
-                margin: 'sm'
+                type: 'filler'
               }
-            ]
+            ],
+            height: '120px',
+            backgroundColor: '#F5F5F5',
+            cornerRadius: '8px'
+          },
+          {
+            type: 'text',
+            text: option,
+            size: 'lg',
+            weight: 'bold',
+            align: 'center',
+            margin: 'md',
+            wrap: true
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#00B900',
+            action: {
+              type: 'postback',
+              data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
+              displayText: option
+            },
+            text: '選ぶ',
+            margin: 'md'
           }
         ],
-        paddingAll: '8px'
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        cornerRadius: '12px',
+        paddingAll: '16px',
+        margin: 'none'
       });
     });
     
