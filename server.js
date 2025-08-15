@@ -224,33 +224,13 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
 app.use(express.json());
 
 /* ===========================================================================
- * 質問フロー
+ * 簡素化されたLINEトーク処理（LIFF起動のみ）
  * ======================================================================== */
-const sessions = new Map(); // {userId: {answers:{}, last:{q,v}, step:number, estimatedPrice:number}}
+const sessions = new Map(); // {userId: {answers:{}, estimatedPrice:number, timestamp:number}}
 
 // トリガー/コマンド
-const TRIGGER_START = ['カンタン見積りを依頼'];
+const TRIGGER_START = ['カンタン見積りを依頼', 'カンタン見積もりを依頼', '見積り', '見積もり'];
 const CMD_RESET     = ['リセット','はじめからやり直す'];
-const CMD_RESULT    = ['見積り結果']; // 手動再配信
-
-const QUESTIONS = [
-  { id:'q1_floors',  title:'工事物件の階数は？', options:['1階建て','2階建て','3階建て'] },
-  { id:'q2_layout',  title:'物件の間取りは？', options:['1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','4K','4DK','4LDK'] },
-  { id:'q3_age',     title:'物件の築年数は？', options:['新築','〜10年','〜20年','〜30年','〜40年','〜50年','51年以上'] },
-  { id:'q4_painted', title:'過去に塗装をした経歴は？', options:['ある','ない','わからない'] },
-  { id:'q5_last',    title:'前回の塗装はいつ頃？', options:['〜5年','5〜10年','10〜20年','20〜30年','わからない'] },
-  { id:'q6_work',    title:'ご希望の工事内容は？', options:['外壁塗装','屋根塗装','外壁塗装+屋根塗装'] },
-  { id:'q7_wall',    title:'外壁の種類は？（外壁を選んだ場合）', options:['モルタル','サイディング','タイル','ALC'],
-                      conditional:(a)=> (a.q6_work||'').includes('外壁') },
-  { id:'q7_wall_paint', title:'外壁塗装で使いたい塗料は？', options:['一般的な塗料（コスト 一般的）','コストが安い塗料（耐久性 低い）','耐久性が高い塗料（コスト 高い）','遮熱性が高い（コスト 高い）'],
-                      conditional:(a)=> (a.q6_work||'').includes('外壁') },
-  { id:'q8_roof',    title:'屋根の種類は？（屋根を選んだ場合）', options:['瓦','スレート','ガルバリウム','トタン'],
-                      conditional:(a)=> (a.q6_work||'').includes('屋根') },
-  { id:'q8_roof_paint', title:'屋根塗装で使いたい塗料は？', options:['一般的な塗料（コスト 一般的）','コストが安い塗料（耐久性 低い）','耐久性が高い塗料（コスト 高い）','遮熱性が高い（コスト 高い）'],
-                      conditional:(a)=> (a.q6_work||'').includes('屋根') },
-  { id:'q9_leak',    title:'雨漏りや漏水の症状はありますか？', options:['雨の日に水滴が落ちる','天井にシミがある','ない'] },
-  { id:'q10_dist',   title:'隣や裏の家との距離は？（周囲で一番近い距離）', options:['30cm以下','50cm以下','70cm以下','70cm以上'] },
-];
 
 // 概算計算（柔軟な計算式）
 function calcRoughPrice(a){
@@ -403,16 +383,6 @@ function summarize(a){
   return items.join(', ');
 }
 
-// 現在の質問インデックス
-function currentIndex(a){
-  for (let i = 0; i < QUESTIONS.length; i++){
-    const q = QUESTIONS[i];
-    if (q.conditional && !q.conditional(a)) continue;
-    if (!a[q.id]) return i;
-  }
-  return QUESTIONS.length; // 全て完了
-}
-
 // 安全なメッセージ送信
 async function safeReply(replyToken, messages) {
   if (!Array.isArray(messages)) messages = [messages];
@@ -436,45 +406,11 @@ async function safePush(userId, messages) {
   }
 }
 
-// シンプルなボタン形式のメッセージ作成（Flexメッセージの代替）
-function buildSimpleButtons(title, questionId, options) {
-  // 選択肢を4つずつに分割
-  const chunks = [];
-  for (let i = 0; i < options.length; i += 4) {
-    chunks.push(options.slice(i, i + 4));
-  }
-  
-  const messages = [];
-  
-  chunks.forEach((chunk, chunkIndex) => {
-    const actions = chunk.map(option => ({
-      type: 'postback',
-      label: option,
-      data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
-      displayText: option
-    }));
-    
-    messages.push({
-      type: 'template',
-      altText: title,
-      template: {
-        type: 'buttons',
-        text: chunkIndex === 0 ? title : `${title} (続き)`,
-        actions: actions
-      }
-    });
-  });
-  
-  return messages;
-}
-
-// 元の見積り結果Flexメッセージ作成
-function buildEstimateFlex(price, answers) {
-  const summary = summarize(answers);
-  
+// LIFF起動ボタンメッセージ作成
+function buildLiffStartMessage() {
   return {
     type: 'flex',
-    altText: `概算見積り: ¥${price.toLocaleString()}`,
+    altText: 'カンタン見積もりはこちらから',
     contents: {
       type: 'bubble',
       body: {
@@ -483,35 +419,51 @@ function buildEstimateFlex(price, answers) {
         contents: [
           {
             type: 'text',
-            text: '見積り金額',
-            size: 'md',
-            color: '#666666'
-          },
-          {
-            type: 'text',
-            text: `¥${price.toLocaleString()}`,
-            size: 'xxl',
+            text: '外壁塗装の見積もり',
+            size: 'xl',
             weight: 'bold',
-            color: '#00B900'
+            color: '#333333',
+            align: 'center'
           },
           {
             type: 'text',
-            text: '上記はご入力内容を元に算出した概算です。',
-            size: 'xs',
-            color: '#999999',
-            margin: 'md'
+            text: '簡単な質問にお答えいただくだけで、概算見積もりをお出しします。',
+            size: 'sm',
+            color: '#666666',
+            margin: 'md',
+            wrap: true,
+            align: 'center'
           },
           {
             type: 'separator',
             margin: 'xl'
           },
           {
-            type: 'text',
-            text: '正式なお見積りが必要な方は続けてご入力ください。',
-            size: 'sm',
-            color: '#666666',
-            margin: 'xl',
-            wrap: true
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: '📋 所要時間：約3分',
+                size: 'sm',
+                color: '#666666'
+              },
+              {
+                type: 'text',
+                text: '📱 スマホで簡単入力',
+                size: 'sm',
+                color: '#666666',
+                margin: 'sm'
+              },
+              {
+                type: 'text',
+                text: '💰 概算見積もり即時表示',
+                size: 'sm',
+                color: '#666666',
+                margin: 'sm'
+              }
+            ],
+            margin: 'xl'
           }
         ]
       },
@@ -525,7 +477,7 @@ function buildEstimateFlex(price, answers) {
             color: '#00B900',
             action: {
               type: 'uri',
-              label: '現地調査なしで見積を依頼',
+              label: '見積もり開始',
               uri: `https://liff.line.me/${process.env.LIFF_ID}`
             }
           }
@@ -535,203 +487,46 @@ function buildEstimateFlex(price, answers) {
   };
 }
 
-// 次の質問送信
-async function sendNext(userId, replyToken = null) {
-  const sess = sessions.get(userId);
-  if (!sess) {
-    console.error(`[ERROR] セッションが見つかりません: ${userId}`);
-    return;
-  }
-
-  const idx = currentIndex(sess.answers);
-  console.log(`[DEBUG] 現在の質問インデックス: ${idx}/${QUESTIONS.length}`);
-
-  // ----- 完了 -----
-  if (idx >= QUESTIONS.length) {
-    console.log(`[DEBUG] 質問完了 - 概算見積り送信`);
-    const price = calcRoughPrice(sess.answers);
-    
-    // セッションに概算価格を保存
-    sess.estimatedPrice = price;
-    sessions.set(userId, sess);
-    
-    console.log(`[DEBUG] 概算価格: ${price}, セッション更新完了`);
-    
-    // 回答確認メッセージ
-    const confirmationText = buildConfirmationText(sess.answers);
-    
-    const messages = [
-      { type: 'text', text: 'ありがとうございます。概算を作成しました。' },
-      { type: 'text', text: confirmationText },
-      buildEstimateFlex(price, sess.answers)
-    ];
-
-    let ok = false;
-    if (replyToken) ok = await safeReply(replyToken, messages);
-    else            ok = await safePush(userId,   messages);
-
-    if (ok) {
-      // セッションは削除せず、LIFF での使用のために保持
-      console.log(`[INFO] 概算見積り送信完了: ${userId}, 価格: ${price}`);
-    } else {
-      // 失敗時はセッション保持。ユーザーから「見積り結果」で再送可能。
-      console.error(`[ERROR] 概算見積り送信失敗: ${userId}`);
-      await safePush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
-    }
-    return;
-  }
-
-  // ----- 途中 -----
-  const q = QUESTIONS[idx];
-  console.log(`[DEBUG] 質問送信: ${q.title}`);
-  
-  // シンプルなボタン形式を使用
-  const buttonMessages = buildSimpleButtons(q.title, q.id, q.options);
-
-  if (replyToken) {
-    await safeReply(replyToken, buttonMessages);
-  } else {
-    for (const message of buttonMessages) {
-      await safePush(userId, message);
-    }
-  }
-}
-
-// 回答確認テキスト作成
-function buildConfirmationText(answers) {
-  const items = [];
-  
-  items.push('【回答の確認】');
-  if (answers.q1_floors) items.push(`• 階数: ${answers.q1_floors}`);
-  if (answers.q2_layout) items.push(`• 間取り: ${answers.q2_layout}`);
-  if (answers.q3_age) items.push(`• 築年数: ${answers.q3_age}`);
-  if (answers.q4_painted) items.push(`• 過去塗装: ${answers.q4_painted}`);
-  if (answers.q5_last) items.push(`• 前回から: ${answers.q5_last}`);
-  if (answers.q6_work) items.push(`• 工事内容: ${answers.q6_work}`);
-  if (answers.q7_wall) items.push(`• 外壁: ${answers.q7_wall}`);
-  if (answers.q7_wall_paint) items.push(`• 外壁塗料: ${answers.q7_wall_paint}`);
-  if (answers.q8_roof) items.push(`• 屋根: ${answers.q8_roof}`);
-  if (answers.q8_roof_paint) items.push(`• 屋根塗料: ${answers.q8_roof_paint}`);
-  if (answers.q9_leak) items.push(`• 雨漏り: ${answers.q9_leak}`);
-  if (answers.q10_dist) items.push(`• 距離: ${answers.q10_dist}`);
-  
-  return items.join('\n');
-}
-
-// 停止確認
-async function confirmStop(userId){
-  const t = {
-    type:'template',
-    altText:'見積りを停止しますか？',
-    template:{
-      type:'confirm', text:'見積りを停止しますか？',
-      actions:[
-        { type:'postback', label:'はい',   data:JSON.stringify({t:'stop',v:'yes'}), displayText:'はい' },
-        { type:'postback', label:'いいえ', data:JSON.stringify({t:'stop',v:'no'}),  displayText:'いいえ' }
-      ]
-    }
-  };
-  await safePush(userId, t);
-}
-
-// 見積りフロー中かどうかを判定
-function isInEstimateFlow(sess) {
-  // セッションが存在し、回答が1つ以上あるか、まだ完了していない場合
-  return sess && (Object.keys(sess.answers || {}).length > 0 || sess.step > 0) && currentIndex(sess.answers) < QUESTIONS.length;
-}
-
-// イベント処理
+// イベント処理（大幅簡素化）
 async function handleEvent(ev){
   const userId = ev.source?.userId;
   if (!userId) return;
 
   console.log(`[DEBUG] イベント受信: ${ev.type}, ユーザー: ${userId}`);
 
-  // セッション初期化は見積り開始時のみ行う
-  let sess = sessions.get(userId);
-
-  // postback
-  if (ev.type === 'postback'){
-    let data = {};
-    try{ data = JSON.parse(ev.postback.data||'{}'); }catch{}
-    console.log(`[DEBUG] postback データ:`, data);
-    
-    if (data.t === 'answer'){
-      // セッションが存在しない場合は作成
-      if (!sess) {
-        sess = {answers:{}, last:{}, step:0, estimatedPrice: 0};
-        sessions.set(userId, sess);
-      }
-      
-      // 重複防止：同じ質問に同じ値を連打されたら無視して次へ
-      if (sess.last?.q === data.q && sess.last?.v === data.v){
-        console.log(`[DEBUG] 重複回答を検出、次の質問へ`);
-        await sendNext(userId, ev.replyToken);
-        return;
-      }
-      sess.answers[data.q] = data.v;
-      sess.last = { q:data.q, v:data.v };
-      console.log(`[DEBUG] 回答記録: ${data.q} = ${data.v}`);
-      await sendNext(userId, ev.replyToken);
-      return;
-    }
-    if (data.t === 'stop'){
-      if (data.v === 'yes'){
-        sessions.delete(userId);
-        await safeReply(ev.replyToken, { type:'text', text:'見積りを停止しました。通常のトークができます。' });
-      }else{
-        await safeReply(ev.replyToken, { type:'text', text:'見積りを継続します。' });
-        await sendNext(userId);
-      }
-      return;
-    }
-  }
-
   // text
   if (ev.type === 'message' && ev.message.type === 'text'){
     const text = (ev.message.text||'').trim();
     console.log(`[DEBUG] テキストメッセージ: ${text}`);
 
-    // 手動再配信（見積りフロー中のみ）
-    if (CMD_RESULT.includes(text)){
-      if (sess && currentIndex(sess.answers) >= QUESTIONS.length){
-        console.log(`[DEBUG] 見積り結果の再送要求`);
-        await sendNext(userId, ev.replyToken); // push で再送される
-      } else {
-        // 見積りフロー外では普通のトーク
-        console.log(`[DEBUG] 見積りフロー外での「見積り結果」発言 - 無反応`);
-      }
-      return;
-    }
-
-    // リセット（常に有効）
+    // リセット
     if (CMD_RESET.includes(text)){
       sessions.delete(userId);
       console.log(`[DEBUG] セッションリセット: ${userId}`);
-      await safeReply(ev.replyToken, { type:'text', text:'見積りをリセットしました。\n「カンタン見積りを依頼」と入力すると新しい見積りを開始できます。' });
+      await safeReply(ev.replyToken, { 
+        type:'text', 
+        text:'見積りをリセットしました。\n「カンタン見積りを依頼」と入力すると新しい見積りを開始できます。' 
+      });
       return;
     }
 
-    // 開始
+    // 見積り開始
     if (TRIGGER_START.includes(text)){
-      console.log(`[DEBUG] 見積り開始`);
-      sessions.set(userId, {answers:{}, last:{}, step:0, estimatedPrice: 0});
-      await safeReply(ev.replyToken, { type:'text', text:'見積もりを開始します。以下の質問にお答えください。' });
-      await sendNext(userId, ev.replyToken);
+      console.log(`[DEBUG] 見積り開始 - LIFF起動`);
+      
+      // 新しいセッションを作成（LIFF用）
+      sessions.set(userId, {
+        answers: {},
+        estimatedPrice: 0,
+        timestamp: Date.now()
+      });
+      
+      await safeReply(ev.replyToken, buildLiffStartMessage());
       return;
     }
 
-    // 見積りフロー中の自由入力 → 停止確認
-    if (sess && isInEstimateFlow(sess)){
-      console.log(`[DEBUG] 見積りフロー中の自由入力 - 停止確認`);
-      await safeReply(ev.replyToken, { type:'text', text:'ボタンからお選びください。' });
-      await confirmStop(userId);
-      return;
-    }
-
-    // 見積りフロー外 → 普通のトーク（無反応）
-    console.log(`[DEBUG] 見積りフロー外での自由発言 - 無反応`);
-    // 何も返信しない（普通のトーク）
+    // その他のメッセージには反応しない（普通のトーク）
+    console.log(`[DEBUG] 通常メッセージ - 無反応`);
   }
 }
 
@@ -889,6 +684,41 @@ async function sendEmail(data) {
  * LIFF API エンドポイント
  * ======================================================================== */
 
+// 質問回答保存API（LIFF用）
+app.post('/api/answers', express.json(), async (req, res) => {
+  try {
+    const { userId, answers } = req.body;
+    
+    if (!userId || !answers) {
+      return res.status(400).json({ error: 'ユーザーIDと回答データが必要です' });
+    }
+    
+    console.log('[DEBUG] 質問回答保存:', userId, answers);
+    
+    // 概算価格を計算
+    const estimatedPrice = calcRoughPrice(answers);
+    
+    // セッションに保存
+    sessions.set(userId, {
+      answers: answers,
+      estimatedPrice: estimatedPrice,
+      timestamp: Date.now()
+    });
+    
+    console.log('[DEBUG] セッション保存完了:', { userId, estimatedPrice });
+    
+    res.json({ 
+      success: true, 
+      estimatedPrice: estimatedPrice,
+      summary: summarize(answers)
+    });
+    
+  } catch (error) {
+    console.error('[ERROR] 質問回答保存エラー:', error);
+    res.status(500).json({ error: '回答の保存に失敗しました' });
+  }
+});
+
 // LIFF フォーム送信処理
 app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (req, res) => {
   try {
@@ -916,7 +746,7 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
     if (!sess || !sess.answers) {
       console.error('[ERROR] セッションデータが見つかりません:', userId);
       console.log('[DEBUG] 現在のセッション一覧:', Array.from(sessions.keys()));
-      return res.status(400).json({ error: '質問回答データが見つかりません。先にLINEで見積りを完了してください。' });
+      return res.status(400).json({ error: '質問回答データが見つかりません。先に質問にお答えください。' });
     }
 
     // 画像をBase64エンコード（メール埋め込み用）
@@ -1030,46 +860,20 @@ app.get('/api/session/:userId', (req, res) => {
   }
 
   // 概算価格の計算（セッションに保存されていない場合）
-  const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers);
+  const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers || {});
   
   // 回答サマリー作成
-  const summary = summarize(sess.answers);
+  const summary = summarize(sess.answers || {});
   
   const response = {
     userId: userId,
-    answers: sess.answers,
+    answers: sess.answers || {},
     estimate: estimatedPrice,  // LIFFのapp.jsで期待されているフィールド名
     summary: summary,
-    step: sess.step || 0
+    timestamp: sess.timestamp || Date.now()
   };
   
   console.log('[DEBUG] セッションデータ返却:', response);
-  res.json(response);
-});
-
-// 旧エンドポイント（互換性のため残す）
-app.get('/api/user/:userId', (req, res) => {
-  const userId = req.params.userId;
-  console.log('[DEBUG] ユーザーセッション取得要求（旧エンドポイント）:', userId);
-  
-  const sess = sessions.get(userId);
-  if (!sess) {
-    console.log('[DEBUG] セッションが見つかりません:', userId);
-    return res.status(404).json({ error: 'セッションが見つかりません' });
-  }
-
-  // 概算価格の計算
-  const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers);
-  
-  const response = {
-    userId: userId,
-    answers: sess.answers,
-    estimatedPrice: estimatedPrice,
-    summary: summarize(sess.answers),
-    step: sess.step || 0
-  };
-  
-  console.log('[DEBUG] セッションデータ:', response);
   res.json(response);
 });
 
@@ -1079,7 +883,7 @@ app.get('/api/debug/sessions', (req, res) => {
     userId,
     answersCount: Object.keys(sess.answers || {}).length,
     estimatedPrice: sess.estimatedPrice,
-    step: sess.step
+    timestamp: sess.timestamp
   }));
   
   res.json({
