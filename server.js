@@ -30,7 +30,18 @@ if (missingEnvVars.length > 0) {
 }
 
 const client = new Client(config);
-const lineMiddleware = middleware(config);
+
+// LINE Middlewareの設定（環境変数が設定されている場合のみ）
+let lineMiddleware;
+if (process.env.LINE_CHANNEL_ACCESS_TOKEN && process.env.LINE_CHANNEL_SECRET) {
+  lineMiddleware = middleware(config);
+} else {
+  // ダミーミドルウェア（環境変数未設定時）
+  lineMiddleware = (req, res, next) => {
+    console.warn('[WARN] LINE Webhook呼び出しされましたが、環境変数が未設定です');
+    res.status(200).end('OK');
+  };
+}
 
 // Cloudinary設定（画像アップロード用）
 const cloudinary = require('cloudinary').v2;
@@ -179,7 +190,12 @@ app.use('/webhook', express.json({
   }
 }));
 
-app.post('/webhook', lineMiddleware(config), async (req, res) => {
+app.post('/webhook', lineMiddleware, async (req, res) => {
+  // 環境変数が未設定の場合は、ダミーミドルウェアで既にレスポンス済み
+  if (!process.env.LINE_CHANNEL_ACCESS_TOKEN || !process.env.LINE_CHANNEL_SECRET) {
+    return;
+  }
+  
   res.status(200).end('OK');
   try {
     for (const ev of (req.body.events || [])) await handleEvent(ev);
