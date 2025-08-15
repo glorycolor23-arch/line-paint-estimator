@@ -2,18 +2,19 @@
   "name": "line-paint-estimator",
   "version": "1.0.0",
   "type": "module",
-  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
-    "@line/bot-sdk": "^9.0.3",
+    "@line/bot-sdk": "^9.9.0",
     "axios": "^1.7.2",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "googleapis": "^131.0.0",
-    "multer": "^1.4.5-lts.1",
-    "qs": "^6.12.1"
+    "express": "^4.19.2"
   },
-  "engines": { "node": ">=18" }
+  "devDependencies": {
+    "nodemon": "^3.1.3"
+  }
 }
