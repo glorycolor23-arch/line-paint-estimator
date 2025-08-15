@@ -1,353 +1,362 @@
-/**
- * ============================================
- * 外壁塗装オンライン見積もり - 完全版サーバ (改修版)
- * ============================================
- * - ESM ("type":"module")
- * - Render Health Check: /health
- * - LIFF env injection  : /liff/env.js
- * - LINE Webhook        : /webhook
- * - Flex Message 質問カード & 画像アップロード
- * - セッション（メモリ）で質問フローを管理
- *
- * === 改修のポイント ===
- * 1. 応答トークン失効問題の解決:
- *    - `replyMessage` はユーザーアクションへの直接的な応答(1回)に限定。
- *    - 次の質問など、ボットから能動的に送るメッセージはすべて `pushMessage` を使用。
- *    - これにより「隣の家との距離」などの質問の後で処理が止まる問題を完全に解消。
- * 2. 非同期処理の安定化:
- *    - `sendNextQuestion` の呼び出しから `replyToken` の引き渡しを廃止。
- *    - `async/await` の使い方を整理し、処理の流れを明確化。
- * 3. セッション管理の厳密化と堅牢性向上:
- *    - `awaitingImage` フラグを廃止し `expectType` に状態管理を統一。
- *    - 意図しない入力に対するフォールバック応答を追加。
- */
+/*******************************************************
+ * 外壁塗装オンライン相談 / サーバー完全版（LIFFで写真を集約）
+ * - Render /health
+ * - LIFF静的配信 /liff/*
+ * - LIFF env.js /liff/env.js
+ * - LINE Webhook /webhook
+ * - メール（Apps Script）/ スプレッドシート記録
+ * - 画像は LIFF から base64 で受け取り Apps Script に転送 → メール添付
+ *******************************************************/
 
+import 'dotenv/config';
 import express from 'express';
-import dotenv from 'dotenv';
+// import cors from 'cors'; // 使わない（自前ミドルウェア）
 import path from 'path';
 import { fileURLToPath } from 'url';
-import bodyParser from 'body-parser';
-import cors from 'cors';
-import { Client, middleware as lineMiddleware } from '@line/bot-sdk';
-
-// ===============================
-// 0) 基本セットアップ
-// ===============================
-dotenv.config();
-
-const app = express();
-app.disable('x-powered-by');
-app.use(cors());
-app.use(bodyParser.json());
+import axios from 'axios';
+import * as line from '@line/bot-sdk';
+import { google } from 'googleapis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// LIFF 用の静的ファイル配信
+
+// ====== ENV ======
+const {
+  CHANNEL_SECRET,
+  CHANNEL_ACCESS_TOKEN,
+  LIFF_ID,
+
+  // Google Sheets 記録用（任意）
+  GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+  GSHEET_SPREADSHEET_ID,
+  GSHEET_SHEET_NAME,
+
+  // Apps Script（メール送信）
+  EMAIL_WEBAPP_URL,
+  EMAIL_TO
+} = process.env;
+
+const PORT = process.env.PORT || 10000;
+
+// ====== 基本チェック ======
+if (!CHANNEL_SECRET || !CHANNEL_ACCESS_TOKEN) {
+  console.error('[WARN] CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN が未設定です。');
+}
+if (!LIFF_ID) {
+  console.error('[WARN] LIFF_ID が未設定です。/liff/env.js で null になります。');
+}
+if (!EMAIL_WEBAPP_URL || !EMAIL_TO) {
+  console.error('[WARN] EMAIL_WEBAPP_URL / EMAIL_TO が未設定です。メール送信は失敗します。');
+}
+
+// ====== Google Sheets client（任意・未設定ならスキップ運用） ======
+let sheetsClient = null;
+if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GSHEET_SPREADSHEET_ID) {
+  try {
+    const jwt = new google.auth.JWT(
+      GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      null,
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+    sheetsClient = google.sheets({ version: 'v4', auth: jwt });
+    console.log('[OK] Google Sheets client ready');
+  } catch (e) {
+    console.error('[ERROR] Google Sheets client init failed:', e.message);
+  }
+}
+
+// ====== LINE SDK ======
+const lineConfig = {
+  channelAccessToken: CHANNEL_ACCESS_TOKEN,
+  channelSecret: CHANNEL_SECRET
+};
+const lineClient = new line.Client(lineConfig);
+
+// ====== Express ======
+const app = express();
+
+/** CORS（自前） */
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+app.use(express.json({ limit: '30mb' })); // base64画像を受けるため拡張
+
+/** 静的配信（LIFF） */
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
 
-
-// ===============================
-// 1) LINE SDK 設定
-// ===============================
-const lineConfig = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CHANNEL_SECRET,
-};
-if (!lineConfig.channelAccessToken || !lineConfig.channelSecret) {
-  console.error('[FATAL] CHANNEL_ACCESS_TOKEN / CHANNEL_SECRET が未設定です。Render の Environment を確認してください。');
-  process.exit(1);
-}
-const client = new Client(lineConfig);
-
-// ===============================
-// 2) セッション管理（メモリ）
-// ===============================
-const SESS_TTL_MS = 60 * 60 * 1000; // 60 分
-const sessions = new Map(); // userId -> { index, answers, last, expectType }
-
-function getSession(userId) {
-  const now = Date.now();
-  const s = sessions.get(userId);
-  if (!s) return null;
-  if (now - s.last > SESS_TTL_MS) {
-    sessions.delete(userId);
-    return null;
-  }
-  s.last = now; // アクセス時刻を更新
-  return s;
-}
-function initSession(userId) {
-  const s = {
-    index: 0,
-    last: Date.now(),
-    answers: {},
-    expectType: 'choice', // 'choice' | 'photo'
-    questions: QUESTIONS_ROUGH_ESTIMATE, // デフォルトは概算見積もり用の質問
-  };
-  sessions.set(userId, s);
-  return s;
-}
-function updateSession(userId, patch) {
-  const s = getSession(userId);
-  if (!s) return null;
-  Object.assign(s, patch);
-  sessions.set(userId, s);
-  return s;
-}
-function resetSession(userId) {
-  sessions.delete(userId);
-}
-
-// ===============================
-// 3) 質問定義（仕様書準拠）
-// ===============================
-const QUESTIONS_ROUGH_ESTIMATE = [
-  { type: 'choice', key: 'floorCount',   title: '1/10 工事物件の階数は？', options: ['1階建て', '2階建て', '3階建て'] },
-  { type: 'choice', key: 'layout',       title: '2/10 物件の間取りは？', options: ['1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '4K', '4DK', '4LDK'] },
-  { type: 'choice', key: 'age',          title: '3/10 物件の築年数は？', options: ['新築', '〜10年', '〜20年', '〜30年', '〜40年', '〜50年', '51年以上'] },
-  { type: 'choice', key: 'paintHistory', title: '4/10 過去に塗装をした経歴は？', options: ['ある', 'ない', 'わからない'] },
-  { type: 'choice', key: 'lastPaint',    title: '5/10 前回の塗装はいつ頃？', options: ['〜5年', '5〜10年', '10〜20年', '20〜30年', 'わからない'], depends: (ans) => ans.paintHistory === 'ある' },
-  { type: 'choice', key: 'workType',     title: '6/10 ご希望の工事内容は？', options: ['外壁塗装', '屋根塗装', '外壁塗装+屋根塗装'] },
-  { type: 'choice', key: 'wallType',     title: '7/10 外壁の種類は？', options: ['モルタル', 'サイディング', 'タイル', 'ALC'], depends: (ans) => ans.workType?.includes('外壁') },
-  { type: 'choice', key: 'roofType',     title: '8/10 屋根の種類は？', options: ['瓦', 'スレート', 'ガルバリウム', 'トタン'], depends: (ans) => ans.workType?.includes('屋根') },
-  { type: 'choice', key: 'leak',         title: '9/10 雨漏りや漏水の症状はありますか？', options: ['雨の日に水滴が落ちる', '天井にシミがある', 'ない'] },
-  { type: 'choice', key: 'distance',     title: '10/10 隣や裏の家との距離は？（周囲で一番近い距離）', options: ['30cm以下', '50cm以下', '70cm以下', '70cm以上'] },
-];
-
-const QUESTIONS_DETAILED_ESTIMATE = [
-  { type: 'photo',  key: 'elevation',    title: '1/9 立面図をアップロードしてください。' },
-  { type: 'photo',  key: 'plan',         title: '2/9 平面図をアップロードしてください。' },
-  { type: 'photo',  key: 'section',      title: '3/9 断面図をアップロードしてください。' },
-  { type: 'photo',  key: 'front',        title: '4/9 正面の外観写真をアップロードしてください。（周囲の地面が写るように）' },
-  { type: 'photo',  key: 'right',        title: '5/9 右側の外観写真をアップロードしてください。' },
-  { type: 'photo',  key: 'left',         title: '6/9 左側の外観写真をアップロードしてください。' },
-  { type: 'photo',  key: 'back',         title: '7/9 後ろ側の外観写真をアップロードしてください。' },
-  { type: 'photo',  key: 'garage',       title: '8/9 車庫の位置がわかる写真をアップロードしてください。' },
-  { type: 'photo',  key: 'crack',        title: '9/9 外壁や屋根にヒビ/割れがある場合は写真をアップロードしてください。' },
-];
-
-const QUESTIONS = QUESTIONS_ROUGH_ESTIMATE;
-const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1501183638710-841dd1904471?q=80&w=1200&auto=format&fit=crop';
-
-// ===============================
-// 4) ユーティリティ
-// ===============================
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function toCurrency(n) { return '¥ ' + (Math.round(n / 1000) * 1000).toLocaleString(); }
-
-function calcEstimate(ans) {
-  let price = 300000;
-  if (ans.floorCount === '2階建て') price += 150000;
-  if (ans.floorCount === '3階建て') price += 300000;
-  if (ans.workType === '外壁塗装') price += 200000;
-  if (ans.workType === '屋根塗装') price += 150000;
-  if (ans.workType === '外壁塗装+屋根塗装') price += 330000;
-  if (ans.distance === '30cm以下') price += 50000;
-  if (ans.distance === '50cm以下') price += 30000;
-  if (ans.distance === '70cm以下') price += 10000;
-  const ageMap = { '新築': 0, '〜10年': 1, '〜20年': 2, '〜30年': 3, '〜40年': 4, '〜50年': 5, '51年以上': 6 };
-  price += (ageMap[ans.age] || 0) * 20000;
-  return price;
-}
-
-function buildChoiceFlex(title, options) {
-  const bubbles = options.map((op) => ({
-    type: 'bubble',
-    hero: { type: 'image', url: PLACEHOLDER_IMG, size: 'full', aspectRatio: '20:13', aspectMode: 'cover' },
-    body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: op, weight: 'bold', size: 'md', wrap: true }] },
-    footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [{ type: 'button', style: 'primary', color: '#00C853', action: { type: 'message', label: '選ぶ', text: op } }] }
-  }));
-  const chunks = [];
-  for (let i = 0; i < bubbles.length; i += 12) { // Carouselは最大12個
-    chunks.push({ type: 'flex', altText: title, contents: { type: 'carousel', contents: bubbles.slice(i, i + 12) } });
-  }
-  return chunks;
-}
-
-function buildEstimateFlex(amount, liffId) {
-  const liffUrl = `https://liff.line.me/${liffId}`;
-  return {
-    type: 'flex',
-    altText: '詳しい見積もりのご案内',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical',
-        contents: [
-          { type: 'text', text: '概算見積もり', weight: 'bold', size: 'lg' },
-          { type: 'separator', margin: 'md' },
-          { 
-            type: 'box', layout: 'vertical', margin: 'lg', spacing: 'sm',
-            contents: [
-              { type: 'text', text: toCurrency(amount), weight: 'bold', size: 'xl', align: 'center' },
-              { type: 'text', text: '※ご入力内容を元に算出した概算です。', wrap: true, size: 'xs', color: '#666666', margin: 'md' },
-            ]
-          }
-        ]
-      },
-      footer: {
-        type: 'box', layout: 'vertical',
-        contents: [{ type: 'button', style: 'primary', color: '#00C853', action: { type: 'uri', label: '詳細見積もりを依頼する', uri: liffUrl } }]
-      }
-    }
-  };
-}
-
-// --- 次の質問を送信 ---
-async function sendNextQuestion(userId) {
-  const s = getSession(userId);
-  if (!s) return;
-
-  while (s.index < s.questions.length) {
-    const q = s.questions[s.index];
-    if (q.depends && !q.depends(s.answers)) {
-      s.index += 1;
-      updateSession(userId, { index: s.index });
-      continue;
-    }
-
-    updateSession(userId, { expectType: q.type });
-
-    if (q.type === 'choice') {
-      const flexes = buildChoiceFlex(q.title, q.options);
-      await client.pushMessage(userId, { type: 'text', text: q.title });
-      for (const m of flexes) {
-        await client.pushMessage(userId, m);
-        await sleep(200);
-      }
-      return;
-    }
-
-    if (q.type === 'photo') {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: `${q.title}\n\n写真がない場合は「スキップ」と送信してください。`,
-        quickReply: { items: [{ type: 'action', action: { type: 'message', label: 'スキップ', text: 'スキップ' } }] }
-      });
-      return;
-    }
-  }
-
-  // --- 完了 ---
-  const amount = calcEstimate(s.answers);
-  const liffId = process.env.LIFF_ID || "";
-  await client.pushMessage(userId, [
-    { type: "text", text: "ありがとうございます。概算見積もりの質問が完了しました。" },
-    buildEstimateFlex(amount, liffId),
-    { type: "text", text: "より詳細な見積もりをご希望の場合は、以下のLIFFアプリから必要事項と写真をご登録ください。" },
-    { type: "flex", altText: "詳細見積もり依頼", contents: {
-      type: "bubble",
-      body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          { type: "text", text: "詳細見積もり依頼", weight: "bold", size: "lg" },
-          { type: "separator", margin: "md" },
-          { type: "text", text: "名前、電話番号、住所、そして写真のアップロードをお願いします。", wrap: true, size: "sm", margin: "md" }
-        ]
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          { type: "button", style: "primary", color: "#00C853", action: { type: "uri", label: "LIFFアプリを開く", uri: `https://liff.line.me/${liffId}` } }
-        ]
-      }
-    }}
-  ]);
-  resetSession(userId);
-}
-
-// ===============================
-// 5) Health / LIFF ENV
-// ===============================
-app.get('/health', (_req, res) => res.status(200).send('ok'));
+/** env.js（LIFF_ID を渡す） */
 app.get('/liff/env.js', (_req, res) => {
-  const LIFF_ID = process.env.LIFF_ID || '';
-  const FRIEND_ADD_URL = process.env.FRIEND_ADD_URL || '';
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.status(200).send(`window.__LIFF_ENV__ = { LIFF_ID: ${JSON.stringify(LIFF_ID)}, FRIEND_ADD_URL: ${JSON.stringify(FRIEND_ADD_URL)} };`);
+  res.set('Content-Type', 'application/javascript; charset=utf-8');
+  const id = LIFF_ID ? `'${LIFF_ID}'` : 'null';
+  res.send(`window.__LIFF_ID__ = ${id};`);
 });
 
-// ===============================
-// 6) Webhook
-// ===============================
-app.post('/webhook', lineMiddleware(lineConfig), async (req, res) => {
+/** Health */
+app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+/** ---------- LIFFからの詳細見積もり送信 ---------- */
+app.post('/api/detail-estimate', async (req, res) => {
   try {
-    await Promise.all(req.body.events.map(e => handleEvent(e).catch(err => {
-        console.error(`[handleEvent Error] for user ${e.source?.userId}`, err)
-    })));
-    res.status(200).send('ok');
+    const payload = req.body || {};
+    // { userId, name, phone, postal, address1, address2, lat, lng, images:[{label,name,mime,dataBase64}] }
+
+    // 1) スプレッドシート記録（画像情報は除く）
+    if (sheetsClient && GSHEET_SPREADSHEET_ID && GSHEET_SHEET_NAME) {
+      try {
+        const now = new Date().toISOString();
+        await sheetsClient.spreadsheets.values.append({
+          spreadsheetId: GSHEET_SPREADSHEET_ID,
+          range: `${GSHEET_SHEET_NAME}!A1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [[
+              now,
+              payload.userId || '',
+              payload.name || '',
+              payload.phone || '',
+              payload.postal || '',
+              payload.address1 || '',
+              payload.address2 || '',
+              (payload.lat || ''),
+              (payload.lng || ''),
+              (payload.roughEstimate || ''), // LIFF側で概算を表示しているなら送っておく
+              (payload.selectedSummary || '') // チャットで選んだ内容の要約
+            ]]
+          }
+        });
+      } catch (e) {
+        console.error('[WARN] appendToSheet failed:', e.message);
+      }
+    }
+
+    // 2) Apps Script WebApp 経由でメール送信
+    if (EMAIL_WEBAPP_URL && EMAIL_TO) {
+      try {
+        const resp = await axios.post(EMAIL_WEBAPP_URL, {
+          to: EMAIL_TO,
+          subject: `[外壁塗装] 詳細見積りの依頼（LIFF）`,
+          body: `
+【お名前】${payload.name || ''}
+【電話】${payload.phone || ''}
+【郵便番号】${payload.postal || ''}
+【住所】${payload.address1 || ''} ${payload.address2 || ''}
+【緯度経度】${payload.lat || ''},${payload.lng || ''}
+【LINEユーザーID】${payload.userId || ''}
+【チャット回答要約】${payload.selectedSummary || ''}
+【概算金額】${payload.roughEstimate || ''}
+
+※画像は添付をご確認ください。
+`,
+          // 画像は base64 添付
+          attachments: (payload.images || []).map(img => ({
+            filename: img.name || `${img.label || 'photo'}.jpg`,
+            mimeType: img.mime || 'image/jpeg',
+            dataBase64: img.dataBase64 || ''
+          }))
+        }, { timeout: 30000 });
+        console.log('[OK] email send:', resp.status);
+      } catch (e) {
+        console.error('[ERROR] email send:', e.message, e.response?.status, e.response?.data);
+      }
+    } else {
+      console.error('[WARN] EMAIL_WEBAPP_URL / EMAIL_TO 未設定のためメール未送信');
+    }
+
+    // 3) LINEに完了通知（LIFF側でも通知するが、サーバ側からのバックアップ）
+    try {
+      if (payload.userId) {
+        await lineClient.pushMessage(payload.userId, [{
+          type: 'text',
+          text: '詳細見積りのご依頼を受け付けました。1〜3営業日以内にLINEでお見積書をお送りします。'
+        }]);
+      }
+    } catch (e) {
+      console.error('[WARN] pushMessage failed:', e.message);
+    }
+
+    res.json({ ok: true });
   } catch (err) {
-    console.error('[Webhook Error]', err);
-    res.status(500).send('error');
+    console.error('/api/detail-estimate error:', err);
+    res.status(500).json({ ok: false, error: 'internal' });
   }
 });
 
-// ===============================
-// 7) イベントハンドラ
-// ===============================
-async function handleEvent(event) {
-  if (event.type !== 'message' || !event.source?.userId) {
+/** ---------- Webhook（写真なしの質問フローのみ） ---------- */
+const lineMiddleware = line.middleware(lineConfig);
+app.post('/webhook', lineMiddleware, async (req, res) => {
+  try {
+    const events = req.body.events || [];
+    await Promise.all(events.map(handleEvent));
+    res.status(200).end();
+  } catch (err) {
+    console.error('webhook error:', err);
+    res.status(500).end();
+  }
+});
+
+// セッション（簡易）
+const S = new Map(); // userId -> {step, answers, flow}
+
+// トリガー（リッチメニューからは "カンタン見積りを依頼"）
+const TRIGGER = ['カンタン見積りを依頼', '見積もりスタート'];
+
+// フロー定義（写真は無し）
+const FLOW_ALL = [
+  { key:'floor', q:'工事物件の階数は？', opts:['1階建て','2階建て','3階建て'] },
+  { key:'layout', q:'物件の間取りは？', opts:['1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','4K','4DK','4LDK'] },
+  { key:'age', q:'物件の築年数は？', opts:['新築','〜10年','〜20年','〜30年','〜40年','〜50年','51年以上'] },
+  { key:'history', q:'過去に塗装をした経歴は？', opts:['ある','ない','わからない'] },
+  { key:'last', q:'前回の塗装はいつ頃？', opts:['〜5年','5〜10年','10〜20年','20〜30年','わからない'] },
+  { key:'work', q:'ご希望の工事内容は？', opts:['外壁塗装','屋根塗装','外壁塗装+屋根塗装'] },
+  { key:'wall', q:'外壁の種類は？', opts:['モルタル','サイディング','タイル','ALC'],
+    show:(a)=> a.work==='外壁塗装' || a.work==='外壁塗装+屋根塗装' },
+  { key:'roof', q:'屋根の種類は？', opts:['瓦','スレート','ガルバリウム','トタン'],
+    show:(a)=> a.work==='屋根塗装' || a.work==='外壁塗装+屋根塗装' },
+  { key:'leak', q:'雨漏りや漏水の症状は？', opts:['雨の日に水滴が落ちる','天井にシミがある','ない'] },
+  { key:'distance', q:'隣や裏の家との距離は？（周囲で一番近い距離）', opts:['30cm以下','50cm以下','70cm以下','70cm以上'] },
+];
+
+// 画像用にダミーを用意（カード見た目用）
+const IMG_PLACE = 'https://dummyimage.com/600x400/eeeeee/333.png&text=%E9%81%B8%E3%81%B6';
+
+async function handleEvent(ev){
+  if (ev.type === 'message' && ev.message.type === 'text') {
+    return onText(ev);
+  }
+  if (ev.type === 'postback') {
+    return onPostback(ev);
+  }
+}
+
+function newFlow(){
+  return FLOW_ALL.slice(); // shallow copy
+}
+
+function visibleFlow(flow, answers){
+  return flow.filter(s => !s.show || s.show(answers));
+}
+
+async function onText(ev){
+  const userId = ev.source?.userId;
+  const text = (ev.message.text || '').trim();
+
+  if (text === 'リセット' || text === 'はじめからやり直す') {
+    S.delete(userId);
+    await replyText(ev.replyToken, '初期化しました。「カンタン見積りを依頼」で開始できます。');
     return;
   }
-  const userId = event.source.userId;
-  const replyToken = event.replyToken;
 
+  if (TRIGGER.includes(text)) {
+    S.set(userId, { step:0, answers:{}, flow:newFlow() });
+    await replyText(ev.replyToken, '見積もりを開始します。以下の質問にお答えください。');
+    await askNext(ev.replyToken, userId);
+    return;
+  }
 
-
-  // --- テキストメッセージ ---
-  if (event.message.type === 'text') {
-    const text = (event.message.text || '').trim();
-
-    if (['はじめから', 'リセット', 'やり直す'].includes(text)) {
-      resetSession(userId);
-      await client.replyMessage(replyToken, { type: 'text', text: '会話をリセットしました。「カンタン見積りを依頼」と入力して再開してください。' });
-      return;
-    }
-
-    if (text === 'カンタン見積りを依頼') {
-      initSession(userId);
-      await client.replyMessage(replyToken, { type: 'text', text: 'オンライン見積もりを開始します。' });
-      await sendNextQuestion(userId);
-      return;
-    }
-
-    const s = getSession(userId);
-    if (!s) {
-      await client.replyMessage(replyToken, { type: 'text', text: '「カンタン見積りを依頼」と送信すると、質問が始まります。' });
-      return;
-    }
-
-    const q = s.questions[s.index];
-    if (!q) { // 完了しているはずなのにメッセージが来た場合
-        resetSession(userId);
-        await client.replyMessage(replyToken, { type: 'text', text: '見積もりは完了しています。もう一度始めるには「カンタン見積りを依頼」と送信してください。' });
-        return;
-    }
-
-
-
-    if (s.expectType === 'choice' && q.options.includes(text)) {
-      s.answers[q.key] = text;
-      s.index += 1;
-      updateSession(userId, s);
-      await client.replyMessage(replyToken, { type: 'text', text: `「${text}」ですね。承知しました。` });
-      await sendNextQuestion(userId);
-      return;
-    }
-
-    // 意図しない入力へのフォールバック
-    if (s.expectType === 'photo') {
-        await client.replyMessage(replyToken, { type: 'text', text: '写真のアップロードはLIFFアプリからお願いします。' });
-    } else if (s.expectType === 'choice') {
-        await client.replyMessage(replyToken, { type: 'text', text: '画面に表示されている選択肢の中から、ボタンを押して回答してください。' });
-    }
+  // セッション中に手入力された場合は、そのまま次へ（自由テキストは今回使わない）
+  const st = S.get(userId);
+  if (st) {
+    await replyText(ev.replyToken, '選択肢をタップして回答してください。');
   }
 }
 
-// ===============================
-// 8) サーバ起動
-// ===============================
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
+async function onPostback(ev){
+  const userId = ev.source?.userId;
+  const data = ev.postback?.data || '';
+  if (!data.startsWith('ans:')) return;
+
+  const st = S.get(userId);
+  if (!st) {
+    await replyText(ev.replyToken, '「カンタン見積りを依頼」で見積もりを開始してください。');
+    return;
+  }
+
+  const payload = data.substring(4); // key=value
+  const [k, v] = payload.split('=');
+  st.answers[k] = v;
+  st.step++;
+  await askNext(ev.replyToken, userId);
+}
+
+async function askNext(replyToken, userId){
+  const st = S.get(userId);
+  if (!st) return;
+  const fl = visibleFlow(st.flow, st.answers);
+  if (st.step >= fl.length) {
+    // 完了：概算計算 + LIFFボタン
+    const estimate = calcRough(st.answers);
+    const summary = Object.entries(st.answers).map(([k,v])=>`・${k}: ${v}`).join('\n');
+    const liffUrl = `https://liff.line.me/${LIFF_ID}`;
+    const flex = {
+      type:'flex',
+      altText:'詳しい見積りをご希望の方へ',
+      contents:{
+        type:'bubble',
+        body:{ type:'box', layout:'vertical', contents:[
+          { type:'text', text:'詳しい見積もりをご希望の方へ', size:'lg', weight:'bold' },
+          { type:'separator', margin:'md' },
+          { type:'text', text:`見積り金額\n¥ ${estimate.toLocaleString()}`, margin:'md', weight:'bold', size:'lg' },
+          { type:'text', text:'上記はご入力内容を元に算出した概算金額です。', wrap:true, size:'sm', color:'#666666', margin:'sm' },
+          { type:'text', text:'正式なお見積りが必要な方は続けてご入力をお願いします。', wrap:true, size:'sm', color:'#666666', margin:'sm' }
+        ]},
+        footer:{ type:'box', layout:'vertical', contents:[
+          { type:'button', style:'primary', color:'#00B900',
+            action:{ type:'uri', label:'現地調査なしで見積を依頼', uri:liffUrl } }
+        ] }
+      }
+    };
+    await lineClient.replyMessage(replyToken, [
+      { type:'text', text:`ありがとうございます。以下の内容を確認しました。\n${summary}` },
+      flex
+    ]);
+    S.delete(userId);
+  } else {
+    const step = fl[st.step];
+    await replyOptions(replyToken, step.q, step.key, step.opts);
+  }
+}
+
+function calcRough(a){
+  // 超簡易ロジック（自由に置換可）
+  let base = 600000; // 基本
+  if (a.floor === '2階建て') base += 200000;
+  if (a.floor === '3階建て') base += 400000;
+  if (a.work === '外壁塗装+屋根塗装') base += 250000;
+  if (a.work === '屋根塗装') base += 150000;
+  if (a.leak && a.leak !== 'ない') base += 80000;
+  if (a.distance === '30cm以下') base += 50000;
+  return base;
+}
+
+async function replyOptions(replyToken, question, key, opts){
+  // カード風（テンプレート カルーセル）
+  const cols = opts.map(txt => ({
+    thumbnailImageUrl: IMG_PLACE,
+    title: question.length > 39 ? question.slice(0,39) : question,
+    text: txt,
+    actions: [{ type:'postback', label:'選ぶ', data:`ans:${key}=${txt}`, displayText: txt }]
+  }));
+  const msg = { type:'template', altText:question, template:{ type:'carousel', columns: cols.slice(0,10) } };
+  await lineClient.replyMessage(replyToken, msg);
+}
+
+async function replyText(replyToken, text){
+  await lineClient.replyMessage(replyToken, { type:'text', text });
+}
+
+/** エラーハンドラ */
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).send('internal error');
+});
+
+app.listen(PORT, () => console.log(`listening on ${PORT}`));
