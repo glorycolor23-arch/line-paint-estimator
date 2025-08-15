@@ -1,5 +1,5 @@
 /* =========================================================
- * server.js  完全版（修正済み）
+ * server.js  デバッグ版（送信エラー修正）
  * ========================================================= */
 
 import express from 'express';
@@ -103,8 +103,6 @@ app.use(express.json());
  * ======================================================================== */
 const sessions = new Map(); // {userId: {answers:{}, last:{q,v}, step:number}}
 
-const IMG = 'https://via.placeholder.com/1024x512.png?text=%E9%81%B8%E6%8A%9E';
-
 // トリガー/コマンド
 const TRIGGER_START = ['カンタン見積りを依頼'];
 const CMD_RESET     = ['リセット','はじめからやり直す'];
@@ -140,16 +138,21 @@ function calcRoughPrice(a){
 // 安全送信（結果: true/false）
 async function safeReply(replyToken, messages){
   try{
+    console.log('[DEBUG] safeReply 送信開始:', JSON.stringify(messages, null, 2));
     await client.replyMessage(replyToken, Array.isArray(messages)?messages:[messages]);
+    console.log('[DEBUG] safeReply 送信成功');
     return true;
   }catch(err){
     console.error('[safeReply error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
     return false;
   }
 }
+
 async function safePush(to, messages){
   try{
+    console.log('[DEBUG] safePush 送信開始:', to, JSON.stringify(messages, null, 2));
     await client.pushMessage(to, Array.isArray(messages)?messages:[messages]);
+    console.log('[DEBUG] safePush 送信成功');
     return true;
   }catch(err){
     console.error('[safePush error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
@@ -157,27 +160,42 @@ async function safePush(to, messages){
   }
 }
 
-// Flex
-function buildOptionsFlex(title, qid, opts){
-  return {
-    type:'flex',
-    altText:title,
-    contents:{
-      type:'carousel',
-      contents:opts.map(v=>({
-        type:'bubble',
-        hero:{ type:'image', url:IMG, size:'full', aspectRatio:'16:9', aspectMode:'cover' },
-        body:{ type:'box', layout:'vertical', contents:[{ type:'text', text:v, weight:'bold', size:'lg', wrap:true }] },
-        footer:{
-          type:'box', layout:'vertical', contents:[
-            { type:'button', style:'primary',
-              action:{ type:'postback', label:'選ぶ',
-                       data:JSON.stringify({t:'answer', q:qid, v}), displayText:v } }
-          ]
-        }
-      }))
-    }
-  };
+// 簡素化されたボタンメッセージ（Flexを使わない）
+function buildOptionsButtons(title, qid, opts){
+  // 4個までしかボタンを作れないので、分割が必要な場合は複数メッセージに
+  if (opts.length <= 4) {
+    return {
+      type: 'template',
+      altText: title,
+      template: {
+        type: 'buttons',
+        text: title,
+        actions: opts.map(v => ({
+          type: 'postback',
+          label: v.length > 20 ? v.substring(0, 17) + '...' : v,
+          data: JSON.stringify({t:'answer', q:qid, v}),
+          displayText: v
+        }))
+      }
+    };
+  } else {
+    // 4個以上の場合はクイックリプライを使用
+    return {
+      type: 'text',
+      text: title,
+      quickReply: {
+        items: opts.map(v => ({
+          type: 'action',
+          action: {
+            type: 'postback',
+            label: v.length > 20 ? v.substring(0, 17) + '...' : v,
+            data: JSON.stringify({t:'answer', q:qid, v}),
+            displayText: v
+          }
+        }))
+      }
+    };
+  }
 }
 
 function summarize(a){
@@ -189,25 +207,29 @@ function summarize(a){
   ].join('\n');
 }
 
-function buildEstimateFlex(price){
+// 簡素化された見積り表示（テキストメッセージ + ボタン）
+function buildEstimateMessages(price){
   const liffUrl = process.env.LIFF_URL || 'https://line-paint.onrender.com/liff/index.html';
-  return {
-    type:'flex',
-    altText:'概算見積り',
-    contents:{
-      type:'bubble',
-      body:{ type:'box', layout:'vertical', spacing:'md', contents:[
-        { type:'text', text:'見積り金額', weight:'bold', size:'md' },
-        { type:'text', text:`￥${price.toLocaleString()}`, weight:'bold', size:'xl' },
-        { type:'text', text:'上記はご入力内容を元に算出した概算です。', size:'sm', color:'#666', wrap:true },
-      ]},
-      footer:{ type:'box', layout:'vertical', spacing:'md', contents:[
-        { type:'text', text:'正式なお見積りが必要な方は続けてご入力ください。', size:'sm', wrap:true },
-        { type:'button', style:'primary',
-          action:{ type:'uri', label:'現地調査なしで見積を依頼', uri: liffUrl } }
-      ]}
+  
+  return [
+    {
+      type: 'text',
+      text: `【見積り金額】\n￥${price.toLocaleString()}\n\n上記はご入力内容を元に算出した概算です。\n\n正式なお見積りが必要な方は続けてご入力ください。`
+    },
+    {
+      type: 'template',
+      altText: '見積り依頼',
+      template: {
+        type: 'buttons',
+        text: '詳細な見積りをご希望の場合',
+        actions: [{
+          type: 'uri',
+          label: '現地調査なしで見積を依頼',
+          uri: liffUrl
+        }]
+      }
     }
-  };
+  ];
 }
 
 // 今の出題 index
@@ -227,10 +249,18 @@ async function sendNext(userId, replyToken=null){
   const sess = sessions.get(userId) || {answers:{}, step:0};
   const idx = currentIndex(sess.answers);
 
+  console.log(`[DEBUG] sendNext: userId=${userId}, idx=${idx}, totalQuestions=${QUESTIONS.length}`);
+
   // ----- 最終 -----
   if (idx >= QUESTIONS.length){
     // まず即時に「作成中」返信（replyToken 可用なら）
-    if (replyToken) await safeReply(replyToken, { type:'text', text:'概算を作成中です。数秒お待ちください。' });
+    if (replyToken) {
+      const success = await safeReply(replyToken, { type:'text', text:'概算を作成中です。数秒お待ちください。' });
+      if (!success) {
+        console.error('[ERROR] 作成中メッセージの送信に失敗');
+        return;
+      }
+    }
 
     const price = calcRoughPrice(sess.answers);
     
@@ -238,18 +268,24 @@ async function sendNext(userId, replyToken=null){
     sess.estimatedPrice = price;
     sessions.set(userId, sess);
     
-    const msgs  = [
+    console.log(`[DEBUG] 概算見積り: ${price}, ユーザー: ${userId}`);
+    
+    // 簡素化されたメッセージを送信
+    const msgs = [
       { type:'text', text:'ありがとうございます。概算を作成しました。' },
       { type:'text', text:`【回答の確認】\n${summarize(sess.answers)}` },
-      buildEstimateFlex(price),
+      ...buildEstimateMessages(price)
     ];
 
-    const ok = await safePush(userId, msgs);  // push で必ず配信
+    console.log(`[DEBUG] 送信するメッセージ数: ${msgs.length}`);
+
+    const ok = await safePush(userId, msgs);
     if (ok) {
       // セッションは削除せず、LIFF での使用のために保持
       console.log(`[INFO] 概算見積り送信完了: ${userId}, 価格: ${price}`);
     } else {
       // 失敗時はセッション保持。ユーザーから「見積り結果」で再送可能。
+      console.error(`[ERROR] 概算見積り送信失敗: ${userId}`);
       await safePush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
     }
     return;
@@ -257,9 +293,11 @@ async function sendNext(userId, replyToken=null){
 
   // ----- 途中 -----
   const q = QUESTIONS[idx];
+  console.log(`[DEBUG] 質問送信: ${q.title}`);
+  
   const messages = [
     { type:'text', text:q.title },
-    buildOptionsFlex(q.title, q.id, q.options),
+    buildOptionsButtons(q.title, q.id, q.options),
   ];
 
   if (replyToken) await safeReply(replyToken, messages);
@@ -287,6 +325,8 @@ async function handleEvent(ev){
   const userId = ev.source?.userId;
   if (!userId) return;
 
+  console.log(`[DEBUG] イベント受信: ${ev.type}, ユーザー: ${userId}`);
+
   if (!sessions.has(userId)) sessions.set(userId, {answers:{}, last:{}, step:0});
   const sess = sessions.get(userId);
 
@@ -294,14 +334,18 @@ async function handleEvent(ev){
   if (ev.type === 'postback'){
     let data = {};
     try{ data = JSON.parse(ev.postback.data||'{}'); }catch{}
+    console.log(`[DEBUG] postback データ:`, data);
+    
     if (data.t === 'answer'){
       // 重複防止：同じ質問に同じ値を連打されたら無視して次へ
       if (sess.last?.q === data.q && sess.last?.v === data.v){
+        console.log(`[DEBUG] 重複回答を検出、次の質問へ`);
         await sendNext(userId, ev.replyToken);
         return;
       }
       sess.answers[data.q] = data.v;
       sess.last = { q:data.q, v:data.v };
+      console.log(`[DEBUG] 回答記録: ${data.q} = ${data.v}`);
       await sendNext(userId, ev.replyToken);
       return;
     }
@@ -320,9 +364,11 @@ async function handleEvent(ev){
   // text
   if (ev.type === 'message' && ev.message.type === 'text'){
     const text = (ev.message.text||'').trim();
+    console.log(`[DEBUG] テキストメッセージ: ${text}`);
 
     // 手動再配信
     if (CMD_RESULT.includes(text)){
+      console.log(`[DEBUG] 見積り結果の再送要求`);
       if (currentIndex(sess.answers) >= QUESTIONS.length){
         await sendNext(userId, ev.replyToken); // push で再送される
       }else{
@@ -340,6 +386,7 @@ async function handleEvent(ev){
 
     // 開始
     if (TRIGGER_START.includes(text)){
+      console.log(`[DEBUG] 見積り開始`);
       sessions.set(userId, {answers:{}, last:{}, step:0});
       await safeReply(ev.replyToken, { type:'text', text:'見積もりを開始します。以下の質問にお答えください。' });
       await sendNext(userId);
