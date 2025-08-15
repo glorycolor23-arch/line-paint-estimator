@@ -1,4 +1,4 @@
-/* リセットCSS */
+/* ステップ形式 LIFF フォーム CSS */
 * {
     margin: 0;
     padding: 0;
@@ -6,16 +6,16 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.6;
     color: #333;
-    background-color: #f5f5f5;
+    background-color: #f8f9fa;
 }
 
 .container {
     max-width: 600px;
     margin: 0 auto;
-    background-color: white;
+    background: white;
     min-height: 100vh;
 }
 
@@ -29,7 +29,7 @@ header {
 
 header h1 {
     font-size: 24px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
 }
 
 /* ステップインジケーター */
@@ -40,30 +40,34 @@ header h1 {
 }
 
 .step {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    background-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.3);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    transition: all 0.3s;
+    font-size: 18px;
+    transition: all 0.3s ease;
 }
 
 .step.active {
-    background-color: white;
+    background: white;
     color: #00B900;
 }
 
 .step.completed {
-    background-color: #4CAF50;
+    background: #4CAF50;
     color: white;
 }
 
 /* ローディング */
 .loading {
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     padding: 60px 20px;
 }
 
@@ -74,7 +78,7 @@ header h1 {
     border-top: 4px solid #00B900;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin: 0 auto 20px;
+    margin-bottom: 20px;
 }
 
 @keyframes spin {
@@ -82,7 +86,7 @@ header h1 {
     100% { transform: rotate(360deg); }
 }
 
-/* エラー */
+/* エラー表示 */
 .error {
     text-align: center;
     padding: 40px 20px;
@@ -90,29 +94,29 @@ header h1 {
 }
 
 .error button {
-    background-color: #d32f2f;
+    margin-top: 20px;
+    padding: 10px 20px;
+    background: #00B900;
     color: white;
     border: none;
-    padding: 10px 20px;
-    border-radius: 4px;
+    border-radius: 5px;
     cursor: pointer;
-    margin-top: 10px;
 }
 
 /* ステップコンテンツ */
 .step-content {
     padding: 20px;
-    min-height: calc(100vh - 120px);
 }
 
 .step-header {
-    margin-bottom: 24px;
+    margin-bottom: 30px;
+    text-align: center;
 }
 
 .step-header h2 {
-    font-size: 20px;
-    margin-bottom: 8px;
-    color: #333;
+    color: #00B900;
+    margin-bottom: 10px;
+    font-size: 22px;
 }
 
 .step-header p {
@@ -122,78 +126,80 @@ header h1 {
 
 /* 注意書き */
 .notice {
-    background-color: #fff3cd;
+    background: #fff3cd;
     border: 1px solid #ffeaa7;
     border-radius: 8px;
-    padding: 16px;
-    margin: 16px 0;
+    padding: 15px;
+    margin-bottom: 20px;
 }
 
 .notice p {
-    margin: 0;
+    margin: 5px 0;
+    font-size: 14px;
     color: #856404;
 }
 
 .notice strong {
-    color: #d63031;
+    color: #d63384;
 }
 
 /* セクション */
 .section {
-    margin-bottom: 24px;
+    margin-bottom: 30px;
 }
 
 .section h3 {
-    font-size: 16px;
-    margin-bottom: 12px;
-    color: #333;
-    border-left: 4px solid #00B900;
-    padding-left: 12px;
+    color: #00B900;
+    margin-bottom: 15px;
+    font-size: 18px;
 }
 
 /* 概算見積り表示 */
 .estimate-summary {
-    background-color: #f8f9fa;
-    border-radius: 8px;
+    background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
+    border-radius: 12px;
     padding: 20px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
+    border: 2px solid #00B900;
 }
 
 .price-display {
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 15px;
 }
 
 .price-label {
     display: block;
     font-size: 14px;
     color: #666;
-    margin-bottom: 8px;
+    margin-bottom: 5px;
 }
 
 .price-value {
-    display: block;
-    font-size: 32px;
+    font-size: 28px;
     font-weight: bold;
     color: #00B900;
 }
 
 .answers-summary {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
     font-size: 14px;
     line-height: 1.8;
-    color: #555;
     white-space: pre-line;
+    border: 1px solid #ddd;
 }
 
-/* フォームグループ */
+/* フォーム */
 .form-group {
     margin-bottom: 20px;
 }
 
 .form-group label {
     display: block;
-    font-weight: 600;
     margin-bottom: 8px;
+    font-weight: 600;
     color: #333;
 }
 
@@ -205,9 +211,9 @@ header h1 {
     width: 100%;
     padding: 12px;
     border: 2px solid #ddd;
-    border-radius: 4px;
+    border-radius: 8px;
     font-size: 16px;
-    transition: border-color 0.3s;
+    transition: border-color 0.3s ease;
 }
 
 .form-group input:focus {
@@ -215,63 +221,83 @@ header h1 {
     border-color: #00B900;
 }
 
+.form-group input.error {
+    border-color: #d32f2f;
+}
+
 .form-group input[readonly] {
-    background-color: #f5f5f5;
+    background-color: #f8f9fa;
     color: #666;
 }
 
 .form-group small {
     display: block;
-    margin-top: 4px;
+    margin-top: 5px;
     font-size: 12px;
     color: #666;
-    line-height: 1.4;
+}
+
+.error-message {
+    color: #d32f2f;
+    font-size: 12px;
+    margin-top: 5px;
 }
 
 /* アップロードセクション */
 .upload-section {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 20px;
 }
 
 .upload-group {
-    padding: 16px;
-    border: 2px dashed #ddd;
+    border: 1px solid #ddd;
     border-radius: 8px;
-    transition: border-color 0.3s;
-}
-
-.upload-group:hover {
-    border-color: #00B900;
+    padding: 15px;
+    background: #fafafa;
 }
 
 .upload-group label {
     display: block;
     font-weight: 600;
-    margin-bottom: 8px;
     color: #333;
+    margin-bottom: 8px;
+}
+
+.upload-group small {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 10px;
 }
 
 .upload-group input[type="file"] {
     width: 100%;
     padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background-color: white;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.3s ease;
 }
 
+.upload-group input[type="file"]:hover {
+    border-color: #00B900;
+}
+
+/* プレビュー */
 .upload-preview {
-    margin-top: 12px;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
+    margin-top: 10px;
 }
 
 .preview-item {
     position: relative;
-    width: 80px;
-    height: 80px;
-    border-radius: 4px;
+    width: 100px;
+    height: 100px;
+    border-radius: 8px;
     overflow: hidden;
     border: 1px solid #ddd;
 }
@@ -284,16 +310,16 @@ header h1 {
 
 .preview-remove {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: 5px;
+    right: 5px;
     width: 20px;
     height: 20px;
-    background-color: rgba(0, 0, 0, 0.7);
+    background: #d32f2f;
     color: white;
     border: none;
     border-radius: 50%;
-    font-size: 12px;
     cursor: pointer;
+    font-size: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -301,63 +327,61 @@ header h1 {
 
 /* 最終確認 */
 .confirmation-section {
-    margin-bottom: 24px;
+    margin-bottom: 30px;
 }
 
 .final-summary {
-    background-color: #f8f9fa;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
     border-radius: 8px;
     padding: 20px;
+    white-space: pre-line;
     font-size: 14px;
     line-height: 1.8;
-    white-space: pre-line;
 }
 
 /* ステップボタン */
 .step-buttons {
     display: flex;
-    gap: 12px;
-    justify-content: space-between;
-    margin-top: 32px;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 30px;
     padding-top: 20px;
     border-top: 1px solid #eee;
 }
 
 .prev-btn, .next-btn, .submit-btn {
-    flex: 1;
-    padding: 14px 20px;
-    font-size: 16px;
-    font-weight: 600;
+    padding: 12px 30px;
     border: none;
     border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s ease;
+    min-width: 120px;
 }
 
 .prev-btn {
-    background-color: #f5f5f5;
-    color: #666;
+    background: #6c757d;
+    color: white;
 }
 
 .prev-btn:hover {
-    background-color: #e0e0e0;
+    background: #5a6268;
 }
 
 .next-btn, .submit-btn {
-    background: linear-gradient(135deg, #00B900, #00A000);
+    background: #00B900;
     color: white;
 }
 
 .next-btn:hover, .submit-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 185, 0, 0.3);
+    background: #00A000;
 }
 
-.next-btn:disabled, .submit-btn:disabled {
+.submit-btn:disabled {
     background: #ccc;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
 /* 成功画面 */
@@ -369,7 +393,7 @@ header h1 {
 .success-icon {
     width: 80px;
     height: 80px;
-    background-color: #00B900;
+    background: #4CAF50;
     color: white;
     border-radius: 50%;
     display: flex;
@@ -380,8 +404,8 @@ header h1 {
 }
 
 .success h2 {
-    color: #00B900;
-    margin-bottom: 16px;
+    color: #4CAF50;
+    margin-bottom: 15px;
 }
 
 .success p {
@@ -389,26 +413,28 @@ header h1 {
     line-height: 1.8;
 }
 
-/* レスポンシブ */
+/* レスポンシブ対応 */
 @media (max-width: 480px) {
     .container {
         margin: 0;
     }
     
     header {
-        padding: 16px;
+        padding: 15px;
     }
     
     header h1 {
         font-size: 20px;
     }
     
-    .step-content {
-        padding: 16px;
+    .step {
+        width: 35px;
+        height: 35px;
+        font-size: 16px;
     }
     
-    .price-value {
-        font-size: 28px;
+    .step-content {
+        padding: 15px;
     }
     
     .step-buttons {
@@ -416,18 +442,11 @@ header h1 {
     }
     
     .prev-btn, .next-btn, .submit-btn {
-        margin-bottom: 8px;
+        width: 100%;
     }
-}
-
-/* バリデーションエラー */
-.form-group input.error {
-    border-color: #d32f2f;
-}
-
-.error-message {
-    color: #d32f2f;
-    font-size: 12px;
-    margin-top: 4px;
+    
+    .price-value {
+        font-size: 24px;
+    }
 }
 
