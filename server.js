@@ -71,22 +71,76 @@ app.get('/liff/env.js', (req, res) => {
   );
 });
 
-// ファイルアップロード設定（サイズ制限を追加）
+// ファイルアップロード設定（スマートフォン対応）
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 2 * 1024 * 1024, // 2MB（Base64埋め込みのため制限）
+    fileSize: 15 * 1024 * 1024, // 15MB（スマートフォンの高解像度写真に対応）
     files: 10
   },
   fileFilter: (req, file, cb) => {
-    // 画像ファイルのみ許可
-    if (file.mimetype.startsWith('image/')) {
+    console.log(`[DEBUG] アップロードファイル: ${file.originalname}, MIME: ${file.mimetype}`);
+    
+    // 対応する画像形式（iPhone HEIC/HEIF含む）
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg', 
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/bmp',
+      'image/tiff',
+      'image/heic',     // iPhone HEIC
+      'image/heif',     // iPhone HEIF
+      'image/avif',     // 次世代フォーマット
+      'application/octet-stream' // iPhoneで時々このMIMEタイプになる場合がある
+    ];
+    
+    // ファイル拡張子でも判定（MIMEタイプが正しく設定されない場合の対策）
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.heic', '.heif', '.avif'];
+    const fileExtension = file.originalname.toLowerCase().match(/\.[^.]+$/)?.[0];
+    
+    if (allowedMimeTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
       cb(null, true);
     } else {
-      cb(new Error('画像ファイルのみアップロード可能です'), false);
+      console.log(`[WARN] 非対応ファイル形式: ${file.originalname}, MIME: ${file.mimetype}`);
+      cb(new Error(`対応していないファイル形式です。JPEG、PNG、HEIC等の画像ファイルをアップロードしてください。`), false);
     }
   }
 });
+
+// Multerエラーハンドリングミドルウェア（スマートフォン対応）
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.error('[ERROR] Multerエラー:', err.code, err.message);
+    
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ 
+        error: 'ファイルサイズが大きすぎます。1ファイルあたり15MB以下にしてください。スマートフォンで撮影した写真であれば通常は問題ありません。' 
+      });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ 
+        error: 'ファイル数が多すぎます。最大10ファイルまでです。' 
+      });
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ 
+        error: '予期しないファイルフィールドです。' 
+      });
+    }
+    
+    return res.status(400).json({ 
+      error: `ファイルアップロードエラー: ${err.message}` 
+    });
+  }
+  
+  if (err.message.includes('対応していないファイル形式')) {
+    return res.status(400).json({ error: err.message });
+  }
+  
+  next(err);
+};
 
 /* Webhook: 署名検証前に rawBody を確保 */
 app.use('/webhook', express.json({
@@ -506,7 +560,7 @@ async function handleEvent(ev){
  * ======================================================================== */
 
 // LIFF フォーム送信処理
-app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
+app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (req, res) => {
   try {
     console.log('[INFO] LIFF フォーム送信受信:', req.body);
     console.log('[INFO] 受信ファイル数:', req.files?.length || 0);
@@ -535,7 +589,7 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
       return res.status(400).json({ error: '質問回答データが見つかりません。先にLINEで見積りを完了してください。' });
     }
 
-    // 画像をBase64エンコード
+    // 画像をBase64エンコード（スマートフォン対応）
     const imageData = [];
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
@@ -545,15 +599,50 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
           continue;
         }
         
+        // ファイルサイズチェック（15MB制限）
+        if (photo.size > 15 * 1024 * 1024) {
+          console.error(`[ERROR] ファイルサイズ超過: ${photo.originalname}, サイズ: ${photo.size}bytes`);
+          continue;
+        }
+        
+        // HEIC/HEIF形式の検出
+        const isHEIC = photo.mimetype === 'image/heic' || photo.mimetype === 'image/heif' || 
+                       photo.originalname.toLowerCase().endsWith('.heic') || 
+                       photo.originalname.toLowerCase().endsWith('.heif');
+        
+        if (isHEIC) {
+          console.log(`[INFO] HEIC/HEIF形式を検出: ${photo.originalname}`);
+          // HEIC/HEIFの場合、MIMEタイプをJPEGとして扱う（メール送信時の互換性のため）
+        }
+        
         const base64 = photo.buffer.toString('base64');
-        const mimeType = photo.mimetype;
+        let mimeType = photo.mimetype;
+        
+        // MIMEタイプの正規化
+        if (mimeType === 'application/octet-stream') {
+          // 拡張子から推測
+          const ext = photo.originalname.toLowerCase().match(/\.[^.]+$/)?.[0];
+          if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+          else if (ext === '.png') mimeType = 'image/png';
+          else if (ext === '.heic' || ext === '.heif') mimeType = 'image/heic';
+          else mimeType = 'image/jpeg'; // デフォルト
+        }
+        
+        // Base64サイズチェック（メール送信制限考慮）
+        const base64SizeMB = base64.length / (1024 * 1024);
+        if (base64SizeMB > 8) { // 約6MB相当
+          console.warn(`[WARN] Base64サイズが大きい: ${photo.originalname}, Base64サイズ: ${base64SizeMB.toFixed(2)}MB`);
+        }
+        
         imageData.push({
           filename: photo.originalname || `image_${i + 1}.jpg`,
           base64: base64,
           mimeType: mimeType,
-          size: photo.size
+          size: photo.size,
+          isHEIC: isHEIC
         });
-        console.log(`[INFO] 画像処理完了: ${photo.originalname}, サイズ: ${photo.size}bytes`);
+        
+        console.log(`[INFO] 画像処理完了: ${photo.originalname}, サイズ: ${(photo.size / 1024 / 1024).toFixed(2)}MB, MIME: ${mimeType}`);
       } catch (error) {
         console.error(`[ERROR] 画像処理エラー: ${photo.originalname}`, error);
         // 画像処理エラーは継続（他の画像は処理する）
