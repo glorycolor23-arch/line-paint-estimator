@@ -249,7 +249,39 @@ class LiffStepApp {
         let isValid = true;
 
         if (!name) {
-            this.showFieldError(document.getElementById('name'), 'お名前は必須項目です');
+            this.showFieldError('name', 'お名前を入力してください');
+            isValid = false;
+        }
+
+        if (!phone) {
+            this.showFieldError('phone', '電話番号を入力してください');
+            isValid = false;
+        } else if (!/^[0-9-]+$/.test(phone)) {
+            this.showFieldError('phone', '電話番号は数字とハイフンのみで入力してください');
+            isValid = false;
+        }
+
+        // 次へボタンの状態更新
+        this.updateNextButtonState(1, isValid);
+
+        return isValid;
+    }
+
+    // 次へボタンの状態更新
+    updateNextButtonState(step, isValid) {
+        const nextBtn = document.querySelector(`#step${step} .btn-next`);
+        if (!nextBtn) return;
+        
+        if (isValid) {
+            nextBtn.classList.remove('btn-disabled');
+            nextBtn.classList.add('btn-primary');
+            nextBtn.disabled = false;
+        } else {
+            nextBtn.classList.add('btn-disabled');
+            nextBtn.classList.remove('btn-primary');
+            nextBtn.disabled = true;
+        }
+    }
             isValid = false;
         }
 
@@ -271,21 +303,28 @@ class LiffStepApp {
         const zipcode = document.getElementById('zipcode')?.value.trim() || '';
         const address1 = document.getElementById('address1')?.value.trim() || '';
 
-        // エラー表示をクリア
         this.clearErrors();
 
         let isValid = true;
 
         if (!zipcode) {
-            this.showFieldError(document.getElementById('zipcode'), '郵便番号は必須項目です');
+            this.showFieldError('zipcode', '郵便番号を入力してください');
             isValid = false;
-        } else {
-            const zipcodeValue = zipcode.replace(/[^0-9]/g, '');
-            if (zipcodeValue.length !== 7) {
-                this.showFieldError(document.getElementById('zipcode'), '正しい郵便番号を入力してください（7桁）');
-                isValid = false;
-            }
+        } else if (!/^[0-9]{7}$/.test(zipcode.replace('-', ''))) {
+            this.showFieldError('zipcode', '郵便番号は7桁の数字で入力してください');
+            isValid = false;
         }
+
+        if (!address1) {
+            this.showFieldError('address1', '住所を入力してください');
+            isValid = false;
+        }
+
+        // 次へボタンの状態更新
+        this.updateNextButtonState(2, isValid);
+
+        return isValid;
+    }
 
         if (!address1) {
             this.showFieldError(document.getElementById('address1'), 'ご住所は必須項目です');
