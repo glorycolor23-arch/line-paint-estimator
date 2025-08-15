@@ -1,124 +1,63 @@
-(async()=>{
-  const $ = (id)=> document.getElementById(id);
-  const priceEl = $('price');
-  const progEl  = $('prog');
-  const prevBox = $('preview');
-
-  // 画像 → base64（長辺1600pxに縮小）
-  async function fileToBase64Resized(file){
-    const img = new Image();
-    const dataUrl = await new Promise((resolve,reject)=>{
-      const fr=new FileReader();
-      fr.onload = ()=> resolve(fr.result);
-      fr.onerror= reject;
-      fr.readAsDataURL(file);
-    });
-    img.src = dataUrl;
-    await new Promise(r=> img.onload=r);
-
-    const max = 1600;
-    const {width:w0,height:h0} = img;
-    const ratio = Math.min(1, max / Math.max(w0,h0));
-    const w = Math.round(w0*ratio), h = Math.round(h0*ratio);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0,0,w,h);
-    return canvas.toDataURL('image/jpeg', 0.85);
-  }
-
-  function setProgress(n){ progEl.style.width = `${n}%`; }
-
-  // 郵便番号 → 住所
-  async function fillByZip(){
-    const z = $('postal').value.replace(/[^\d]/g,'');
-    if (!z || z.length<7) return;
-    try{
-      const url = `https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`;
-      const resp = await fetch(url); const js = await resp.json();
-      if(js && js.results && js.results[0]){
-        const r = js.results[0];
-        $('addr1').value = `${r.address1}${r.address2}${r.address3}`; // 県市区町
-      }else{
-        alert('住所が見つかりませんでした');
+(async () => {
+  // 住所自動補完
+  const zipEl = document.getElementById('zip');
+  const addr1El = document.getElementById('addr1');
+  zipEl.addEventListener('change', async () => {
+    const z = zipEl.value.replace(/\D/g, '');
+    if (z.length !== 7) return;
+    try {
+      const r = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${z}`);
+      const j = await r.json();
+      if (j?.results?.length) {
+        const a = j.results[0];
+        addr1El.value = `${a.address1}${a.address2}${a.address3}`;
       }
-    }catch(e){ console.log(e); }
-  }
-
-  $('zipBtn').addEventListener('click', fillByZip);
-
-  // LIFF 初期化
-  await liff.init({ liffId: (window.__LIFF_ENV__||{}).LIFF_ID });
-  if (!liff.isLoggedIn()) { liff.login({}); return; }
-
-  // 概算のプレビュー（サーバの回答を取得）
-  try{
-    const token = liff.getAccessToken();
-    const r = await fetch('/liff/prefill',{ headers:{ Authorization:`Bearer ${token}` }});
-    const js = await r.json();
-    if (js && js.priceYen) priceEl.textContent = js.priceYen;
-  }catch(e){ console.log('prefill error', e); }
-
-  // プレビュー
-  $('photos').addEventListener('change', ()=>{
-    prevBox.innerHTML = '';
-    const files = Array.from($('photos').files || []).slice(0,10);
-    for(const f of files){
-      const url = URL.createObjectURL(f);
-      const img = new Image();
-      img.src = url; img.className = 'thumb';
-      prevBox.appendChild(img);
-    }
+    } catch {}
   });
 
-  // 送信
-  $('submitBtn').addEventListener('click', async ()=>{
-    const name  = $('name').value.trim();
-    const phone = $('phone').value.trim();
-    const postal= $('postal').value.trim();
-    const addr1 = $('addr1').value.trim();
-    const addr2 = $('addr2').value.trim();
+  // LIFF 初期化
+  await liff.init({ liffId: window.ENV?.LIFF_ID || '' });
+  document.getElementById('addFriend').href = window.ENV?.FRIEND_ADD_URL || '#';
 
-    if(!name){ alert('お名前を入力してください'); return; }
-    if(!phone){ alert('電話番号を入力してください'); return; }
-    if(!postal || postal.replace(/[^\d]/g,'').length!==7){ alert('郵便番号は7桁で入力してください'); return; }
-    if(!addr1){ alert('住所（都道府県・市区町村・番地）を入力してください'); return; }
+  const form = document.getElementById('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-    // 画像をbase64化
-    const files = Array.from($('photos').files || []).slice(0,10);
-    const total = files.length || 1;
-    const b64s = [];
-    let i=0;
-    for(const f of files){
-      i++; setProgress(Math.round(i/total*100));
-      const b64 = await fileToBase64Resized(f);
-      // dataURL -> 純粋なbase64にして Apps Script に送ってもOKだが
-      // ここでは dataURL（"data:image/jpeg;base64,..."）のまま送る
-      b64s.push(b64);
-    }
-    if(files.length===0) setProgress(100);
+    const name = document.getElementById('name').value.trim();
+    const tel  = document.getElementById('tel').value.trim();
+    const zip  = zipEl.value.trim();
+    const a1   = addr1El.value.trim();
+    const a2   = document.getElementById('addr2').value.trim();
 
-    try{
-      const token = liff.getAccessToken();
-      const resp = await fetch('/liff/submit', {
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          Authorization:`Bearer ${token}`,
-        },
-        body: JSON.stringify({ name, phone, postal, addr1, addr2, photosBase64: b64s })
+    // LINEのuserId
+    const profile = await liff.getProfile().catch(()=>null);
+    const uid = profile?.userId || 'unknown';
+
+    // Apps Script にメール送信を依頼（本文のみ）
+    const webapp = (window.ENV?.EMAIL_WEBAPP_URL) || ''; // 今回は server.js では配布せず、別途環境に合わせて直接書く場合はここに
+    const to = ''; // Apps Script 側で固定宛先があるので空でも可（payload内に to を入れてもよい）
+
+    const html = `
+      <h2>LINE詳細見積りの依頼</h2>
+      <p><b>LINE USER ID:</b> ${uid}</p>
+      <p><b>お名前:</b> ${name}</p>
+      <p><b>電話番号:</b> ${tel}</p>
+      <p><b>郵便番号:</b> ${zip}</p>
+      <p><b>住所1:</b> ${a1}</p>
+      <p><b>住所2:</b> ${a2}</p>
+    `;
+
+    try {
+      await fetch(window.ENV?.EMAIL_WEBAPP_URL || '', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, subject: 'LINE詳細見積りの依頼', htmlBody: html, photoUrls: [] })
       });
-      const js = await resp.json();
-      if(js && js.ok){
-        alert('送信しました。1〜3営業日以内にLINEでお見積書をお送りします。');
-        if (liff.isInClient()) liff.closeWindow();
-      }else{
-        alert('送信に失敗しました。時間をおいて再度お試しください。');
-      }
-    }catch(e){
-      console.log(e);
-      alert('通信エラーが発生しました。');
+      alert('送信しました。1〜3営業日以内にLINEでお見積書をお送りします。');
+      if (liff.isInClient()) liff.closeWindow();
+    } catch (e2) {
+      alert('送信に失敗しました。時間をおいてお試しください。');
+      console.error(e2);
     }
   });
 })();
