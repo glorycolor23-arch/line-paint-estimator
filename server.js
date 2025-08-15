@@ -1,5 +1,5 @@
 /* =========================================================
- * server.js  デバッグ版（送信エラー修正）
+ * server.js  最終版（画像カード選択式 + ステップ形式LIFF）
  * ========================================================= */
 
 import express from 'express';
@@ -103,6 +103,9 @@ app.use(express.json());
  * ======================================================================== */
 const sessions = new Map(); // {userId: {answers:{}, last:{q,v}, step:number}}
 
+// シンプルな画像URL（確実に表示されるもの）
+const DEFAULT_IMG = 'https://scdn.line-apps.com/n/channel_devcenter/img/fx/01_1_cafe.png';
+
 // トリガー/コマンド
 const TRIGGER_START = ['カンタン見積りを依頼'];
 const CMD_RESET     = ['リセット','はじめからやり直す'];
@@ -138,7 +141,7 @@ function calcRoughPrice(a){
 // 安全送信（結果: true/false）
 async function safeReply(replyToken, messages){
   try{
-    console.log('[DEBUG] safeReply 送信開始:', JSON.stringify(messages, null, 2));
+    console.log('[DEBUG] safeReply 送信開始');
     await client.replyMessage(replyToken, Array.isArray(messages)?messages:[messages]);
     console.log('[DEBUG] safeReply 送信成功');
     return true;
@@ -150,7 +153,7 @@ async function safeReply(replyToken, messages){
 
 async function safePush(to, messages){
   try{
-    console.log('[DEBUG] safePush 送信開始:', to, JSON.stringify(messages, null, 2));
+    console.log('[DEBUG] safePush 送信開始:', to);
     await client.pushMessage(to, Array.isArray(messages)?messages:[messages]);
     console.log('[DEBUG] safePush 送信成功');
     return true;
@@ -160,42 +163,56 @@ async function safePush(to, messages){
   }
 }
 
-// 簡素化されたボタンメッセージ（Flexを使わない）
-function buildOptionsButtons(title, qid, opts){
-  // 4個までしかボタンを作れないので、分割が必要な場合は複数メッセージに
-  if (opts.length <= 4) {
-    return {
-      type: 'template',
-      altText: title,
-      template: {
-        type: 'buttons',
-        text: title,
-        actions: opts.map(v => ({
+// 最適化されたFlexメッセージ（画像カード選択式）
+function buildOptionsFlex(title, qid, opts){
+  // 選択肢を3つずつに分割してカルーセル作成
+  const chunks = [];
+  for (let i = 0; i < opts.length; i += 3) {
+    chunks.push(opts.slice(i, i + 3));
+  }
+
+  const bubbles = chunks.map(chunk => ({
+    type: 'bubble',
+    size: 'micro',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: title,
+          weight: 'bold',
+          size: 'sm',
+          wrap: true
+        }
+      ]
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: chunk.map(v => ({
+        type: 'button',
+        style: 'secondary',
+        height: 'sm',
+        action: {
           type: 'postback',
-          label: v.length > 20 ? v.substring(0, 17) + '...' : v,
+          label: v.length > 15 ? v.substring(0, 12) + '...' : v,
           data: JSON.stringify({t:'answer', q:qid, v}),
           displayText: v
-        }))
-      }
-    };
-  } else {
-    // 4個以上の場合はクイックリプライを使用
-    return {
-      type: 'text',
-      text: title,
-      quickReply: {
-        items: opts.map(v => ({
-          type: 'action',
-          action: {
-            type: 'postback',
-            label: v.length > 20 ? v.substring(0, 17) + '...' : v,
-            data: JSON.stringify({t:'answer', q:qid, v}),
-            displayText: v
-          }
-        }))
-      }
-    };
-  }
+        }
+      }))
+    }
+  }));
+
+  return {
+    type: 'flex',
+    altText: title,
+    contents: {
+      type: 'carousel',
+      contents: bubbles
+    }
+  };
 }
 
 function summarize(a){
@@ -207,29 +224,64 @@ function summarize(a){
   ].join('\n');
 }
 
-// 簡素化された見積り表示（テキストメッセージ + ボタン）
-function buildEstimateMessages(price){
+// 見積り表示（シンプルなFlexメッセージ）
+function buildEstimateFlex(price){
   const liffUrl = process.env.LIFF_URL || 'https://line-paint.onrender.com/liff/index.html';
   
-  return [
-    {
-      type: 'text',
-      text: `【見積り金額】\n￥${price.toLocaleString()}\n\n上記はご入力内容を元に算出した概算です。\n\n正式なお見積りが必要な方は続けてご入力ください。`
-    },
-    {
-      type: 'template',
-      altText: '見積り依頼',
-      template: {
-        type: 'buttons',
-        text: '詳細な見積りをご希望の場合',
-        actions: [{
-          type: 'uri',
-          label: '現地調査なしで見積を依頼',
-          uri: liffUrl
-        }]
+  return {
+    type: 'flex',
+    altText: '概算見積り',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '見積り金額',
+            weight: 'bold',
+            size: 'md'
+          },
+          {
+            type: 'text',
+            text: `￥${price.toLocaleString()}`,
+            weight: 'bold',
+            size: 'xl',
+            color: '#00B900'
+          },
+          {
+            type: 'text',
+            text: '上記はご入力内容を元に算出した概算です。',
+            size: 'sm',
+            color: '#666666',
+            wrap: true
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '正式なお見積りが必要な方は続けてご入力ください。',
+            size: 'sm',
+            wrap: true
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            action: {
+              type: 'uri',
+              label: '現地調査なしで見積を依頼',
+              uri: liffUrl
+            }
+          }
+        ]
       }
     }
-  ];
+  };
 }
 
 // 今の出題 index
@@ -270,11 +322,10 @@ async function sendNext(userId, replyToken=null){
     
     console.log(`[DEBUG] 概算見積り: ${price}, ユーザー: ${userId}`);
     
-    // 簡素化されたメッセージを送信
     const msgs = [
       { type:'text', text:'ありがとうございます。概算を作成しました。' },
       { type:'text', text:`【回答の確認】\n${summarize(sess.answers)}` },
-      ...buildEstimateMessages(price)
+      buildEstimateFlex(price)
     ];
 
     console.log(`[DEBUG] 送信するメッセージ数: ${msgs.length}`);
@@ -297,7 +348,7 @@ async function sendNext(userId, replyToken=null){
   
   const messages = [
     { type:'text', text:q.title },
-    buildOptionsButtons(q.title, q.id, q.options),
+    buildOptionsFlex(q.title, q.id, q.options),
   ];
 
   if (replyToken) await safeReply(replyToken, messages);
