@@ -1,113 +1,122 @@
-// 最小限のLIFFアプリ（タイムアウト対応）
-console.log('[DEBUG] 最小限アプリ開始');
+// 強制ローディング停止アプリ
+console.log('[DEBUG] 強制停止アプリ開始');
 
-// タイムアウト設定
-const INIT_TIMEOUT = 10000; // 10秒
-
-function showMessage(message, isError = false) {
+function forceStopLoading() {
+    console.log('[DEBUG] ローディング強制停止');
+    
+    // ローディング要素を強制非表示
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'none';
+        console.log('[DEBUG] ローディング要素を非表示にしました');
+    }
+    
+    // メインコンテンツに直接メッセージを表示
     const mainContent = document.getElementById('main-content');
     if (mainContent) {
         mainContent.innerHTML = `
-            <div style="text-align: center; padding: 40px 20px;">
-                <div style="font-size: 48px; margin-bottom: 20px;">
-                    ${isError ? '❌' : '✅'}
+            <div style="text-align: center; padding: 40px 20px; background: white;">
+                <h2 style="color: #333; margin-bottom: 20px;">🔧 診断結果</h2>
+                <div style="text-align: left; max-width: 400px; margin: 0 auto;">
+                    <p><strong>JavaScript実行:</strong> ✅ 成功</p>
+                    <p><strong>DOM操作:</strong> ✅ 成功</p>
+                    <p><strong>env.js読み込み:</strong> ${window.ENV ? '✅ 成功' : '❌ 失敗'}</p>
+                    <p><strong>LIFF SDK:</strong> ${typeof liff !== 'undefined' ? '✅ 読み込み済み' : '❌ 未読み込み'}</p>
+                    <p><strong>LIFF ID:</strong> ${window.ENV?.LIFF_ID || '❌ 未設定'}</p>
                 </div>
-                <h2 style="color: ${isError ? '#ff4444' : '#00B900'}; margin-bottom: 20px;">
-                    ${isError ? 'エラー' : '成功'}
-                </h2>
-                <p style="margin-bottom: 30px; line-height: 1.6;">
-                    ${message}
-                </p>
-                <button onclick="location.reload()" 
-                        style="padding: 12px 24px; 
-                               background: ${isError ? '#ff4444' : '#00B900'}; 
-                               color: white; 
-                               border: none; 
-                               border-radius: 8px; 
-                               font-size: 16px;
-                               cursor: pointer;">
-                    再読み込み
-                </button>
+                <div style="margin-top: 30px;">
+                    <button onclick="testLiff()" 
+                            style="padding: 12px 24px; 
+                                   background: #00B900; 
+                                   color: white; 
+                                   border: none; 
+                                   border-radius: 8px; 
+                                   margin: 5px;
+                                   cursor: pointer;">
+                        LIFF初期化テスト
+                    </button>
+                    <button onclick="location.reload()" 
+                            style="padding: 12px 24px; 
+                                   background: #666; 
+                                   color: white; 
+                                   border: none; 
+                                   border-radius: 8px; 
+                                   margin: 5px;
+                                   cursor: pointer;">
+                        再読み込み
+                    </button>
+                </div>
+                <div id="test-result" style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; display: none;">
+                    <h3>テスト結果</h3>
+                    <div id="test-message"></div>
+                </div>
+            </div>
+        `;
+        console.log('[DEBUG] メッセージを表示しました');
+    } else {
+        console.error('[ERROR] main-content要素が見つかりません');
+        // bodyに直接追加
+        document.body.innerHTML = `
+            <div style="text-align: center; padding: 40px 20px;">
+                <h2>❌ DOM要素エラー</h2>
+                <p>main-content要素が見つかりません</p>
+                <button onclick="location.reload()">再読み込み</button>
             </div>
         `;
     }
 }
 
-async function initApp() {
-    console.log('[DEBUG] アプリ初期化開始');
+// LIFF初期化テスト関数
+window.testLiff = async function() {
+    const resultDiv = document.getElementById('test-result');
+    const messageDiv = document.getElementById('test-message');
+    
+    if (resultDiv) resultDiv.style.display = 'block';
+    if (messageDiv) messageDiv.innerHTML = '初期化中...';
     
     try {
-        // 環境変数チェック
-        if (!window.ENV || !window.ENV.LIFF_ID) {
-            throw new Error('LIFF IDが設定されていません。env.jsファイルを確認してください。');
-        }
-        
-        const liffId = window.ENV.LIFF_ID;
-        console.log('[DEBUG] LIFF ID:', liffId);
-        
-        // LIFF SDKの存在確認
         if (typeof liff === 'undefined') {
-            throw new Error('LIFF SDKが読み込まれていません。');
+            throw new Error('LIFF SDKが読み込まれていません');
         }
         
-        console.log('[DEBUG] LIFF SDK確認完了');
+        if (!window.ENV?.LIFF_ID) {
+            throw new Error('LIFF IDが設定されていません');
+        }
         
-        // タイムアウト付きLIFF初期化
-        const initPromise = liff.init({ liffId: liffId });
+        console.log('[DEBUG] LIFF初期化開始:', window.ENV.LIFF_ID);
+        
+        // 5秒タイムアウト
+        const initPromise = liff.init({ liffId: window.ENV.LIFF_ID });
         const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => {
-                reject(new Error('LIFF初期化がタイムアウトしました（10秒）'));
-            }, INIT_TIMEOUT);
+            setTimeout(() => reject(new Error('5秒でタイムアウト')), 5000);
         });
         
-        console.log('[DEBUG] LIFF初期化実行中...');
         await Promise.race([initPromise, timeoutPromise]);
-        console.log('[DEBUG] LIFF初期化完了');
         
-        // ログイン状態確認
+        if (messageDiv) {
+            messageDiv.innerHTML = `
+                <p style="color: #00B900;">✅ LIFF初期化成功</p>
+                <p>ログイン状態: ${liff.isLoggedIn() ? 'ログイン済み' : 'ログイン必要'}</p>
+            `;
+        }
+        
         if (!liff.isLoggedIn()) {
-            console.log('[DEBUG] ログインが必要です');
-            showMessage('LINEログインが必要です。ログイン画面に移動します...', false);
             setTimeout(() => {
                 liff.login();
             }, 2000);
-            return;
         }
         
-        console.log('[DEBUG] ログイン済み');
-        
-        // ユーザー情報取得
-        const profile = await liff.getProfile();
-        const userId = profile.userId;
-        const displayName = profile.displayName;
-        
-        console.log('[DEBUG] ユーザー情報取得成功:', { userId, displayName });
-        
-        // 成功メッセージ表示
-        showMessage(`
-            LIFF初期化が正常に完了しました！<br><br>
-            <strong>ユーザー名:</strong> ${displayName}<br>
-            <strong>ユーザーID:</strong> ${userId.substring(0, 8)}...<br>
-            <strong>LIFF ID:</strong> ${liffId}
-        `, false);
-        
     } catch (error) {
-        console.error('[ERROR] 初期化エラー:', error);
-        showMessage(`
-            初期化に失敗しました。<br><br>
-            <strong>エラー内容:</strong><br>
-            ${error.message}<br><br>
-            LINEアプリから再度お試しください。
-        `, true);
+        console.error('[ERROR] LIFF初期化エラー:', error);
+        if (messageDiv) {
+            messageDiv.innerHTML = `
+                <p style="color: #ff4444;">❌ LIFF初期化失敗</p>
+                <p>エラー: ${error.message}</p>
+            `;
+        }
     }
-}
+};
 
-// DOM読み込み完了後に初期化
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM読み込み完了');
-    
-    // 少し待ってから初期化（LIFF SDKの読み込み完了を待つ）
-    setTimeout(() => {
-        initApp();
-    }, 1000);
-});
+// 即座に実行
+console.log('[DEBUG] 1秒後にローディング強制停止');
+setTimeout(forceStopLoading, 1000);
