@@ -892,6 +892,9 @@ app.get('/api/debug/sessions', (req, res) => {
   });
 });
 
+// 静的ファイル配信（LIFF用）
+app.use('/liff', express.static(path.join(__dirname, 'liff')));
+
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[INFO] サーバーが起動しました`);
