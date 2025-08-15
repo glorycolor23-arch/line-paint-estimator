@@ -324,20 +324,64 @@ class LiffStepApp {
 
         console.log(`[DEBUG] ファイル選択: ${input.id}, ${files.length}ファイル`);
 
-        // プレビュー表示
+        // プレビュー表示（スマートフォン対応）
         files.forEach((file, index) => {
-            if (file.type.startsWith('image/')) {
+            console.log(`[DEBUG] ファイル処理: ${file.name}, タイプ: ${file.type}, サイズ: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+            
+            // ファイルサイズチェック（15MB制限）
+            if (file.size > 15 * 1024 * 1024) {
+                alert(`ファイル「${file.name}」のサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(2)}MB）。15MB以下のファイルを選択してください。`);
+                return;
+            }
+            
+            // 画像ファイルかどうかチェック（HEIC/HEIF含む）
+            const isImage = file.type.startsWith('image/') || 
+                           file.name.toLowerCase().endsWith('.heic') || 
+                           file.name.toLowerCase().endsWith('.heif');
+            
+            if (isImage) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const previewItem = document.createElement('div');
                     previewItem.className = 'preview-item';
-                    previewItem.innerHTML = `
-                        <img src="${e.target.result}" alt="プレビュー">
-                        <button type="button" class="preview-remove" onclick="app.removeFile('${input.id}', ${index})">×</button>
-                    `;
+                    
+                    // HEIC/HEIF形式の場合は特別な表示
+                    const isHEIC = file.name.toLowerCase().endsWith('.heic') || 
+                                  file.name.toLowerCase().endsWith('.heif');
+                    
+                    if (isHEIC) {
+                        previewItem.innerHTML = `
+                            <div class="heic-preview">
+                                <div class="heic-icon">📷</div>
+                                <div class="heic-info">
+                                    <div class="filename">${file.name}</div>
+                                    <div class="filesize">${(file.size / 1024 / 1024).toFixed(2)}MB</div>
+                                    <div class="filetype">HEIC形式</div>
+                                </div>
+                            </div>
+                            <button type="button" class="preview-remove" onclick="app.removeFile('${input.id}', ${index})">×</button>
+                        `;
+                    } else {
+                        previewItem.innerHTML = `
+                            <img src="${e.target.result}" alt="プレビュー">
+                            <div class="file-info">
+                                <div class="filename">${file.name}</div>
+                                <div class="filesize">${(file.size / 1024 / 1024).toFixed(2)}MB</div>
+                            </div>
+                            <button type="button" class="preview-remove" onclick="app.removeFile('${input.id}', ${index})">×</button>
+                        `;
+                    }
                     previewContainer.appendChild(previewItem);
                 };
-                reader.readAsDataURL(file);
+                
+                if (isHEIC) {
+                    // HEIC/HEIFの場合はreadAsDataURLをスキップ
+                    reader.onload({ target: { result: null } });
+                } else {
+                    reader.readAsDataURL(file);
+                }
+            } else {
+                alert(`ファイル「${file.name}」は画像ファイルではありません。JPEG、PNG、HEIC等の画像ファイルを選択してください。`);
             }
         });
     }
