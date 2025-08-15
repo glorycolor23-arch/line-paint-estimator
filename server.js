@@ -710,15 +710,11 @@ async function handleEvent(ev){
       return;
     }
 
-    // リセット（見積りフロー中のみ）
+    // リセット（常に有効）
     if (CMD_RESET.includes(text)){
-      if (sess && isInEstimateFlow(sess)) {
-        sessions.delete(userId);
-        await safeReply(ev.replyToken, { type:'text', text:'見積りを初期化しました。もう一度「カンタン見積りを依頼」と入力してください。' });
-      } else {
-        // 見積りフロー外では普通のトーク
-        console.log(`[DEBUG] 見積りフロー外での「リセット」発言 - 無反応`);
-      }
+      sessions.delete(userId);
+      console.log(`[DEBUG] セッションリセット: ${userId}`);
+      await safeReply(ev.replyToken, { type:'text', text:'見積りをリセットしました。\n「カンタン見積りを依頼」と入力すると新しい見積りを開始できます。' });
       return;
     }
 
