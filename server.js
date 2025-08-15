@@ -436,47 +436,83 @@ async function safePush(userId, messages) {
   }
 }
 
-// 元の小さなカード形式のFlexメッセージ作成
+// 画像カード形式のFlexメッセージ作成
 function buildOptionsFlex(title, questionId, options) {
-  // 選択肢を3つずつに分割
-  const chunks = [];
+  // 選択肢を3つずつに分割してカルーセル作成
+  const bubbles = [];
+  
   for (let i = 0; i < options.length; i += 3) {
-    chunks.push(options.slice(i, i + 3));
+    const optionGroup = options.slice(i, i + 3);
+    
+    const bubble = {
+      type: 'bubble',
+      size: 'kilo',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: title,
+            weight: 'bold',
+            size: 'md',
+            wrap: true,
+            margin: 'none'
+          },
+          {
+            type: 'separator',
+            margin: 'md'
+          }
+        ]
+      }
+    };
+    
+    // 各選択肢の画像カード追加
+    optionGroup.forEach(option => {
+      bubble.body.contents.push({
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  {
+                    type: 'filler'
+                  }
+                ],
+                height: '80px',
+                backgroundColor: '#F0F0F0',
+                cornerRadius: '8px',
+                margin: 'md',
+                action: {
+                  type: 'postback',
+                  data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
+                  displayText: option
+                }
+              },
+              {
+                type: 'text',
+                text: option,
+                size: 'sm',
+                weight: 'bold',
+                align: 'center',
+                margin: 'sm'
+              }
+            ]
+          }
+        ],
+        paddingAll: '8px'
+      });
+    });
+    
+    bubbles.push(bubble);
   }
-
-  const bubbles = chunks.map(chunk => ({
-    type: 'bubble',
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        {
-          type: 'text',
-          text: title,
-          weight: 'bold',
-          size: 'md',
-          wrap: true
-        }
-      ]
-    },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      contents: chunk.map(option => ({
-        type: 'button',
-        style: 'primary',
-        color: '#00B900',
-        action: {
-          type: 'postback',
-          label: option,
-          data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
-          displayText: option
-        },
-        margin: 'sm'
-      }))
-    }
-  }));
-
+  
   return {
     type: 'flex',
     altText: title,
