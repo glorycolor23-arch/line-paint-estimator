@@ -1,8 +1,11 @@
 /****************************************************
- * 外装工事オンライン見積もり — 安定版＋中断確認
- *  - Render のヘルスチェック: GET /health, GET /
- *  - 各回答は reply(ACK) → push(次の質問/概算) の二段構え
- *  - 質問以外の発言が来たら「見積りを停止しますか？」確認
+ * 外装工事オンライン見積もり — 安定版＋最終一括返信
+ *  - Render ヘルスチェック: GET /health, GET /
+ *  - 質問は画像カード（テンプレ・カルーセル）
+ *  - 回答ごとに reply(ACK) → push(次の質問)
+ *  - ただし最終(Q10)は reply 一発で [ACK+概算+LIFFボタン] をまとめて返す
+ *  - 雑談などカード外の発言が来たら「見積りを停止しますか？」確認
+ *  - LIFF: /liff/index.html（別ファイル）、/liff/env.js, /liff/prefill, /liff/submit
  ****************************************************/
 
 import express from 'express';
@@ -21,7 +24,7 @@ const {
   CHANNEL_ACCESS_TOKEN,
   CHANNEL_SECRET,
   PORT,
-  LIFF_ID, // 例: 2007914959-XXXX（/liff/env.js で返す用）
+  LIFF_ID, // 例: 2007914959-XXXX（/liff/env.js で返す）
   EMAIL_WEBAPP_URL,
   EMAIL_TO,
   GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -76,7 +79,7 @@ app.use('/webhook', express.raw({ type: '*/*' }), (req, res, next) => {
 
 /* ---------- セッション ---------- */
 const sessions = new Map(); // userId -> {step, answers, updated}
-const TTL = 60 * 60 * 1000;
+const TTL = 60 * 60 * 1000; // 1h
 
 function getState(uid){
   const now = Date.now();
@@ -420,7 +423,6 @@ app.post('/webhook', async (req,res)=>{
           if (v === 'yes') {
             reset(uid); // step=0 (idle)
             await reply(ev.replyToken, t('見積りを停止しました。通常のトークをどうぞ。'));
-            // idle時は何も送らない（手動で会話可能）
           } else {
             await reply(ev.replyToken, t('見積りを継続します。'));
             await push(uid, nextMessagesFor(s));
@@ -433,25 +435,16 @@ app.post('/webhook', async (req,res)=>{
       if(ev.type==='message' && ev.message.type==='text'){
         const text=(ev.message.text||'').trim();
 
-        // リセット（任意）
-        if(text==='はじめからやり直す' || text==='リセット'){
+        // トリガー（※指定の文言のみ）
+        if(text==='カンタン見積りを依頼'){
           reset(uid); const ns=getState(uid); ns.step=1;
-          await reply(ev.replyToken, t('リセットしました。'));
-          await push(uid, nextMessagesFor(ns));
-          continue;
-        }
-
-        // トリガー
-        if(text==='カンタン見積りを依頼' || text==='見積もりスタート'){
-          reset(uid); const ns=getState(uid); ns.step=1;
-          await reply(ev.replyToken, t('見積もりを開始します。'));
-          await push(uid, nextMessagesFor(ns));
+          await reply(ev.replyToken, t('見積もりを開始します。以下の質問にお答えください。'));
+          await push(uid, nextMessagesFor(ns)); // Q1 を push
           continue;
         }
 
         // idle（通常トーク）中はボット応答しない
         if(s.step===0){
-          // ここでは返信しない → 管理側と通常トークが可能
           continue;
         }
 
@@ -509,17 +502,24 @@ app.post('/webhook', async (req,res)=>{
           if(list.includes(text)){ s.answers.q9_leak=text; s.step=10; await ack(`「${text}」で承りました。`); continue; }
         }
 
-        if(s.step===10){
-          const list=['30cm以下','50cm以下','70cm以下','70cm以上'];
-          if(list.includes(text)){
-            s.answers.q10_dist=text; s.step=11;
-            await reply(ev.replyToken, t('ありがとうございます。概算を作成しました。'));
-            await push(uid, nextMessagesFor(s));
+        // ---- 最終(Q10)は reply 一発で ACK + 概算＋LIFF ボタンまで返す ----
+        if (s.step === 10) {
+          const list = ['30cm以下','50cm以下','70cm以下','70cm以上'];
+          if (list.includes(text)) {
+            s.answers.q10_dist = text;
+            s.step = 11; // 完了ステップへ
+
+            const follow = nextMessagesFor(s); // 概算＋LIFF ボタン等（配列）
+            await reply(ev.replyToken, [
+              t('ありがとうございます。概算を作成しました。'),
+              ...follow
+            ]);
             continue;
           }
         }
+        // -------------------------------------------------------------------
 
-        // 想定外の発言 → 中断確認を reply
+        // 想定外の発言 → 中断確認を reply（ボットが勝手に進まない）
         await reply(ev.replyToken, confirmStopTemplate());
         continue;
       }
@@ -527,7 +527,7 @@ app.post('/webhook', async (req,res)=>{
       /* その他（画像など） */
       if(ev.type==='message' && ev.message.type!=='text'){
         if(getState(uid).step===0){
-          // idle中は何も返信しない
+          // idle中は何も返信しない（通常トーク）
           continue;
         }
         await reply(ev.replyToken, confirmStopTemplate());
