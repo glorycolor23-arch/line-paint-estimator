@@ -509,18 +509,30 @@ async function handleEvent(ev){
 app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
   try {
     console.log('[INFO] LIFF フォーム送信受信:', req.body);
+    console.log('[INFO] 受信ファイル数:', req.files?.length || 0);
     
     const { userId, name, phone, zipcode, address1, address2 } = req.body;
     const photos = req.files || [];
     
+    // 入力値検証
     if (!userId) {
+      console.error('[ERROR] ユーザーIDが未設定');
       return res.status(400).json({ error: 'ユーザーIDが必要です' });
+    }
+
+    if (!name || !phone || !zipcode || !address1) {
+      console.error('[ERROR] 必須項目が未入力:', { name, phone, zipcode, address1 });
+      return res.status(400).json({ error: '必須項目が入力されていません' });
     }
 
     // セッションから質問回答データを取得
     const sess = sessions.get(userId);
+    console.log('[DEBUG] セッション確認:', sess ? 'あり' : 'なし');
+    
     if (!sess || !sess.answers) {
-      return res.status(400).json({ error: '質問回答データが見つかりません' });
+      console.error('[ERROR] セッションデータが見つかりません:', userId);
+      console.log('[DEBUG] 現在のセッション一覧:', Array.from(sessions.keys()));
+      return res.status(400).json({ error: '質問回答データが見つかりません。先にLINEで見積りを完了してください。' });
     }
 
     // 画像をBase64エンコード
@@ -528,6 +540,11 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
       try {
+        if (!photo.buffer) {
+          console.error(`[ERROR] 画像バッファが空: ${photo.originalname}`);
+          continue;
+        }
+        
         const base64 = photo.buffer.toString('base64');
         const mimeType = photo.mimetype;
         imageData.push({
@@ -539,49 +556,72 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
         console.log(`[INFO] 画像処理完了: ${photo.originalname}, サイズ: ${photo.size}bytes`);
       } catch (error) {
         console.error(`[ERROR] 画像処理エラー: ${photo.originalname}`, error);
+        // 画像処理エラーは継続（他の画像は処理する）
       }
     }
 
+    console.log(`[INFO] 処理完了画像数: ${imageData.length}/${photos.length}`);
+
     // スプレッドシートに記録
-    await writeToSpreadsheet({
-      userId,
-      name,
-      phone,
-      zipcode,
-      address1,
-      address2,
-      answers: sess.answers,
-      photoCount: photos.length,
-      estimatedPrice: sess.estimatedPrice || 0
-    });
+    try {
+      await writeToSpreadsheet({
+        userId,
+        name,
+        phone,
+        zipcode,
+        address1,
+        address2,
+        answers: sess.answers,
+        photoCount: imageData.length,
+        estimatedPrice: sess.estimatedPrice || 0
+      });
+      console.log('[INFO] スプレッドシート書き込み成功');
+    } catch (error) {
+      console.error('[ERROR] スプレッドシート書き込みエラー:', error);
+      // スプレッドシートエラーは継続（メール送信は実行）
+    }
 
     // メール送信（Base64画像付き）
-    await sendEmail({
-      userId,
-      name,
-      phone,
-      zipcode,
-      address1,
-      address2,
-      answers: sess.answers,
-      imageData: imageData,
-      estimatedPrice: sess.estimatedPrice || 0
-    });
+    try {
+      await sendEmail({
+        userId,
+        name,
+        phone,
+        zipcode,
+        address1,
+        address2,
+        answers: sess.answers,
+        imageData: imageData,
+        estimatedPrice: sess.estimatedPrice || 0
+      });
+      console.log('[INFO] メール送信成功');
+    } catch (error) {
+      console.error('[ERROR] メール送信エラー:', error);
+      // メール送信エラーは継続（LINE通知は実行）
+    }
 
     // LINEに完了通知を送信
-    await safePush(userId, {
-      type: 'text',
-      text: 'お見積りのご依頼ありがとうございます。\n1〜3営業日程度でLINEにお送りいたします。'
-    });
+    try {
+      await safePush(userId, {
+        type: 'text',
+        text: 'お見積りのご依頼ありがとうございます。\n1〜3営業日程度でLINEにお送りいたします。'
+      });
+      console.log('[INFO] LINE通知送信成功');
+    } catch (error) {
+      console.error('[ERROR] LINE通知送信エラー:', error);
+      // LINE通知エラーでも成功扱い
+    }
 
     // セッションをクリア
     sessions.delete(userId);
+    console.log('[INFO] セッションクリア完了');
 
     res.json({ success: true, message: '送信が完了しました' });
 
   } catch (error) {
     console.error('[ERROR] LIFF フォーム送信エラー:', error);
-    res.status(500).json({ error: '送信に失敗しました' });
+    console.error('[ERROR] エラースタック:', error.stack);
+    res.status(500).json({ error: '送信処理中にエラーが発生しました。もう一度お試しください。' });
   }
 });
 
