@@ -436,85 +436,36 @@ async function safePush(userId, messages) {
   }
 }
 
-// 指定された形式の画像カードFlexメッセージ作成
-function buildOptionsFlex(title, questionId, options) {
-  // 選択肢を2つずつに分割してカルーセル作成
-  const bubbles = [];
-  
-  for (let i = 0; i < options.length; i += 2) {
-    const optionGroup = options.slice(i, i + 2);
-    
-    const bubble = {
-      type: 'bubble',
-      size: 'kilo',
-      body: {
-        type: 'box',
-        layout: 'horizontal',
-        contents: [],
-        spacing: 'sm',
-        paddingAll: '13px'
-      }
-    };
-    
-    // 各選択肢の大きなカード追加
-    optionGroup.forEach(option => {
-      bubble.body.contents.push({
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-              {
-                type: 'filler'
-              }
-            ],
-            height: '120px',
-            backgroundColor: '#F5F5F5',
-            cornerRadius: '8px'
-          },
-          {
-            type: 'text',
-            text: option,
-            size: 'lg',
-            weight: 'bold',
-            align: 'center',
-            margin: 'md',
-            wrap: true
-          },
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#00B900',
-            action: {
-              type: 'postback',
-              data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
-              displayText: option
-            },
-            text: '選ぶ',
-            margin: 'md'
-          }
-        ],
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-        cornerRadius: '12px',
-        paddingAll: '16px',
-        margin: 'none'
-      });
-    });
-    
-    bubbles.push(bubble);
+// シンプルなボタン形式のメッセージ作成（Flexメッセージの代替）
+function buildSimpleButtons(title, questionId, options) {
+  // 選択肢を4つずつに分割
+  const chunks = [];
+  for (let i = 0; i < options.length; i += 4) {
+    chunks.push(options.slice(i, i + 4));
   }
   
-  return {
-    type: 'flex',
-    altText: title,
-    contents: {
-      type: 'carousel',
-      contents: bubbles
-    }
-  };
+  const messages = [];
+  
+  chunks.forEach((chunk, chunkIndex) => {
+    const actions = chunk.map(option => ({
+      type: 'postback',
+      label: option,
+      data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
+      displayText: option
+    }));
+    
+    messages.push({
+      type: 'template',
+      altText: title,
+      template: {
+        type: 'buttons',
+        text: chunkIndex === 0 ? title : `${title} (続き)`,
+        actions: actions
+      }
+    });
+  });
+  
+  return messages;
 }
 
 // 元の見積り結果Flexメッセージ作成
@@ -634,13 +585,16 @@ async function sendNext(userId, replyToken = null) {
   const q = QUESTIONS[idx];
   console.log(`[DEBUG] 質問送信: ${q.title}`);
   
-  const messages = [
-    { type:'text', text:q.title },
-    buildOptionsFlex(q.title, q.id, q.options),
-  ];
+  // シンプルなボタン形式を使用
+  const buttonMessages = buildSimpleButtons(q.title, q.id, q.options);
 
-  if (replyToken) await safeReply(replyToken, messages);
-  else            await safePush(userId,   messages);
+  if (replyToken) {
+    await safeReply(replyToken, buttonMessages);
+  } else {
+    for (const message of buttonMessages) {
+      await safePush(userId, message);
+    }
+  }
 }
 
 // 回答確認テキスト作成
