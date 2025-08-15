@@ -1,5 +1,5 @@
-// 強制ローディング停止アプリ
-console.log('[DEBUG] 強制停止アプリ開始');
+// 強制ローディング停止アプリ（app.js版）
+console.log('[DEBUG] 強制停止アプリ開始 - app.js');
 
 function forceStopLoading() {
     console.log('[DEBUG] ローディング強制停止');
@@ -16,13 +16,14 @@ function forceStopLoading() {
     if (mainContent) {
         mainContent.innerHTML = `
             <div style="text-align: center; padding: 40px 20px; background: white;">
-                <h2 style="color: #333; margin-bottom: 20px;">🔧 診断結果</h2>
+                <h2 style="color: #333; margin-bottom: 20px;">🔧 診断結果 (app.js版)</h2>
                 <div style="text-align: left; max-width: 400px; margin: 0 auto;">
                     <p><strong>JavaScript実行:</strong> ✅ 成功</p>
                     <p><strong>DOM操作:</strong> ✅ 成功</p>
                     <p><strong>env.js読み込み:</strong> ${window.ENV ? '✅ 成功' : '❌ 失敗'}</p>
                     <p><strong>LIFF SDK:</strong> ${typeof liff !== 'undefined' ? '✅ 読み込み済み' : '❌ 未読み込み'}</p>
                     <p><strong>LIFF ID:</strong> ${window.ENV?.LIFF_ID || '❌ 未設定'}</p>
+                    <p><strong>現在時刻:</strong> ${new Date().toLocaleTimeString()}</p>
                 </div>
                 <div style="margin-top: 30px;">
                     <button onclick="testLiff()" 
