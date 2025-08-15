@@ -285,49 +285,114 @@ header h1 {
     border-color: #00B900;
 }
 
-/* プレビュー */
-.upload-preview {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+//* ファイルプレビュー */
+.preview-container {
     margin-top: 10px;
 }
 
 .preview-item {
     position: relative;
-    width: 100px;
-    height: 100px;
+    display: inline-block;
+    margin: 5px;
+    border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
-    border: 1px solid #ddd;
+    background: #f9f9f9;
 }
 
 .preview-item img {
-    width: 100%;
-    height: 100%;
+    width: 100px;
+    height: 100px;
     object-fit: cover;
+    display: block;
 }
 
 .preview-remove {
     position: absolute;
     top: 5px;
     right: 5px;
-    width: 20px;
-    height: 20px;
-    background: #d32f2f;
+    background: rgba(255, 0, 0, 0.8);
     color: white;
     border: none;
     border-radius: 50%;
-    cursor: pointer;
+    width: 20px;
+    height: 20px;
     font-size: 12px;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-/* 最終確認 */
-.confirmation-section {
-    margin-bottom: 30px;
+.preview-remove:hover {
+    background: rgba(255, 0, 0, 1);
+}
+
+/* HEIC形式プレビュー */
+.heic-preview {
+    width: 100px;
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #f0f0f0;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.heic-icon {
+    font-size: 24px;
+    margin-bottom: 5px;
+}
+
+.heic-info {
+    text-align: center;
+    font-size: 10px;
+    color: #666;
+}
+
+.filename {
+    font-weight: bold;
+    margin-bottom: 2px;
+    word-break: break-all;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filesize {
+    color: #888;
+    margin-bottom: 2px;
+}
+
+.filetype {
+    color: #007bff;
+    font-size: 9px;
+}
+
+/* 通常画像のファイル情報 */
+.file-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 5px;
+    font-size: 10px;
+    text-align: center;
+}
+
+.file-info .filename {
+    color: white;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+.file-info .filesize {
+    color: #ccc;
 }
 
 .final-summary {
