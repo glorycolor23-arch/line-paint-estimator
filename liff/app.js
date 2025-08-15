@@ -121,3 +121,4 @@ window.testLiff = async function() {
 // 即座に実行
 console.log('[DEBUG] 1秒後にローディング強制停止');
 setTimeout(forceStopLoading, 1000);
+
