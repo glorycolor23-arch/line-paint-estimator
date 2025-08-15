@@ -1,4 +1,4 @@
-// LIFF ステップ形式アプリケーション
+// LIFF ステップ形式アプリケーション（デバッグ強化版）
 class LiffStepApp {
     constructor() {
         this.userId = null;
@@ -18,10 +18,21 @@ class LiffStepApp {
 
     async init() {
         try {
+            console.log('[DEBUG] LIFF初期化開始');
+            
+            // 環境変数チェック
+            if (!window.ENV || !window.ENV.LIFF_ID) {
+                throw new Error('LIFF_IDが設定されていません');
+            }
+            
+            console.log('[DEBUG] LIFF_ID:', window.ENV.LIFF_ID);
+            
             // LIFF初期化
             await liff.init({ liffId: window.ENV.LIFF_ID });
+            console.log('[DEBUG] LIFF初期化完了');
             
             if (!liff.isLoggedIn()) {
+                console.log('[DEBUG] ログインが必要です');
                 liff.login();
                 return;
             }
@@ -29,6 +40,7 @@ class LiffStepApp {
             // ユーザー情報取得
             this.userProfile = await liff.getProfile();
             this.userId = this.userProfile.userId;
+            console.log('[DEBUG] ユーザー情報取得完了:', this.userId);
 
             // セッションデータ取得
             await this.loadSessionData();
@@ -37,26 +49,35 @@ class LiffStepApp {
             this.initializeUI();
             
         } catch (error) {
-            console.error('LIFF初期化エラー:', error);
-            this.showError('アプリケーションの初期化に失敗しました。');
+            console.error('[ERROR] LIFF初期化エラー:', error);
+            this.showError(`アプリケーションの初期化に失敗しました: ${error.message}`);
         }
     }
 
     async loadSessionData() {
         try {
+            console.log('[DEBUG] セッションデータ取得開始:', this.userId);
+            
             const response = await fetch(`/api/user/${this.userId}`);
+            console.log('[DEBUG] API応答ステータス:', response.status);
+            
             if (response.ok) {
                 this.sessionData = await response.json();
+                console.log('[DEBUG] セッションデータ取得成功:', this.sessionData);
             } else {
-                throw new Error('セッションデータが見つかりません');
+                const errorText = await response.text();
+                console.log('[DEBUG] API応答エラー:', errorText);
+                throw new Error(`セッションデータが見つかりません (${response.status})`);
             }
         } catch (error) {
-            console.error('セッションデータ取得エラー:', error);
+            console.error('[ERROR] セッションデータ取得エラー:', error);
             this.showError('見積りデータが見つかりません。先にLINEで見積りを完了してください。');
         }
     }
 
     initializeUI() {
+        console.log('[DEBUG] UI初期化開始');
+        
         // ローディング非表示
         document.getElementById('loading').style.display = 'none';
         
@@ -71,44 +92,66 @@ class LiffStepApp {
         
         // 郵便番号自動入力設定
         this.setupZipcodeInput();
+        
+        console.log('[DEBUG] UI初期化完了');
     }
 
     displayEstimate() {
-        if (!this.sessionData) return;
+        if (!this.sessionData) {
+            console.log('[WARN] セッションデータがありません');
+            return;
+        }
 
         // 価格表示
         const priceElement = document.getElementById('estimated-price');
-        priceElement.textContent = `¥${this.sessionData.estimatedPrice.toLocaleString()}`;
+        if (priceElement) {
+            priceElement.textContent = `¥${this.sessionData.estimatedPrice.toLocaleString()}`;
+        }
 
         // 回答サマリー表示
         const summaryElement = document.getElementById('answers-summary');
-        summaryElement.textContent = this.sessionData.summary;
+        if (summaryElement) {
+            summaryElement.textContent = this.sessionData.summary;
+        }
+        
+        console.log('[DEBUG] 概算見積り表示完了');
     }
 
     setupFormEvents() {
+        console.log('[DEBUG] フォームイベント設定開始');
+        
         // ステップ1フォーム
-        document.getElementById('step1-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (this.validateStep1()) {
-                this.saveStep1Data();
-                this.goToStep(2);
-            }
-        });
+        const step1Form = document.getElementById('step1-form');
+        if (step1Form) {
+            step1Form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (this.validateStep1()) {
+                    this.saveStep1Data();
+                    this.goToStep(2);
+                }
+            });
+        }
 
         // ステップ2フォーム
-        document.getElementById('step2-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (this.validateStep2()) {
-                this.saveStep2Data();
-                this.goToStep(3);
-            }
-        });
+        const step2Form = document.getElementById('step2-form');
+        if (step2Form) {
+            step2Form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (this.validateStep2()) {
+                    this.saveStep2Data();
+                    this.goToStep(3);
+                }
+            });
+        }
 
         // ステップ3フォーム
-        document.getElementById('step3-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.goToStep(4);
-        });
+        const step3Form = document.getElementById('step3-form');
+        if (step3Form) {
+            step3Form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.goToStep(4);
+            });
+        }
 
         // ファイル選択イベント
         const fileInputs = document.querySelectorAll('input[type="file"]');
@@ -117,19 +160,30 @@ class LiffStepApp {
         });
 
         // 最終送信ボタン
-        document.getElementById('submit-btn').addEventListener('click', () => {
-            this.handleSubmit();
-        });
+        const submitBtn = document.getElementById('submit-btn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', () => {
+                this.handleSubmit();
+            });
+        }
+        
+        console.log('[DEBUG] フォームイベント設定完了');
     }
 
     setupZipcodeInput() {
         const zipcodeInput = document.getElementById('zipcode');
         const address1Input = document.getElementById('address1');
 
+        if (!zipcodeInput || !address1Input) {
+            console.log('[WARN] 郵便番号入力要素が見つかりません');
+            return;
+        }
+
         zipcodeInput.addEventListener('blur', async () => {
             const zipcode = zipcodeInput.value.replace(/[^0-9]/g, '');
             if (zipcode.length === 7) {
                 try {
+                    console.log('[DEBUG] 住所検索開始:', zipcode);
                     // 郵便番号APIを使用
                     const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zipcode}`);
                     const data = await response.json();
@@ -137,28 +191,40 @@ class LiffStepApp {
                     if (data.results && data.results.length > 0) {
                         const result = data.results[0];
                         address1Input.value = `${result.address1}${result.address2}${result.address3}`;
+                        console.log('[DEBUG] 住所検索成功:', address1Input.value);
                     }
                 } catch (error) {
-                    console.error('住所取得エラー:', error);
+                    console.error('[ERROR] 住所取得エラー:', error);
                 }
             }
         });
     }
 
     showStep(stepNumber) {
+        console.log('[DEBUG] ステップ表示:', stepNumber);
+        
         // 全ステップを非表示
         for (let i = 1; i <= 4; i++) {
-            document.getElementById(`step${i}`).style.display = 'none';
-            document.getElementById(`step-indicator-${i}`).classList.remove('active', 'completed');
+            const stepElement = document.getElementById(`step${i}`);
+            const indicatorElement = document.getElementById(`step-indicator-${i}`);
+            
+            if (stepElement) stepElement.style.display = 'none';
+            if (indicatorElement) {
+                indicatorElement.classList.remove('active', 'completed');
+            }
         }
 
         // 現在のステップを表示
-        document.getElementById(`step${stepNumber}`).style.display = 'block';
-        document.getElementById(`step-indicator-${stepNumber}`).classList.add('active');
+        const currentStepElement = document.getElementById(`step${stepNumber}`);
+        const currentIndicatorElement = document.getElementById(`step-indicator-${stepNumber}`);
+        
+        if (currentStepElement) currentStepElement.style.display = 'block';
+        if (currentIndicatorElement) currentIndicatorElement.classList.add('active');
 
         // 完了したステップをマーク
         for (let i = 1; i < stepNumber; i++) {
-            document.getElementById(`step-indicator-${i}`).classList.add('completed');
+            const indicatorElement = document.getElementById(`step-indicator-${i}`);
+            if (indicatorElement) indicatorElement.classList.add('completed');
         }
 
         this.currentStep = stepNumber;
@@ -174,8 +240,8 @@ class LiffStepApp {
     }
 
     validateStep1() {
-        const name = document.getElementById('name').value.trim();
-        const phone = document.getElementById('phone').value.trim();
+        const name = document.getElementById('name')?.value.trim() || '';
+        const phone = document.getElementById('phone')?.value.trim() || '';
 
         // エラー表示をクリア
         this.clearErrors();
@@ -202,8 +268,8 @@ class LiffStepApp {
     }
 
     validateStep2() {
-        const zipcode = document.getElementById('zipcode').value.trim();
-        const address1 = document.getElementById('address1').value.trim();
+        const zipcode = document.getElementById('zipcode')?.value.trim() || '';
+        const address1 = document.getElementById('address1')?.value.trim() || '';
 
         // エラー表示をクリア
         this.clearErrors();
@@ -230,14 +296,16 @@ class LiffStepApp {
     }
 
     saveStep1Data() {
-        this.formData.name = document.getElementById('name').value.trim();
-        this.formData.phone = document.getElementById('phone').value.trim();
+        this.formData.name = document.getElementById('name')?.value.trim() || '';
+        this.formData.phone = document.getElementById('phone')?.value.trim() || '';
+        console.log('[DEBUG] ステップ1データ保存:', this.formData);
     }
 
     saveStep2Data() {
-        this.formData.zipcode = document.getElementById('zipcode').value.trim();
-        this.formData.address1 = document.getElementById('address1').value.trim();
-        this.formData.address2 = document.getElementById('address2').value.trim();
+        this.formData.zipcode = document.getElementById('zipcode')?.value.trim() || '';
+        this.formData.address1 = document.getElementById('address1')?.value.trim() || '';
+        this.formData.address2 = document.getElementById('address2')?.value.trim() || '';
+        console.log('[DEBUG] ステップ2データ保存:', this.formData);
     }
 
     handleFileSelect(event) {
@@ -253,6 +321,8 @@ class LiffStepApp {
         // 選択されたファイルを保存
         const files = Array.from(input.files);
         this.selectedFiles.set(input.id, files);
+
+        console.log(`[DEBUG] ファイル選択: ${input.id}, ${files.length}ファイル`);
 
         // プレビュー表示
         files.forEach((file, index) => {
@@ -279,12 +349,14 @@ class LiffStepApp {
 
         // input要素も更新
         const input = document.getElementById(inputId);
-        const dt = new DataTransfer();
-        files.forEach(file => dt.items.add(file));
-        input.files = dt.files;
+        if (input) {
+            const dt = new DataTransfer();
+            files.forEach(file => dt.items.add(file));
+            input.files = dt.files;
 
-        // プレビュー再表示
-        this.handleFileSelect({ target: input });
+            // プレビュー再表示
+            this.handleFileSelect({ target: input });
+        }
     }
 
     updateFinalSummary() {
@@ -307,15 +379,22 @@ class LiffStepApp {
         summary += `【添付写真・図面】\n`;
         summary += `合計 ${totalFiles} ファイル`;
 
-        document.getElementById('final-summary').textContent = summary;
+        const finalSummaryElement = document.getElementById('final-summary');
+        if (finalSummaryElement) {
+            finalSummaryElement.textContent = summary;
+        }
     }
 
     async handleSubmit() {
         const submitBtn = document.getElementById('submit-btn');
+        if (!submitBtn) return;
+        
         submitBtn.disabled = true;
         submitBtn.textContent = '送信中...';
 
         try {
+            console.log('[DEBUG] 送信開始');
+            
             const formData = new FormData();
             
             // ユーザーID追加
@@ -329,11 +408,15 @@ class LiffStepApp {
             formData.append('address2', this.formData.address2);
 
             // ファイル追加
+            let totalFiles = 0;
             this.selectedFiles.forEach((files, inputId) => {
                 files.forEach(file => {
                     formData.append('photos', file);
+                    totalFiles++;
                 });
             });
+            
+            console.log(`[DEBUG] 送信データ: ファイル${totalFiles}個`);
 
             // 送信
             const response = await fetch('/api/submit', {
@@ -341,7 +424,11 @@ class LiffStepApp {
                 body: formData
             });
 
+            console.log('[DEBUG] 送信応答ステータス:', response.status);
+
             if (response.ok) {
+                const result = await response.json();
+                console.log('[DEBUG] 送信成功:', result);
                 this.showSuccess();
             } else {
                 const error = await response.json();
@@ -349,7 +436,7 @@ class LiffStepApp {
             }
 
         } catch (error) {
-            console.error('送信エラー:', error);
+            console.error('[ERROR] 送信エラー:', error);
             alert('送信に失敗しました。もう一度お試しください。');
             submitBtn.disabled = false;
             submitBtn.textContent = '見積もりを依頼';
@@ -357,12 +444,16 @@ class LiffStepApp {
     }
 
     showSuccess() {
+        console.log('[DEBUG] 成功画面表示');
+        
         // 全ステップを非表示
         for (let i = 1; i <= 4; i++) {
-            document.getElementById(`step${i}`).style.display = 'none';
+            const stepElement = document.getElementById(`step${i}`);
+            if (stepElement) stepElement.style.display = 'none';
         }
         
-        document.getElementById('success').style.display = 'block';
+        const successElement = document.getElementById('success');
+        if (successElement) successElement.style.display = 'block';
         
         // 3秒後にLIFFを閉じる
         setTimeout(() => {
@@ -373,9 +464,15 @@ class LiffStepApp {
     }
 
     showError(message) {
+        console.log('[DEBUG] エラー画面表示:', message);
+        
         document.getElementById('loading').style.display = 'none';
-        document.getElementById('error-message').textContent = message;
-        document.getElementById('error').style.display = 'block';
+        
+        const errorMessageElement = document.getElementById('error-message');
+        const errorElement = document.getElementById('error');
+        
+        if (errorMessageElement) errorMessageElement.textContent = message;
+        if (errorElement) errorElement.style.display = 'block';
     }
 
     clearErrors() {
@@ -384,6 +481,8 @@ class LiffStepApp {
     }
 
     showFieldError(input, message) {
+        if (!input) return;
+        
         input.classList.add('error');
         const errorDiv = document.createElement('div');
         errorDiv.className = 'error-message';
@@ -402,6 +501,7 @@ function goToStep(stepNumber) {
 // アプリケーション初期化
 let app;
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[DEBUG] DOM読み込み完了');
     app = new LiffStepApp();
     window.app = app; // グローバルアクセス用
 });
