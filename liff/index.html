@@ -1,94 +1,58 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>外装工事オンライン見積もり</title>
-<link rel="preconnect" href="https://static.line-scdn.net">
-<style>
-:root{--brand:#06c167;--bg:#f5f6f7;}
-*{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;background:var(--bg);margin:0;padding:12px;}
-.wrap{max-width:760px;margin:0 auto;padding:16px}
-.card{background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:18px;margin:12px 0}
-h1{font-size:20px;margin:0 0 12px}
-.note{background:#eef0f2;border-radius:10px;padding:12px;margin:8px 0;color:#333}
-.cta{background:#eef7f2;border-left:4px solid var(--brand);border-radius:10px;padding:12px;margin:10px 0}
-.cta b{font-size:15px}
-.row{display:flex;gap:12px;flex-wrap:wrap}
-.col{flex:1 1 280px}
-label{display:block;font-size:13px;margin:8px 0 6px;color:#333}
-input,textarea{width:100%;padding:12px;border:1px solid #d7dbe0;border-radius:10px;background:#fff;font-size:16px}
-input:focus,textarea:focus{outline:none;border-color:#aab4be;box-shadow:0 0 0 3px rgba(6,193,103,.12)}
-.help{font-size:12px;color:#666;margin-top:6px}
-.btn{display:inline-block;background:var(--brand);color:#fff;border:none;border-radius:10px;padding:12px 16px;font-size:16px}
-.btn:disabled{opacity:.5}
-.btn-outline{background:#fff;color:var(--brand);border:1px solid var(--brand)}
-.bar{height:6px;background:#e9edf1;border-radius:8px;overflow:hidden;margin:10px 0}
-.bar>i{display:block;height:100%;background:var(--brand);width:0%}
-.thumb{width:84px;height:84px;border-radius:10px;object-fit:cover;border:1px solid #ddd;margin-right:8px;margin-bottom:8px}
-.flex{display:flex;flex-wrap:wrap}
-.price{font-size:28px;font-weight:700}
-.small{font-size:12px;color:#666}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>外装工事オンライン見積もり</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="/liff/env.js"></script>
 </head>
 <body>
-<div class="wrap">
-  <div class="card">
+  <header class="notice">
     <h1>外装工事オンライン見積もり</h1>
-    <div class="cta"><b>現地調査なしで、詳細な見積もりをLINEでお知らせします。</b></div>
-    <div><span>概算金額：</span><span id="price" class="price">—</span></div>
-    <div class="small">※トーク内で回答いただいた内容をもとに算出した概算です。</div>
-  </div>
+    <p class="lead">
+      現地調査なしで、詳細見積りをLINEでお知らせします。
+    </p>
+  </header>
 
-  <div class="card">
-    <div class="note">お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</div>
-
-    <div class="row">
-      <div class="col">
+  <main class="card">
+    <form id="form">
+      <div class="field">
         <label>お名前</label>
-        <input id="name" type="text" placeholder="山田 太郎" autocomplete="name">
+        <input type="text" id="name" placeholder="例）山田 太郎" required />
       </div>
-      <div class="col">
+      <div class="field">
         <label>電話番号</label>
-        <input id="phone" type="tel" inputmode="numeric" placeholder="09012345678" autocomplete="tel">
+        <input type="tel" id="tel" placeholder="09012345678" required />
       </div>
-    </div>
-
-    <div class="row">
-      <div class="col" style="max-width:220px">
+      <div class="field">
         <label>郵便番号</label>
-        <input id="postal" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="7" placeholder="1000001" autocomplete="postal-code">
-        <div class="help">ハイフン不要・半角7桁</div>
+        <input type="text" id="zip" placeholder="1000001" required />
       </div>
-      <div class="col" style="align-self:flex-end">
-        <button id="zipBtn" class="btn btn-outline">郵便番号から住所を自動入力</button>
+      <div class="field">
+        <label>ご住所（自動入力）</label>
+        <input type="text" id="addr1" placeholder="東京都千代田区千代田" required />
       </div>
-    </div>
+      <div class="field">
+        <label>以降の住所</label>
+        <input type="text" id="addr2" placeholder="1-1-1" />
+      </div>
 
-    <label>住所（都道府県・市区町村・番地）</label>
-    <input id="addr1" type="text" placeholder="東京都千代田区千代田1-1" autocomplete="address-line1">
+      <div class="actions">
+        <button type="submit" class="primary">見積もりを依頼</button>
+      </div>
+    </form>
 
-    <label>以降の住所（建物名・部屋番号など）</label>
-    <input id="addr2" type="text" placeholder="〇〇マンション101号室" autocomplete="address-line2">
-    <div class="help">※お住まいの区画を確認するためのご入力です。無断訪問は行いません。</div>
-  </div>
+    <p class="note">
+      ※ご住所は物件の区画を確認するためのものです。無断での訪問営業は行いません。
+    </p>
+  </main>
 
-  <div class="card">
-    <h2 style="font-size:16px;margin:0 0 8px">写真アップロード（任意）</h2>
-    <div class="small" style="margin-bottom:8px">外観（正面/左右/背面）や気になる箇所などがあればお送りください（10枚まで）</div>
-    <input id="photos" type="file" accept="image/*" multiple>
-    <div class="bar"><i id="prog" style="width:0%"></i></div>
-    <div id="preview" class="flex"></div>
-  </div>
+  <footer class="small">
+    <a href="#" id="addFriend">友だち追加リンク</a>
+  </footer>
 
-  <div class="card" style="text-align:right">
-    <button id="submitBtn" class="btn">見積もりを依頼</button>
-  </div>
-</div>
-
-<script src="/liff/env.js"></script>
-<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<script src="/liff/app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
