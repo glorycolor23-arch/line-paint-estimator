@@ -436,94 +436,47 @@ async function safePush(userId, messages) {
   }
 }
 
-// 画像カード形式のFlexメッセージ作成
+// 元の小さなカード形式のFlexメッセージ作成
 function buildOptionsFlex(title, questionId, options) {
-  // 3つずつに分割してカルーセル作成
-  const bubbles = [];
-  
+  // 選択肢を3つずつに分割
+  const chunks = [];
   for (let i = 0; i < options.length; i += 3) {
-    const optionGroup = options.slice(i, i + 3);
-    
-    const bubble = {
-      type: 'bubble',
-      size: 'kilo',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: title,
-            weight: 'bold',
-            size: 'md',
-            wrap: true,
-            margin: 'none'
-          },
-          {
-            type: 'separator',
-            margin: 'md'
-          }
-        ]
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: optionGroup.map(option => ({
-          type: 'button',
-          style: 'primary',
-          color: '#00B900',
-          action: {
-            type: 'postback',
-            label: '選ぶ',
-            data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
-            displayText: option
-          },
-          margin: 'sm'
-        }))
-      }
-    };
-    
-    // 各選択肢の説明を追加
-    optionGroup.forEach(option => {
-      bubble.body.contents.push({
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-              {
-                type: 'box',
-                layout: 'vertical',
-                contents: [
-                  {
-                    type: 'filler'
-                  }
-                ],
-                height: '80px',
-                backgroundColor: '#F0F0F0',
-                cornerRadius: '8px',
-                margin: 'md'
-              },
-              {
-                type: 'text',
-                text: option,
-                size: 'sm',
-                weight: 'bold',
-                align: 'center',
-                margin: 'sm'
-              }
-            ]
-          }
-        ],
-        paddingAll: '8px'
-      });
-    });
-    
-    bubbles.push(bubble);
+    chunks.push(options.slice(i, i + 3));
   }
-  
+
+  const bubbles = chunks.map(chunk => ({
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: title,
+          weight: 'bold',
+          size: 'md',
+          wrap: true
+        }
+      ]
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      contents: chunk.map(option => ({
+        type: 'button',
+        style: 'primary',
+        color: '#00B900',
+        action: {
+          type: 'postback',
+          label: option,
+          data: JSON.stringify({ t: 'answer', q: questionId, v: option }),
+          displayText: option
+        },
+        margin: 'sm'
+      }))
+    }
+  }));
+
   return {
     type: 'flex',
     altText: title,
@@ -534,33 +487,71 @@ function buildOptionsFlex(title, questionId, options) {
   };
 }
 
-// 概算見積りメッセージ作成
-function buildEstimateMessages(price, answers) {
+// 元の見積り結果Flexメッセージ作成
+function buildEstimateFlex(price, answers) {
   const summary = summarize(answers);
   
-  const messages = [
-    {
-      type: 'text',
-      text: `概算見積りが完了しました！\n\n【概算金額】\n¥${price.toLocaleString()}\n\n【条件】\n${summary}\n\n※この金額は概算です。正確な見積りは現地調査後にご提示いたします。`
-    },
-    {
-      type: 'template',
-      altText: '詳細な見積りをご希望の場合',
-      template: {
-        type: 'buttons',
-        text: '詳細な見積りをご希望の場合は、図面や写真をアップロードしてください。',
-        actions: [
+  return {
+    type: 'flex',
+    altText: `概算見積り: ¥${price.toLocaleString()}`,
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
           {
-            type: 'uri',
-            label: '図面・写真をアップロード',
-            uri: `https://liff.line.me/${process.env.LIFF_ID}`
+            type: 'text',
+            text: '見積り金額',
+            size: 'md',
+            color: '#666666'
+          },
+          {
+            type: 'text',
+            text: `¥${price.toLocaleString()}`,
+            size: 'xxl',
+            weight: 'bold',
+            color: '#00B900'
+          },
+          {
+            type: 'text',
+            text: '上記はご入力内容を元に算出した概算です。',
+            size: 'xs',
+            color: '#999999',
+            margin: 'md'
+          },
+          {
+            type: 'separator',
+            margin: 'xl'
+          },
+          {
+            type: 'text',
+            text: '正式なお見積りが必要な方は続けてご入力ください。',
+            size: 'sm',
+            color: '#666666',
+            margin: 'xl',
+            wrap: true
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#00B900',
+            action: {
+              type: 'uri',
+              label: '現地調査なしで見積を依頼',
+              uri: `https://liff.line.me/${process.env.LIFF_ID}`
+            }
           }
         ]
       }
     }
-  ];
-  
-  return messages;
+  };
 }
 
 // 次の質問送信
@@ -585,7 +576,14 @@ async function sendNext(userId, replyToken = null) {
     
     console.log(`[DEBUG] 概算価格: ${price}, セッション更新完了`);
     
-    const messages = buildEstimateMessages(price, sess.answers);
+    // 回答確認メッセージ
+    const confirmationText = buildConfirmationText(sess.answers);
+    
+    const messages = [
+      { type: 'text', text: 'ありがとうございます。概算を作成しました。' },
+      { type: 'text', text: confirmationText },
+      buildEstimateFlex(price, sess.answers)
+    ];
 
     let ok = false;
     if (replyToken) ok = await safeReply(replyToken, messages);
@@ -613,6 +611,27 @@ async function sendNext(userId, replyToken = null) {
 
   if (replyToken) await safeReply(replyToken, messages);
   else            await safePush(userId,   messages);
+}
+
+// 回答確認テキスト作成
+function buildConfirmationText(answers) {
+  const items = [];
+  
+  items.push('【回答の確認】');
+  if (answers.q1_floors) items.push(`• 階数: ${answers.q1_floors}`);
+  if (answers.q2_layout) items.push(`• 間取り: ${answers.q2_layout}`);
+  if (answers.q3_age) items.push(`• 築年数: ${answers.q3_age}`);
+  if (answers.q4_painted) items.push(`• 過去塗装: ${answers.q4_painted}`);
+  if (answers.q5_last) items.push(`• 前回から: ${answers.q5_last}`);
+  if (answers.q6_work) items.push(`• 工事内容: ${answers.q6_work}`);
+  if (answers.q7_wall) items.push(`• 外壁: ${answers.q7_wall}`);
+  if (answers.q7_wall_paint) items.push(`• 外壁塗料: ${answers.q7_wall_paint}`);
+  if (answers.q8_roof) items.push(`• 屋根: ${answers.q8_roof}`);
+  if (answers.q8_roof_paint) items.push(`• 屋根塗料: ${answers.q8_roof_paint}`);
+  if (answers.q9_leak) items.push(`• 雨漏り: ${answers.q9_leak}`);
+  if (answers.q10_dist) items.push(`• 距離: ${answers.q10_dist}`);
+  
+  return items.join('\n');
 }
 
 // 停止確認
@@ -1014,7 +1033,7 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
   }
 });
 
-// セッション情報取得API（LIFF用）- エンドポイント名を修正
+// セッション情報取得API（LIFF用）
 app.get('/api/session/:userId', (req, res) => {
   const userId = req.params.userId;
   console.log('[DEBUG] セッション取得要求:', userId);
@@ -1029,11 +1048,14 @@ app.get('/api/session/:userId', (req, res) => {
   // 概算価格の計算（セッションに保存されていない場合）
   const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers);
   
+  // 回答サマリー作成
+  const summary = summarize(sess.answers);
+  
   const response = {
     userId: userId,
     answers: sess.answers,
     estimate: estimatedPrice,  // LIFFのapp.jsで期待されているフィールド名
-    summary: summarize(sess.answers),
+    summary: summary,
     step: sess.step || 0
   };
   
