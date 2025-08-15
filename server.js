@@ -1,11 +1,7 @@
 /****************************************************
- * 外装工事オンライン見積もり — 安定版＋最終一括返信
- *  - Render ヘルスチェック: GET /health, GET /
- *  - 質問は画像カード（テンプレ・カルーセル）
- *  - 回答ごとに reply(ACK) → push(次の質問)
- *  - ただし最終(Q10)は reply 一発で [ACK+概算+LIFFボタン] をまとめて返す
- *  - 雑談などカード外の発言が来たら「見積りを停止しますか？」確認
- *  - LIFF: /liff/index.html（別ファイル）、/liff/env.js, /liff/prefill, /liff/submit
+ * 外装工事オンライン見積もり — 安定版＋最終一括返信（修正版）
+ *  - Q10の取りこぼし防止（正規表現 / includes）
+ *  - 停止確認「いいえ」→ 現在の質問を必ず再提示
  ****************************************************/
 
 import express from 'express';
@@ -24,7 +20,7 @@ const {
   CHANNEL_ACCESS_TOKEN,
   CHANNEL_SECRET,
   PORT,
-  LIFF_ID, // 例: 2007914959-XXXX（/liff/env.js で返す）
+  LIFF_ID,
   EMAIL_WEBAPP_URL,
   EMAIL_TO,
   GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -44,7 +40,7 @@ if (!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !GSH
   console.warn('[WARN] Sheets 認証未設定（シート追記はスキップ）');
 }
 
-/* LIFF 遷移先（Render 公開URLに合わせる） */
+/* 公開URLに合わせる */
 const LIFF_BUTTON_URL = `https://line-paint.onrender.com/liff/index.html`;
 
 /* ---------- LINE Client ---------- */
@@ -54,11 +50,9 @@ const client = new line.Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
 const app = express();
 app.use('/liff', express.static(path.join(__dirname, 'liff')));
 
-/* ヘルスチェック（Render用） */
 app.get('/', (_req, res) => res.status(200).send('ok'));
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
-/* LIFF ID を返す（フロントが読み込む） */
 app.get('/liff/env.js', (_req, res) => {
   res.type('application/javascript')
      .send(`window.__LIFF_ENV__=${JSON.stringify({ LIFF_ID })};`);
@@ -79,27 +73,32 @@ app.use('/webhook', express.raw({ type: '*/*' }), (req, res, next) => {
 
 /* ---------- セッション ---------- */
 const sessions = new Map(); // userId -> {step, answers, updated}
-const TTL = 60 * 60 * 1000; // 1h
+const TTL = 60 * 60 * 1000;
 
 function getState(uid){
   const now = Date.now();
   const s = sessions.get(uid);
   if (!s || now - s.updated > TTL) {
-    const ns = { step: 0, answers: {}, updated: now }; // step=0 はアイドル（通常トーク）
+    const ns = { step: 0, answers: {}, updated: now };
     sessions.set(uid, ns); return ns;
   }
   s.updated = now; return s;
 }
 function reset(uid){ sessions.set(uid, { step:0, answers:{}, updated:Date.now() }); }
 
-/* ---------- 送信ユーティリティ ---------- */
+/* ---------- Utils ---------- */
 const t = (text)=>({ type:'text', text });
-async function reply(token, m){ try{
-  await client.replyMessage(token, Array.isArray(m)? m: [m]);
-}catch(e){ console.error('reply err:', e?.response?.data || e);} }
-async function push(uid, m){ try{
-  await client.pushMessage(uid, Array.isArray(m)? m: [m]);
-}catch(e){ console.error('push err:', e?.response?.data || e);} }
+const log = (...args)=> console.log('[BOT]', ...args);
+const normalize = (s)=> String(s||'').trim().replace(/\s+/g,'').toLowerCase(); //空白除去+小文字
+
+async function reply(token, m){
+  try{ await client.replyMessage(token, Array.isArray(m)? m: [m]); }
+  catch(e){ console.error('reply err:', e?.response?.data || e); }
+}
+async function push(uid, m){
+  try{ await client.pushMessage(uid, Array.isArray(m)? m: [m]); }
+  catch(e){ console.error('push err:', e?.response?.data || e); }
+}
 
 /* ---------- 画像カルーセル ---------- */
 function img(label,color='2ecc71'){
@@ -137,65 +136,28 @@ function confirmStopTemplate(){
 }
 
 /* ---------- 質問（Q1〜Q10） ---------- */
-const Q1 = ()=> carousel('1/10 工事物件の階数は？',[
-  {label:'1階建て', text:'1階建て'},
-  {label:'2階建て', text:'2階建て'},
-  {label:'3階建て', text:'3階建て'},
-]);
-const Q2 = ()=> carousel('2/10 物件の間取りは？',[
-  {label:'1K', text:'1K'},{label:'1DK', text:'1DK'},{label:'1LDK', text:'1LDK'},
-  {label:'2K', text:'2K'},{label:'2DK', text:'2DK'},{label:'2LDK', text:'2LDK'},
-  {label:'3K', text:'3K'},{label:'3DK', text:'3DK'},{label:'3LDK', text:'3LDK'},
-  {label:'4K', text:'4K'},{label:'4DK', text:'4DK'},{label:'4LDK', text:'4LDK'},
-]);
-const Q3 = ()=> carousel('3/10 物件の築年数は？',[
-  {label:'新築', text:'新築', color:'3498db'},
-  {label:'〜10年', text:'〜10年'},{label:'〜20年', text:'〜20年'},
-  {label:'〜30年', text:'〜30年'},{label:'〜40年', text:'〜40年'},
-  {label:'〜50年', text:'〜50年'},{label:'51年以上', text:'51年以上'},
-]);
-const Q4 = ()=> carousel('4/10 過去に塗装をした経歴は？',[
-  {label:'ある', text:'ある', color:'2ecc71'},
-  {label:'ない', text:'ない', color:'e74c3c'},
-  {label:'わからない', text:'わからない', color:'e67e22'},
-]);
-const Q5 = ()=> carousel('5/10 前回の塗装はいつ頃？',[
-  {label:'〜5年', text:'〜5年'},
-  {label:'5〜10年', text:'5〜10年'},
-  {label:'10〜20年', text:'10〜20年'},
-  {label:'20〜30年', text:'20〜30年'},
-  {label:'わからない', text:'わからない'},
-]);
-const Q6 = ()=> carousel('6/10 ご希望の工事内容は？',[
-  {label:'外壁塗装', text:'外壁塗装'},
-  {label:'屋根塗装', text:'屋根塗装'},
-  {label:'外壁塗装+屋根塗装', text:'外壁塗装+屋根塗装'},
-]);
-const Q7 = ()=> carousel('7/10 外壁の種類は？',[
-  {label:'モルタル', text:'モルタル'},
-  {label:'サイディング', text:'サイディング'},
-  {label:'タイル', text:'タイル'},
-  {label:'ALC', text:'ALC'},
-]);
-const Q8 = ()=> carousel('8/10 屋根の種類は？',[
-  {label:'瓦', text:'瓦'},
-  {label:'スレート', text:'スレート'},
-  {label:'ガルバリウム', text:'ガルバリウム'},
-  {label:'トタン', text:'トタン'},
-]);
-const Q9 = ()=> carousel('9/10 雨漏りや漏水の症状はありますか？',[
-  {label:'雨の日に水滴が落ちる', text:'雨の日に水滴が落ちる'},
-  {label:'天井にシミがある', text:'天井にシミがある'},
-  {label:'ない', text:'ない'},
-]);
-const Q10 = ()=> carousel('10/10 隣や裏の家との距離は？',[
-  {label:'30cm以下', text:'30cm以下'},
-  {label:'50cm以下', text:'50cm以下'},
-  {label:'70cm以下', text:'70cm以下'},
-  {label:'70cm以上', text:'70cm以上'},
-]);
+const Q1 = ()=> carousel('1/10 工事物件の階数は？',[{label:'1階建て',text:'1階建て'},{label:'2階建て',text:'2階建て'},{label:'3階建て',text:'3階建て'}]);
+const Q2 = ()=> carousel('2/10 物件の間取りは？',
+  [{label:'1K',text:'1K'},{label:'1DK',text:'1DK'},{label:'1LDK',text:'1LDK'},{label:'2K',text:'2K'},{label:'2DK',text:'2DK'},{label:'2LDK',text:'2LDK'},
+   {label:'3K',text:'3K'},{label:'3DK',text:'3DK'},{label:'3LDK',text:'3LDK'},{label:'4K',text:'4K'},{label:'4DK',text:'4DK'},{label:'4LDK',text:'4LDK'}]);
+const Q3 = ()=> carousel('3/10 物件の築年数は？',
+  [{label:'新築',text:'新築',color:'3498db'},{label:'〜10年',text:'〜10年'},{label:'〜20年',text:'〜20年'},{label:'〜30年',text:'〜30年'},{label:'〜40年',text:'〜40年'},{label:'〜50年',text:'〜50年'},{label:'51年以上',text:'51年以上'}]);
+const Q4 = ()=> carousel('4/10 過去に塗装をした経歴は？',
+  [{label:'ある',text:'ある',color:'2ecc71'},{label:'ない',text:'ない',color:'e74c3c'},{label:'わからない',text:'わからない',color:'e67e22'}]);
+const Q5 = ()=> carousel('5/10 前回の塗装はいつ頃？',
+  [{label:'〜5年',text:'〜5年'},{label:'5〜10年',text:'5〜10年'},{label:'10〜20年',text:'10〜20年'},{label:'20〜30年',text:'20〜30年'},{label:'わからない',text:'わからない'}]);
+const Q6 = ()=> carousel('6/10 ご希望の工事内容は？',
+  [{label:'外壁塗装',text:'外壁塗装'},{label:'屋根塗装',text:'屋根塗装'},{label:'外壁塗装+屋根塗装',text:'外壁塗装+屋根塗装'}]);
+const Q7 = ()=> carousel('7/10 外壁の種類は？',
+  [{label:'モルタル',text:'モルタル'},{label:'サイディング',text:'サイディング'},{label:'タイル',text:'タイル'},{label:'ALC',text:'ALC'}]);
+const Q8 = ()=> carousel('8/10 屋根の種類は？',
+  [{label:'瓦',text:'瓦'},{label:'スレート',text:'スレート'},{label:'ガルバリウム',text:'ガルバリウム'},{label:'トタン',text:'トタン'}]);
+const Q9 = ()=> carousel('9/10 雨漏りや漏水の症状はありますか？',
+  [{label:'雨の日に水滴が落ちる',text:'雨の日に水滴が落ちる'},{label:'天井にシミがある',text:'天井にシミがある'},{label:'ない',text:'ない'}]);
+const Q10 = ()=> carousel('10/10 隣や裏の家との距離は？',
+  [{label:'30cm以下',text:'30cm以下'},{label:'50cm以下',text:'50cm以下'},{label:'70cm以下',text:'70cm以下'},{label:'70cm以上',text:'70cm以上'}]);
 
-/* ---------- 概算ロジック ---------- */
+/* ---------- 概算 ---------- */
 function estimateCost(a) {
   const base = { '外壁塗装': 700000, '屋根塗装': 300000, '外壁塗装+屋根塗装': 900000 };
   const floor = { '1階建て': 1.0, '2階建て': 1.2, '3階建て': 1.4 };
@@ -242,7 +204,7 @@ function nextMessagesFor(s){
     if (a.q6_work==='屋根塗装' || a.q6_work==='外壁塗装+屋根塗装') return [ ...Q8() ];
     s.step=9; return nextMessagesFor(s);
   }
-  if (s.step===9) return [ ...Q9() ];
+  if (s.step===9)  return [ ...Q9() ];
   if (s.step===10) return [ ...Q10() ];
   if (s.step===11) {
     const a = s.answers;
@@ -281,7 +243,7 @@ function nextMessagesFor(s){
   return [ t('「カンタン見積りを依頼」と送信すると質問を開始します。') ];
 }
 
-/* ---------- Google Sheets 追記 ---------- */
+/* ---------- Sheets ---------- */
 async function appendToSheet(values){
   if(!GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || !GSHEET_SPREADSHEET_ID) return;
   const jwt = new google.auth.JWT(
@@ -302,7 +264,7 @@ async function appendToSheet(values){
   });
 }
 
-/* ---------- メール送信（Apps Script） ---------- */
+/* ---------- メール（Apps Script 経由） ---------- */
 async function sendMailViaAppsScript({ htmlBody, photosBase64 = [] }){
   if(!EMAIL_WEBAPP_URL || !EMAIL_TO) return;
   await axios.post(EMAIL_WEBAPP_URL, {
@@ -361,7 +323,7 @@ app.post('/liff/submit', express.json({ limit:'25mb' }), async (req,res)=>{
     ];
     await appendToSheet(row);
 
-    const esc = (x)=> String(x??'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+    const esc = (x)=> String(x??'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
     const html = `
       <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial">
         <h2>外装工事 — 詳細見積り依頼（LIFF）</h2>
@@ -396,7 +358,7 @@ app.post('/liff/submit', express.json({ limit:'25mb' }), async (req,res)=>{
   }
 });
 
-/* ---------- Webhook ---------- */
+/* ---------- Webhook（メイン） ---------- */
 app.post('/webhook', async (req,res)=>{
   const events = req.body.events || [];
   res.sendStatus(200);
@@ -407,11 +369,10 @@ app.post('/webhook', async (req,res)=>{
       const uid = ev.source.userId;
       const s   = getState(uid);
 
-      /* 友だち追加/グループ参加 */
       if(ev.type==='follow' || ev.type==='join'){
         reset(uid);
         const ns = getState(uid); ns.step=1;
-        await push(uid, nextMessagesFor(ns));
+        await push(uid, nextMessagesFor(ns)); // Q1
         continue;
       }
 
@@ -421,9 +382,10 @@ app.post('/webhook', async (req,res)=>{
         if (p.get('action') === 'stop') {
           const v = p.get('v');
           if (v === 'yes') {
-            reset(uid); // step=0 (idle)
+            reset(uid); // idle
             await reply(ev.replyToken, t('見積りを停止しました。通常のトークをどうぞ。'));
           } else {
+            // 「いいえ」→ 現在の質問を必ず再送
             await reply(ev.replyToken, t('見積りを継続します。'));
             await push(uid, nextMessagesFor(s));
           }
@@ -431,22 +393,21 @@ app.post('/webhook', async (req,res)=>{
         continue;
       }
 
-      /* メッセージ: テキスト */
       if(ev.type==='message' && ev.message.type==='text'){
-        const text=(ev.message.text||'').trim();
+        const raw = (ev.message.text||'').trim();
+        const norm = normalize(raw);
+        log('STEP', s.step, 'TEXT', raw);
 
-        // トリガー（※指定の文言のみ）
-        if(text==='カンタン見積りを依頼'){
+        // トリガー
+        if(raw === 'カンタン見積りを依頼'){
           reset(uid); const ns=getState(uid); ns.step=1;
           await reply(ev.replyToken, t('見積もりを開始します。以下の質問にお答えください。'));
-          await push(uid, nextMessagesFor(ns)); // Q1 を push
+          await push(uid, nextMessagesFor(ns)); // Q1
           continue;
         }
 
-        // idle（通常トーク）中はボット応答しない
-        if(s.step===0){
-          continue;
-        }
+        // idleは何もしない
+        if(s.step===0) continue;
 
         // 回答ACK → 次の質問/概算を push
         const ack = async(msg='承りました。次の質問をお送りします。')=>{
@@ -454,82 +415,90 @@ app.post('/webhook', async (req,res)=>{
           await push(uid, nextMessagesFor(s));
         };
 
-        // 各ステップの判定
-        if(s.step===1 && ['1階建て','2階建て','3階建て'].includes(text)){ s.answers.q1_floors=text; s.step=2; await ack(`「${text}」で承りました。`); continue; }
+        // 各ステップ
+        if(s.step===1 && ['1階建て','2階建て','3階建て'].some(v=>norm===normalize(v))){ s.answers.q1_floors=raw; s.step=2; await ack(`「${raw}」で承りました。`); continue; }
 
         if(s.step===2){
           const list=['1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K','4DK','4LDK'];
-          if(list.includes(text)){ s.answers.q2_layout=text; s.step=3; await ack(`「${text}」で承りました。`); continue; }
+          if(list.some(v=>norm===normalize(v))){ s.answers.q2_layout=raw; s.step=3; await ack(`「${raw}」で承りました。`); continue; }
         }
 
         if(s.step===3){
           const list=['新築','〜10年','〜20年','〜30年','〜40年','〜50年','51年以上'];
-          if(list.includes(text)){ s.answers.q3_age=text; s.step=4; await ack(`「${text}」で承りました。`); continue; }
+          if(list.some(v=>norm===normalize(v))){ s.answers.q3_age=raw; s.step=4; await ack(`「${raw}」で承りました。`); continue; }
         }
 
         if(s.step===4){
           const list=['ある','ない','わからない'];
-          if(list.includes(text)){ s.answers.q4_painted=text; s.step=5; await ack(`「${text}」で承りました。`); continue; }
+          if(list.some(v=>norm===normalize(v))){ s.answers.q4_painted=raw; s.step=5; await ack(`「${raw}」で承りました。`); continue; }
         }
 
         if(s.step===5){
           const list=['〜5年','5〜10年','10〜20年','20〜30年','わからない'];
-          if(s.answers.q4_painted==='ある' && list.includes(text)){ s.answers.q5_last=text; s.step=6; await ack(`「${text}」で承りました。`); continue; }
+          if(s.answers.q4_painted==='ある' && list.some(v=>norm===normalize(v))){ s.answers.q5_last=raw; s.step=6; await ack(`「${raw}」で承りました。`); continue; }
           if(s.answers.q4_painted!=='ある'){ s.step=6; await ack(); continue; }
         }
 
         if(s.step===6){
           const list=['外壁塗装','屋根塗装','外壁塗装+屋根塗装'];
-          if(list.includes(text)){ s.answers.q6_work=text; s.step=7; await ack(`「${text}」で承りました。`); continue; }
+          if(list.some(v=>norm===normalize(v))){ s.answers.q6_work=raw; s.step=7; await ack(`「${raw}」で承りました。`); continue; }
         }
 
         if(s.step===7){
           const needWall = (s.answers.q6_work==='外壁塗装' || s.answers.q6_work==='外壁塗装+屋根塗装');
           const list=['モルタル','サイディング','タイル','ALC'];
-          if(needWall && list.includes(text)){ s.answers.q7_wall=text; s.step=8; await ack(`「${text}」で承りました。`); continue; }
+          if(needWall && list.some(v=>norm===normalize(v))){ s.answers.q7_wall=raw; s.step=8; await ack(`「${raw}」で承りました。`); continue; }
           if(!needWall){ s.step=8; await ack(); continue; }
         }
 
         if(s.step===8){
           const needRoof = (s.answers.q6_work==='屋根塗装' || s.answers.q6_work==='外壁塗装+屋根塗装');
           const list=['瓦','スレート','ガルバリウム','トタン'];
-          if(needRoof && list.includes(text)){ s.answers.q8_roof=text; s.step=9; await ack(`「${text}」で承りました。`); continue; }
+          if(needRoof && list.some(v=>norm===normalize(v))){ s.answers.q8_roof=raw; s.step=9; await ack(`「${raw}」で承りました。`); continue; }
           if(!needRoof){ s.step=9; await ack(); continue; }
         }
 
         if(s.step===9){
           const list=['雨の日に水滴が落ちる','天井にシミがある','ない'];
-          if(list.includes(text)){ s.answers.q9_leak=text; s.step=10; await ack(`「${text}」で承りました。`); continue; }
+          if(list.some(v=>norm===normalize(v))){ s.answers.q9_leak=raw; s.step=10; await ack(`「${raw}」で承りました。`); continue; }
         }
 
-        // ---- 最終(Q10)は reply 一発で ACK + 概算＋LIFF ボタンまで返す ----
+        // ---- 最終(Q10) 判定を強化 ----
         if (s.step === 10) {
-          const list = ['30cm以下','50cm以下','70cm以下','70cm以上'];
-          if (list.includes(text)) {
-            s.answers.q10_dist = text;
-            s.step = 11; // 完了ステップへ
+          const candidates = ['30cm以下','50cm以下','70cm以下','70cm以上'];
+          let selected = candidates.find(v => norm.includes(normalize(v)));
+          if (!selected) {
+            // 例: "30 cm いか" 等の揺れを拾う
+            const m = raw.match(/(30|50|70)\s*cm\s*(以[下上])?/i);
+            if (m) {
+              const num = m[1];
+              const hi = (m[2] && m[2].includes('上')) ? '以上' : '以下';
+              selected = `${num}cm${hi}`;
+            }
+          }
+          if (selected) {
+            s.answers.q10_dist = selected;
+            s.step = 11;
 
-            const follow = nextMessagesFor(s); // 概算＋LIFF ボタン等（配列）
-            await reply(ev.replyToken, [
-              t('ありがとうございます。概算を作成しました。'),
-              ...follow
-            ]);
+            const follow = nextMessagesFor(s); // 概算＋LIFF
+            await reply(ev.replyToken, [ t('ありがとうございます。概算を作成しました。'), ...follow ]);
             continue;
           }
         }
-        // -------------------------------------------------------------------
+        // ---------------------------------
 
-        // 想定外の発言 → 中断確認を reply（ボットが勝手に進まない）
-        await reply(ev.replyToken, confirmStopTemplate());
+        // 想定外 → 停止確認 + 現在の質問をガイド（ユーザーが迷わないように）
+        await reply(ev.replyToken, [
+          confirmStopTemplate(),
+          t('ボタンからお選びください。選択肢を再表示します。')
+        ]);
+        await push(uid, nextMessagesFor(s));
         continue;
       }
 
-      /* その他（画像など） */
+      // 画像など（会話中は停止確認）
       if(ev.type==='message' && ev.message.type!=='text'){
-        if(getState(uid).step===0){
-          // idle中は何も返信しない（通常トーク）
-          continue;
-        }
+        if(getState(uid).step===0) continue;
         await reply(ev.replyToken, confirmStopTemplate());
       }
     }catch(e){ console.error('event error:', e?.response?.data || e); }
