@@ -1,11 +1,14 @@
 /* =========================================================
- * server.js  完全版（最終配信のフォールバック実装）
+ * server.js  完全版（修正済み）
  * ========================================================= */
 
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Client, middleware as lineMiddleware } from '@line/bot-sdk';
+import multer from 'multer';
+import axios from 'axios';
+import { google } from 'googleapis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -21,8 +24,37 @@ if (!config.channelSecret || !config.channelAccessToken) {
 }
 const client = new Client(config);
 
+// ---- Google Sheets 設定 ---------------------------------------------------
+const GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
+const GSHEET_SPREADSHEET_ID = process.env.GSHEET_SPREADSHEET_ID;
+const GSHEET_SHEET_NAME = process.env.GSHEET_SHEET_NAME || 'Sheet1';
+
+let sheetsAuth = null;
+if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+  sheetsAuth = new google.auth.JWT(
+    GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    null,
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    ['https://www.googleapis.com/auth/spreadsheets']
+  );
+}
+
 // ---- Express ---------------------------------------------------------------
 const app = express();
+
+// CORS設定
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 app.get('/health', (_, res) => res.status(200).send('ok'));
 
 // LIFF 静的配信
@@ -37,6 +69,15 @@ app.get('/liff/env.js', (req, res) => {
   res.status(200).send(
     `window.ENV={LIFF_ID:${JSON.stringify(liffId)},FRIEND_ADD_URL:${JSON.stringify(addUrl)},EMAIL_WEBAPP_URL:${JSON.stringify(mailUrl)}};`
   );
+});
+
+// ファイルアップロード設定
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+    files: 10
+  }
 });
 
 /* Webhook: 署名検証前に rawBody を確保 */
@@ -106,25 +147,13 @@ async function safeReply(replyToken, messages){
     return false;
   }
 }
-
-/** push をリトライ付きで実行。失敗したらエラー本文を返す */
-async function tryPush(userId, messages, retryDelays = [1000, 3000, 5000]) {
-  try {
-    await client.pushMessage(userId, Array.isArray(messages) ? messages : [messages]);
-    return { ok: true };
-  } catch (err) {
-    const body = err?.response?.data || err?.message || err;
-    console.error('[deliver error 1st]', JSON.stringify(body, null, 2));
-    for (const d of retryDelays) {
-      await new Promise(r => setTimeout(r, d));
-      try {
-        await client.pushMessage(userId, Array.isArray(messages) ? messages : [messages]);
-        return { ok: true };
-      } catch (e2) {
-        console.error(`[deliver error retry ${d}ms]`, JSON.stringify(e2?.response?.data || e2?.message || e2, null, 2));
-      }
-    }
-    return { ok: false, body };
+async function safePush(to, messages){
+  try{
+    await client.pushMessage(to, Array.isArray(messages)?messages:[messages]);
+    return true;
+  }catch(err){
+    console.error('[safePush error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
+    return false;
   }
 }
 
@@ -150,6 +179,7 @@ function buildOptionsFlex(title, qid, opts){
     }
   };
 }
+
 function summarize(a){
   return [
     `・階数: ${a.q1_floors||'—'} / 間取り: ${a.q2_layout||'—'} / 築年数: ${a.q3_age||'—'}`,
@@ -158,7 +188,9 @@ function summarize(a){
     `・雨漏り: ${a.q9_leak||'—'} / 距離: ${a.q10_dist||'—'}`
   ].join('\n');
 }
+
 function buildEstimateFlex(price){
+  const liffUrl = process.env.LIFF_URL || 'https://line-paint.onrender.com/liff/index.html';
   return {
     type:'flex',
     altText:'概算見積り',
@@ -172,7 +204,7 @@ function buildEstimateFlex(price){
       footer:{ type:'box', layout:'vertical', spacing:'md', contents:[
         { type:'text', text:'正式なお見積りが必要な方は続けてご入力ください。', size:'sm', wrap:true },
         { type:'button', style:'primary',
-          action:{ type:'uri', label:'現地調査なしで見積を依頼', uri:'https://line-paint.onrender.com/liff/index.html' } }
+          action:{ type:'uri', label:'現地調査なしで見積を依頼', uri: liffUrl } }
       ]}
     }
   };
@@ -190,42 +222,9 @@ function currentIndex(ans){
   return idx;
 }
 
-/** 結果を多段フォールバックで配信 */
-async function deliverEstimate(userId, answers){
-  const price = calcRoughPrice(answers);
-
-  const msgsFlex = [
-    { type:'text', text:'ありがとうございます。概算を作成しました。' },
-    { type:'text', text:`【回答の確認】\n${summarize(answers)}` },
-    buildEstimateFlex(price),
-  ];
-
-  // 1) 通常（Flex 含む）
-  let r = await tryPush(userId, msgsFlex);
-  if (r.ok) return true;
-
-  // 2) Flex なし（テキストのみ）
-  const msgsText = [
-    { type:'text', text:'ありがとうございます。概算を作成しました。' },
-    { type:'text', text:`概算金額：￥${price.toLocaleString()}` },
-    { type:'text', text:`【回答の確認】\n${summarize(answers)}` },
-    { type:'text', text:'正式なお見積りが必要な方は、メニューの「現地調査なしで見積を依頼」を押してください。' },
-  ];
-  r = await tryPush(userId, msgsText);
-  if (r.ok) return true;
-
-  // 3) 最小 (一行だけ) ―― ここまで届かなければ LINE 側/回線の一時不調の可能性が高い
-  const msgsMini = { type:'text', text:`概算：￥${price.toLocaleString()}（詳細は「見積り結果」で再送）` };
-  r = await tryPush(userId, msgsMini);
-  if (r.ok) return true;
-
-  console.error('[deliver failed all]', JSON.stringify(r.body || {}, null, 2));
-  return false;
-}
-
 // 次の質問 or 最終結果
 async function sendNext(userId, replyToken=null){
-  const sess = sessions.get(userId) || {answers:{}, last:{}, step:0};
+  const sess = sessions.get(userId) || {answers:{}, step:0};
   const idx = currentIndex(sess.answers);
 
   // ----- 最終 -----
@@ -233,12 +232,25 @@ async function sendNext(userId, replyToken=null){
     // まず即時に「作成中」返信（replyToken 可用なら）
     if (replyToken) await safeReply(replyToken, { type:'text', text:'概算を作成中です。数秒お待ちください。' });
 
-    const ok = await deliverEstimate(userId, sess.answers);
+    const price = calcRoughPrice(sess.answers);
+    
+    // セッションに概算価格を保存（LIFF で使用するため）
+    sess.estimatedPrice = price;
+    sessions.set(userId, sess);
+    
+    const msgs  = [
+      { type:'text', text:'ありがとうございます。概算を作成しました。' },
+      { type:'text', text:`【回答の確認】\n${summarize(sess.answers)}` },
+      buildEstimateFlex(price),
+    ];
+
+    const ok = await safePush(userId, msgs);  // push で必ず配信
     if (ok) {
-      sessions.delete(userId);                // 送達成功のみ削除
+      // セッションは削除せず、LIFF での使用のために保持
+      console.log(`[INFO] 概算見積り送信完了: ${userId}, 価格: ${price}`);
     } else {
       // 失敗時はセッション保持。ユーザーから「見積り結果」で再送可能。
-      await tryPush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
+      await safePush(userId, { type:'text', text:'ネットワークの都合で送信に失敗しました。「見積り結果」と入力すると再送します。' });
     }
     return;
   }
@@ -251,7 +263,7 @@ async function sendNext(userId, replyToken=null){
   ];
 
   if (replyToken) await safeReply(replyToken, messages);
-  else            await tryPush(userId, messages);
+  else            await safePush(userId,   messages);
 }
 
 // 停止確認
@@ -267,7 +279,7 @@ async function confirmStop(userId){
       ]
     }
   };
-  await tryPush(userId, t);
+  await safePush(userId, t);
 }
 
 // イベント処理
@@ -309,11 +321,10 @@ async function handleEvent(ev){
   if (ev.type === 'message' && ev.message.type === 'text'){
     const text = (ev.message.text||'').trim();
 
-    // 手動再配信（※ 作成中メッセージは出さず即 deliver）
+    // 手動再配信
     if (CMD_RESULT.includes(text)){
       if (currentIndex(sess.answers) >= QUESTIONS.length){
-        const ok = await deliverEstimate(userId, sess.answers);
-        if (ok) sessions.delete(userId);
+        await sendNext(userId, ev.replyToken); // push で再送される
       }else{
         await safeReply(ev.replyToken, { type:'text', text:'まだ最後の設問まで完了していません。' });
       }
@@ -347,6 +358,192 @@ async function handleEvent(ev){
   }
 }
 
+/* ===========================================================================
+ * LIFF API エンドポイント
+ * ======================================================================== */
+
+// LIFF フォーム送信処理
+app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
+  try {
+    console.log('[INFO] LIFF フォーム送信受信:', req.body);
+    
+    const { userId, name, phone, zipcode, address1, address2 } = req.body;
+    const photos = req.files || [];
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'ユーザーIDが必要です' });
+    }
+
+    // セッションから質問回答データを取得
+    const sess = sessions.get(userId);
+    if (!sess || !sess.answers) {
+      return res.status(400).json({ error: '質問回答データが見つかりません' });
+    }
+
+    // 写真をアップロード（実際の実装では適切なストレージサービスを使用）
+    const photoUrls = [];
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      // ここでは仮のURLを生成（実際にはS3やCloudinaryなどにアップロード）
+      const photoUrl = `https://example.com/photos/${userId}_${Date.now()}_${i}.jpg`;
+      photoUrls.push(photoUrl);
+    }
+
+    // スプレッドシートに記録
+    await writeToSpreadsheet({
+      userId,
+      name,
+      phone,
+      zipcode,
+      address1,
+      address2,
+      answers: sess.answers,
+      photoCount: photos.length,
+      estimatedPrice: sess.estimatedPrice || 0
+    });
+
+    // メール送信
+    await sendEmail({
+      userId,
+      name,
+      phone,
+      zipcode,
+      address1,
+      address2,
+      answers: sess.answers,
+      photoUrls,
+      estimatedPrice: sess.estimatedPrice || 0
+    });
+
+    // LINEに完了通知を送信
+    await safePush(userId, {
+      type: 'text',
+      text: 'お見積りのご依頼ありがとうございます。\n1〜3営業日程度でLINEにお送りいたします。'
+    });
+
+    // セッションをクリア
+    sessions.delete(userId);
+
+    res.json({ success: true, message: '送信が完了しました' });
+
+  } catch (error) {
+    console.error('[ERROR] LIFF フォーム送信エラー:', error);
+    res.status(500).json({ error: '送信に失敗しました' });
+  }
+});
+
+// ユーザーセッション情報取得API
+app.get('/api/user/:userId', (req, res) => {
+  const { userId } = req.params;
+  const sess = sessions.get(userId);
+  
+  if (!sess) {
+    return res.status(404).json({ error: 'セッションが見つかりません' });
+  }
+
+  res.json({
+    answers: sess.answers,
+    estimatedPrice: sess.estimatedPrice || 0,
+    summary: summarize(sess.answers)
+  });
+});
+
+/* ===========================================================================
+ * Google Sheets 連携
+ * ======================================================================== */
+async function writeToSpreadsheet(data) {
+  if (!sheetsAuth || !GSHEET_SPREADSHEET_ID) {
+    console.log('[WARN] Google Sheets 設定が不完全です');
+    return;
+  }
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: sheetsAuth });
+    
+    const row = [
+      new Date().toISOString(), // Timestamp (ISO)
+      data.userId, // LINE_USER_ID
+      data.name, // 氏名
+      data.zipcode, // 郵便番号
+      data.address1, // 住所1
+      data.address2, // 住所2
+      data.answers.q1_floors || '', // Q1 階数
+      data.answers.q2_layout || '', // Q2 間取り
+      data.answers.q6_work || '', // Q3 工事
+      data.answers.q4_painted || '', // Q4 過去塗装
+      data.answers.q5_last || '', // Q5 前回から
+      data.answers.q7_wall || '', // Q6 外壁
+      data.answers.q8_roof || '', // Q7 屋根
+      data.answers.q9_leak || '', // Q8 雨漏り
+      data.answers.q10_dist || '', // Q9 距離
+      data.photoCount, // 受領写真枚数
+      data.estimatedPrice // 概算金額
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: GSHEET_SPREADSHEET_ID,
+      range: `${GSHEET_SHEET_NAME}!A:Q`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [row]
+      }
+    });
+
+    console.log('[INFO] スプレッドシート書き込み完了');
+  } catch (error) {
+    console.error('[ERROR] スプレッドシート書き込みエラー:', error);
+  }
+}
+
+/* ===========================================================================
+ * メール送信
+ * ======================================================================== */
+async function sendEmail(data) {
+  const emailWebappUrl = process.env.EMAIL_WEBAPP_URL;
+  const emailTo = process.env.EMAIL_TO;
+  
+  if (!emailWebappUrl || !emailTo) {
+    console.log('[WARN] メール送信設定が不完全です');
+    return;
+  }
+
+  try {
+    const subject = `【LINE見積り依頼】${data.name}様`;
+    const htmlBody = `
+      <h2>LINE見積り依頼</h2>
+      <h3>お客様情報</h3>
+      <ul>
+        <li>お名前: ${data.name}</li>
+        <li>電話番号: ${data.phone}</li>
+        <li>郵便番号: ${data.zipcode}</li>
+        <li>住所: ${data.address1} ${data.address2}</li>
+      </ul>
+      
+      <h3>質問回答</h3>
+      <pre>${summarize(data.answers)}</pre>
+      
+      <h3>概算見積り</h3>
+      <p>￥${data.estimatedPrice.toLocaleString()}</p>
+      
+      <h3>添付写真</h3>
+      <p>写真枚数: ${data.photoUrls.length}枚</p>
+      ${data.photoUrls.map((url, i) => `<p>写真${i+1}: <a href="${url}">${url}</a></p>`).join('')}
+    `;
+
+    await axios.post(emailWebappUrl, {
+      to: emailTo,
+      subject,
+      htmlBody,
+      photoUrls: data.photoUrls
+    });
+
+    console.log('[INFO] メール送信完了');
+  } catch (error) {
+    console.error('[ERROR] メール送信エラー:', error);
+  }
+}
+
 // ---- 起動 ------------------------------------------------------------------
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`listening on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`listening on ${PORT}`));
+
