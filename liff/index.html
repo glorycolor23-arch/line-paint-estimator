@@ -1,85 +1,126 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>外装工事オンライン見積もり</title>
-  <link rel="stylesheet" href="./style.css" />
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="./env.js"></script>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>外装工事オンライン見積もり</title>
+<link rel="stylesheet" href="./style.css" />
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="./env.js"></script>
 </head>
 <body>
-  <main class="container">
-    <h1>外装工事オンライン見積もり</h1>
-
-    <p class="lead notice">
-      <strong>現地調査なしで、詳細な見積もりをLINEでお知らせします。</strong>
-    </p>
-
-    <div class="step" id="step1">
-      <label>お名前 <span class="req">必須</span></label>
-      <input id="name" type="text" placeholder="例）山田 太郎" />
-      <div class="actions">
-        <button id="next1" class="btn">次へ</button>
+  <div id="app">
+    <header>
+      <h1>外装工事オンライン見積もり</h1>
+      <p class="lead"><strong>現地調査なしで、詳細な見積りをLINEでお知らせします。</strong></p>
+      <div id="progress">
+        <div id="bar"></div>
       </div>
-    </div>
+    </header>
 
-    <div class="step" id="step2" hidden>
-      <label>電話番号 <span class="req">必須</span></label>
-      <input id="tel" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="09012345678" />
-      <div class="actions">
-        <button id="prev2" class="btn ghost">戻る</button>
-        <button id="next2" class="btn">次へ</button>
-      </div>
-    </div>
+    <main id="view">
+      <!-- Step1 名前 -->
+      <section class="step" data-step="1">
+        <label>お名前</label>
+        <input id="name" type="text" placeholder="例）山田 太郎" />
+        <div class="hint">＊見積書の宛名に使用します。</div>
+        <button class="next">次へ</button>
+      </section>
 
-    <div class="step" id="step3" hidden>
-      <label>郵便番号 <span class="req">必須</span></label>
-      <input id="zip" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="123-4567" />
-      <p class="hint">
-        ※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。
-      </p>
-      <div class="actions">
-        <button id="prev3" class="btn ghost">戻る</button>
-        <button id="next3" class="btn">次へ</button>
-      </div>
-    </div>
+      <!-- Step2 電話 -->
+      <section class="step" data-step="2">
+        <label>電話番号</label>
+        <input id="phone" type="tel" inputmode="numeric" placeholder="09012345678" />
+        <div class="hint">＊連絡が必要な際に使用します。</div>
+        <div class="nav">
+          <button class="back">戻る</button>
+          <button class="next">次へ</button>
+        </div>
+      </section>
 
-    <div class="step" id="step4" hidden>
-      <label>ご住所（自動入力） <span class="req">必須</span></label>
-      <input id="address" type="text" placeholder="大阪府○○市○○区…" />
-      <p class="hint">
-        ※ご住所は物件の区画を確認するためのものです。無断での訪問営業は一切行っておりませんのでご安心ください。
-      </p>
-      <div class="actions">
-        <button id="prev4" class="btn ghost">戻る</button>
-        <button id="next4" class="btn">次へ</button>
-      </div>
-    </div>
+      <!-- Step3 郵便番号 -->
+      <section class="step" data-step="3">
+        <label>郵便番号</label>
+        <input id="postal" type="tel" inputmode="numeric" placeholder="例）1000001" />
+        <div class="hint">＊お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しませんのでご安心ください。</div>
+        <div class="nav">
+          <button class="back">戻る</button>
+          <button id="btn-zip" class="next">住所を自動入力</button>
+        </div>
+      </section>
 
-    <div class="step" id="step5" hidden>
-      <label>以降の住所（番地・建物名・部屋番号など）</label>
-      <input id="address2" type="text" placeholder="番地・建物名・部屋番号など。無ければ「なし」" />
-      <div class="actions">
-        <button id="prev5" class="btn ghost">戻る</button>
-        <button id="preview" class="btn">確認へ</button>
-      </div>
-    </div>
+      <!-- Step4 住所（自動入力） -->
+      <section class="step" data-step="4">
+        <label>ご住所（自動入力）</label>
+        <input id="address1" type="text" placeholder="都道府県・市区町村・番地" />
+        <label>以降の住所（建物名・部屋番号など）</label>
+        <input id="address2" type="text" placeholder="建物名・部屋番号など（なければ『なし』）" />
+        <div class="hint">＊お住まいの区画を確認するためのご入力です。現地調査や営業訪問は致しません。</div>
+        <div class="nav">
+          <button class="back">戻る</button>
+          <button class="next">次へ</button>
+        </div>
+      </section>
 
-    <div class="step" id="confirm" hidden>
-      <h2>最終確認</h2>
-      <div id="summary" class="card"></div>
-      <div class="actions">
-        <button id="backEdit" class="btn ghost">戻る</button>
-        <button id="submitBtn" class="btn primary">見積もりを依頼</button>
-      </div>
-    </div>
+      <!-- Step5 写真アップロード（まとめ） -->
+      <section class="step" data-step="5">
+        <h2>写真アップロード</h2>
+        <p>必要に応じて以下の写真をアップロードしてください（各1枚ずつ／ヒビ割れは複数可）。</p>
 
-    <div id="thanks" class="center" hidden>
-      <p>送信中…</p>
-    </div>
-  </main>
+        <div class="uploader">
+          <label>外観（正面）</label>
+          <input type="file" accept="image/*" data-label="外観_正面" />
+          <div class="preview"></div>
+        </div>
 
+        <div class="uploader">
+          <label>外観（右側）</label>
+          <input type="file" accept="image/*" data-label="外観_右側" />
+          <div class="preview"></div>
+        </div>
+
+        <div class="uploader">
+          <label>外観（左側）</label>
+          <input type="file" accept="image/*" data-label="外観_左側" />
+          <div class="preview"></div>
+        </div>
+
+        <div class="uploader">
+          <label>外観（裏側）</label>
+          <input type="file" accept="image/*" data-label="外観_裏側" />
+          <div class="preview"></div>
+        </div>
+
+        <div class="uploader">
+          <label>車庫の位置が分かる写真</label>
+          <input type="file" accept="image/*" data-label="車庫" />
+          <div class="preview"></div>
+        </div>
+
+        <div class="uploader">
+          <label>外壁や屋根のヒビ・割れ（任意／複数可）</label>
+          <input type="file" accept="image/*" data-label="ヒビ割れ" multiple />
+          <div class="preview"></div>
+        </div>
+
+        <div class="nav">
+          <button class="back">戻る</button>
+          <button class="next">最終確認へ</button>
+        </div>
+      </section>
+
+      <!-- Step6 最終確認 -->
+      <section class="step" data-step="6">
+        <h2>最終確認</h2>
+        <div id="confirm"></div>
+        <div class="nav">
+          <button class="back">戻る</button>
+          <button id="btn-submit" class="primary">見積もりを依頼</button>
+        </div>
+        <div id="result" class="result"></div>
+      </section>
+    </main>
+  </div>
   <script src="./app.js"></script>
 </body>
 </html>
