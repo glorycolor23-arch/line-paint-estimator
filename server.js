@@ -1,12 +1,11 @@
 /* =========================================================
- * server.js  完全版（署名検証・質問フロー・概算・LIFF配信）
+ * server.js 完全版（署名検証OK・質問フロー安定・最終reply優先・Flex分割）
  * ========================================================= */
 
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Client, middleware as lineMiddleware } from '@line/bot-sdk';
-import axios from 'axios';
 
 // ---------- パス補助 ----------
 const __filename = fileURLToPath(import.meta.url);
@@ -14,8 +13,8 @@ const __dirname = path.dirname(__filename);
 
 // ---------- LINE 設定 ----------
 const config = {
-  channelSecret: process.env.CHANNEL_SECRET,
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CHANNEL_SECRET,       // Messaging API の channel secret
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN, // Messaging API の long-lived token
 };
 
 if (!config.channelSecret || !config.channelAccessToken) {
@@ -46,35 +45,19 @@ app.get('/liff/env.js', (req, res) => {
 });
 
 /* ---------------------------------------------------------
- * (D) Webhook 専用 JSON パーサ（rawBody を必ず残す）
- * --------------------------------------------------------- */
-app.use(
-  '/webhook',
-  express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString();
-    },
-  }),
-);
-
-/* ---------------------------------------------------------
- * (E) LINE ミドルウェア（署名検証）
+ * Webhook：署名検証は LINE ミドルウェアに全面委譲（他の body parser 不可）
  * --------------------------------------------------------- */
 app.post('/webhook', lineMiddleware(config), async (req, res) => {
-  res.status(200).end('OK'); // 先に200
+  // 署名OKなら即200
+  res.status(200).end('OK');
 
-  try {
-    const events = req.body.events || [];
-    for (const ev of events) {
-      await handleEvent(ev);
-    }
-  } catch (e) {
-    console.error('[webhook handler error]', e);
-  }
+  const events = Array.isArray(req.body?.events) ? req.body.events : [];
+  // イベントごとに安全実行
+  await Promise.allSettled(events.map(ev => handleEvent(ev)));
 });
 
 /* ---------------------------------------------------------
- * (F) それ以外の JSON API はここで定義（最後）
+ * その他の API はここから下で body parser を使う
  * --------------------------------------------------------- */
 app.use(express.json());
 
@@ -99,8 +82,8 @@ const QUESTIONS = [
   { id: 'q4_painted', title: '過去に塗装をした経歴は？', options: ['ある','ない','わからない']},
   { id: 'q5_last', title: '前回の塗装はいつ頃？', options: ['〜5年','5〜10年','10〜20年','20〜30年','わからない']},
   { id: 'q6_work', title: 'ご希望の工事内容は？', options: ['外壁塗装','屋根塗装','外壁塗装+屋根塗装']},
-  { id: 'q7_wall', title: '外壁の種類は？（外壁を選んだ場合）', options: ['モルタル','サイディング','タイル','ALC'], conditional: (ans)=>ans.q6_work?.includes('外壁')},
-  { id: 'q8_roof', title: '屋根の種類は？（屋根を選んだ場合）', options: ['瓦','スレート','ガルバリウム','トタン'], conditional: (ans)=>ans.q6_work?.includes('屋根')},
+  { id: 'q7_wall', title: '外壁の種類は？（外壁を選んだ場合）', options: ['モルタル','サイディング','タイル','ALC'], conditional: (ans)=> (ans.q6_work||'').includes('外壁')},
+  { id: 'q8_roof', title: '屋根の種類は？（屋根を選んだ場合）', options: ['瓦','スレート','ガルバリウム','トタン'], conditional: (ans)=> (ans.q6_work||'').includes('屋根')},
   { id: 'q9_leak', title: '雨漏りや漏水の症状はありますか？', options: ['雨の日に水滴が落ちる','天井にシミがある','ない']},
   { id: 'q10_dist', title: '隣や裏の家との距離は？（周囲で一番近い距離）', options: ['30cm以下','50cm以下','70cm以下','70cm以上']},
 ];
@@ -121,35 +104,44 @@ function calcRoughPrice(ans) {
 // 安全送信
 async function safeReply(token, messages) {
   try {
-    const arr = Array.isArray(messages) ? messages : [messages];
-    await client.replyMessage(token, arr);
+    await client.replyMessage(token, Array.isArray(messages) ? messages : [messages]);
   } catch (err) {
     console.error('[safeReply error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
   }
 }
 async function safePush(to, messages) {
   try {
-    const arr = Array.isArray(messages) ? messages : [messages];
-    await client.pushMessage(to, arr);
+    await client.pushMessage(to, Array.isArray(messages) ? messages : [messages]);
   } catch (err) {
     console.error('[safePush error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
   }
 }
 
-// Flex（3カラムカード）
-function buildOptionsFlex(questionTitle, questionId, options) {
-  const bubbles = options.map(opt => ({
-    type: 'bubble',
-    hero: { type: 'image', url: IMG, size: 'full', aspectRatio: '16:9', aspectMode: 'cover' },
-    body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: opt, weight: 'bold', size: 'lg', wrap: true }] },
-    footer: {
-      type: 'box', layout: 'vertical', contents: [
-        { type: 'button', style: 'primary',
-          action: { type: 'postback', label: '選ぶ', data: JSON.stringify({ t:'answer', q:questionId, v:opt }), displayText: opt } }
-      ]
-    }
-  }));
-  return { type: 'flex', altText: questionTitle, contents: { type: 'carousel', contents: bubbles } };
+// Flex（3カラム相当のカードをカルーセルで）
+// ※ 10件上限に合わせて自動分割して複数メッセージを返す
+function buildOptionsFlexMessages(questionTitle, questionId, options) {
+  const chunkSize = 10;
+  const chunks = [];
+  for (let i = 0; i < options.length; i += chunkSize) {
+    const chunk = options.slice(i, i + chunkSize);
+    const bubbles = chunk.map(opt => ({
+      type: 'bubble',
+      hero: { type: 'image', url: IMG, size: 'full', aspectRatio: '16:9', aspectMode: 'cover' },
+      body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: opt, weight: 'bold', size: 'lg', wrap: true }] },
+      footer: {
+        type: 'box', layout: 'vertical', contents: [
+          { type: 'button', style: 'primary',
+            action: { type: 'postback', label: '選ぶ', data: JSON.stringify({ t:'answer', q:questionId, v:opt }), displayText: opt } }
+        ]
+      }
+    }));
+    chunks.push({
+      type: 'flex',
+      altText: questionTitle,
+      contents: { type: 'carousel', contents: bubbles }
+    });
+  }
+  return chunks;
 }
 
 function summaryText(ans) {
@@ -188,14 +180,12 @@ function buildEstimateFlex(price) {
 
 // 現在の出題インデックス（条件付き質問をスキップ）
 function currentIndex(ans) {
-  let idx = 0;
   for (let i = 0; i < QUESTIONS.length; i++) {
     const q = QUESTIONS[i];
     if (q.conditional && !q.conditional(ans)) continue;
     if (!ans[q.id]) return i;
-    idx = i + 1;
   }
-  return idx;
+  return QUESTIONS.length;
 }
 
 // 次の質問を送る
@@ -204,24 +194,27 @@ async function sendNextQuestion(userId, replyToken = null) {
   const idx = currentIndex(sess.answers);
 
   if (idx >= QUESTIONS.length) {
-    // ===== 最終：概算 + LIFF ⇒ pushMessage で必ず送る =====
+    // ===== 最終：概算 + LIFF =====
     const price = calcRoughPrice(sess.answers);
     const msgs = [
       { type: 'text', text: 'ありがとうございます。概算を作成しました。' },
       { type: 'text', text: `【回答の確認】\n${summaryText(sess.answers)}` },
       buildEstimateFlex(price)
     ];
-    await safePush(userId, msgs);   // ← replyToken を使わない
-    sessions.delete(userId);
+    if (replyToken) {
+      await safeReply(replyToken, msgs); // ★ 最終は reply を最優先
+    } else {
+      await safePush(userId, msgs);
+    }
+    sessions.delete(userId); // 送信後にクリア
     return;
   }
 
-  // 途中の質問は replyToken でレスポンス（見た目を早くする）
   const q = QUESTIONS[idx];
-  const msgs = [
-    { type: 'text', text: q.title },
-    buildOptionsFlex(q.title, q.id, q.options)
-  ];
+  const titleMsg = { type: 'text', text: q.title };
+  const flexMsgs = buildOptionsFlexMessages(q.title, q.id, q.options);
+  const msgs = [titleMsg, ...flexMsgs];
+
   if (replyToken) {
     await safeReply(replyToken, msgs);
   } else {
@@ -250,7 +243,6 @@ async function sendStopConfirm(userId) {
 async function handleEvent(event) {
   const userId = event.source?.userId;
   if (!userId) return;
-
   if (!sessions.has(userId)) sessions.set(userId, { answers: {}, step: 0 });
 
   if (event.type === 'postback') {
@@ -260,7 +252,7 @@ async function handleEvent(event) {
     if (data.t === 'answer') {
       const sess = sessions.get(userId);
       sess.answers[data.q] = data.v;
-      await sendNextQuestion(userId, event.replyToken);
+      await sendNextQuestion(userId, event.replyToken); // ★ reply 優先
       return;
     }
     if (data.t === 'stop') {
@@ -293,8 +285,10 @@ async function handleEvent(event) {
 
     const sess = sessions.get(userId);
     if (sess && currentIndex(sess.answers) < QUESTIONS.length) {
+      // 入力中にフリーテキストが来たら、その時点の質問を再表示
       await safeReply(event.replyToken, { type:'text', text:'ボタンからお選びください。選択肢を再表示します。' });
-      await sendStopConfirm(userId);
+      await sendNextQuestion(userId);
+      // 必要なら停止確認を追加表示：await sendStopConfirm(userId);
       return;
     }
 
