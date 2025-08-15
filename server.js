@@ -14,8 +14,8 @@ const __dirname = path.dirname(__filename);
 
 // ---------- LINE 設定 ----------
 const config = {
-  channelSecret: process.env.CHANNEL_SECRET,          // Messaging API のチャネルシークレット
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN, // 同 アクセストークン（長期）
+  channelSecret: process.env.CHANNEL_SECRET,
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
 };
 
 if (!config.channelSecret || !config.channelAccessToken) {
@@ -31,21 +31,22 @@ const app = express();
 // (A) Health
 app.get('/health', (_, res) => res.status(200).send('ok'));
 
-// (B) LIFF 静的配信（/liff/index.html）
+// (B) LIFF 静的配信
 app.use('/liff', express.static(path.join(__dirname, 'liff'), { index: 'index.html' }));
 
-// (C) フロントから参照する LIFF の環境JS（IDなどを埋め込む）
+// (C) フロントから参照する LIFF の環境JS
 app.get('/liff/env.js', (req, res) => {
   const liffId = process.env.LIFF_ID || '';
   const friendUrl = process.env.FRIEND_ADD_URL || '';
+  const emailWebApp = process.env.EMAIL_WEBAPP_URL || '';
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.status(200).send(`window.ENV = { LIFF_ID: ${JSON.stringify(liffId)}, FRIEND_ADD_URL: ${JSON.stringify(friendUrl)} };`);
+  res.status(200).send(
+    `window.ENV={LIFF_ID:${JSON.stringify(liffId)},FRIEND_ADD_URL:${JSON.stringify(friendUrl)},EMAIL_WEBAPP_URL:${JSON.stringify(emailWebApp)}};`
+  );
 });
 
 /* ---------------------------------------------------------
- * (D) Webhook 専用 JSON パーサ
- * ここで rawBody を req に残す（SDK が HMAC 検証に利用）
- * ！！！他の json パーサよりも前に置くこと！！！
+ * (D) Webhook 専用 JSON パーサ（rawBody を必ず残す）
  * --------------------------------------------------------- */
 app.use(
   '/webhook',
@@ -58,11 +59,9 @@ app.use(
 
 /* ---------------------------------------------------------
  * (E) LINE ミドルウェア（署名検証）
- * ！！！必ず上の rawBody 付与後に通すこと！！！
  * --------------------------------------------------------- */
 app.post('/webhook', lineMiddleware(config), async (req, res) => {
-  // すぐ 200 を返却（LINE側の再送を止める）
-  res.status(200).end('OK');
+  res.status(200).end('OK'); // 先に200
 
   try {
     const events = req.body.events || [];
@@ -83,10 +82,9 @@ app.use(express.json());
  * ここから下：質問フロー / 概算 / LIFF 誘導
  * ========================================================= */
 
-// セッション管理
-const sessions = new Map(); // key: userId, val: { step, answers, confirmingStop, hasRepliedOnce }
+const sessions = new Map(); // key: userId
 
-// ダミー画像（カード見た目用）
+// ダミー画像
 const IMG = 'https://via.placeholder.com/1024x512.png?text=選択してください';
 
 // トリガー
@@ -120,13 +118,13 @@ function calcRoughPrice(ans) {
   return Math.round(base / 1000) * 1000;
 }
 
-// 便利：安全送信（reply/push）
+// 安全送信
 async function safeReply(token, messages) {
   try {
     const arr = Array.isArray(messages) ? messages : [messages];
     await client.replyMessage(token, arr);
   } catch (err) {
-    console.error('[safeReply error]', err?.response?.data || err?.message || err);
+    console.error('[safeReply error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
   }
 }
 async function safePush(to, messages) {
@@ -134,7 +132,7 @@ async function safePush(to, messages) {
     const arr = Array.isArray(messages) ? messages : [messages];
     await client.pushMessage(to, arr);
   } catch (err) {
-    console.error('[safePush error]', err?.response?.data || err?.message || err);
+    console.error('[safePush error]', JSON.stringify(err?.response?.data || err?.message || err, null, 2));
   }
 }
 
@@ -143,11 +141,7 @@ function buildOptionsFlex(questionTitle, questionId, options) {
   const bubbles = options.map(opt => ({
     type: 'bubble',
     hero: { type: 'image', url: IMG, size: 'full', aspectRatio: '16:9', aspectMode: 'cover' },
-    body: {
-      type: 'box', layout: 'vertical', contents: [
-        { type: 'text', text: opt, weight: 'bold', size: 'lg', wrap: true }
-      ]
-    },
+    body: { type: 'box', layout: 'vertical', contents: [{ type: 'text', text: opt, weight: 'bold', size: 'lg', wrap: true }] },
     footer: {
       type: 'box', layout: 'vertical', contents: [
         { type: 'button', style: 'primary',
@@ -155,11 +149,7 @@ function buildOptionsFlex(questionTitle, questionId, options) {
       ]
     }
   }));
-  return {
-    type: 'flex',
-    altText: questionTitle,
-    contents: { type: 'carousel', contents: bubbles }
-  };
+  return { type: 'flex', altText: questionTitle, contents: { type: 'carousel', contents: bubbles } };
 }
 
 function summaryText(ans) {
@@ -205,7 +195,7 @@ function currentIndex(ans) {
     if (!ans[q.id]) return i;
     idx = i + 1;
   }
-  return idx; // 全回答済みなら length と同じになる
+  return idx;
 }
 
 // 次の質問を送る
@@ -214,23 +204,19 @@ async function sendNextQuestion(userId, replyToken = null) {
   const idx = currentIndex(sess.answers);
 
   if (idx >= QUESTIONS.length) {
-    // 完了 → 概算 → LIFF
+    // ===== 最終：概算 + LIFF ⇒ pushMessage で必ず送る =====
     const price = calcRoughPrice(sess.answers);
     const msgs = [
       { type: 'text', text: 'ありがとうございます。概算を作成しました。' },
       { type: 'text', text: `【回答の確認】\n${summaryText(sess.answers)}` },
       buildEstimateFlex(price)
     ];
-    if (replyToken) {
-      await safeReply(replyToken, msgs);
-    } else {
-      await safePush(userId, msgs);
-    }
+    await safePush(userId, msgs);   // ← replyToken を使わない
     sessions.delete(userId);
     return;
   }
 
-  // 出題
+  // 途中の質問は replyToken でレスポンス（見た目を早くする）
   const q = QUESTIONS[idx];
   const msgs = [
     { type: 'text', text: q.title },
@@ -265,13 +251,12 @@ async function handleEvent(event) {
   const userId = event.source?.userId;
   if (!userId) return;
 
-  // 新規セッション作成
   if (!sessions.has(userId)) sessions.set(userId, { answers: {}, step: 0 });
 
-  // Postback（回答／停止）
   if (event.type === 'postback') {
     let data = {};
     try { data = JSON.parse(event.postback.data || '{}'); } catch {}
+
     if (data.t === 'answer') {
       const sess = sessions.get(userId);
       sess.answers[data.q] = data.v;
@@ -290,18 +275,15 @@ async function handleEvent(event) {
     }
   }
 
-  // メッセージ（テキスト）
   if (event.type === 'message' && event.message.type === 'text') {
     const text = (event.message.text || '').trim();
 
-    // リセット
     if (CMD_RESET.includes(text)) {
       sessions.delete(userId);
       await safeReply(event.replyToken, { type:'text', text:'初期化しました。もう一度「カンタン見積りを依頼」と入力してください。' });
       return;
     }
 
-    // スタート
     if (TRIGGER_START.includes(text)) {
       sessions.set(userId, { answers: {}, step: 0 });
       await safeReply(event.replyToken, { type:'text', text:'見積もりを開始します。以下の質問にお答えください。' });
@@ -309,7 +291,6 @@ async function handleEvent(event) {
       return;
     }
 
-    // セッション中の雑談 → 停止確認
     const sess = sessions.get(userId);
     if (sess && currentIndex(sess.answers) < QUESTIONS.length) {
       await safeReply(event.replyToken, { type:'text', text:'ボタンからお選びください。選択肢を再表示します。' });
@@ -317,7 +298,6 @@ async function handleEvent(event) {
       return;
     }
 
-    // それ以外
     await safeReply(event.replyToken, { type:'text', text:'「カンタン見積りを依頼」と入力すると見積もりを開始します。' });
     return;
   }
