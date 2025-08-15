@@ -61,15 +61,13 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
 const sheets = google.sheets('v4');
 let auth = null;
 
-if (process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+if (process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
   auth = new google.auth.GoogleAuth({
     credentials: {
       type: 'service_account',
       project_id: process.env.GOOGLE_PROJECT_ID,
-      private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      client_email: process.env.GOOGLE_CLIENT_EMAIL,
-      client_id: process.env.GOOGLE_CLIENT_ID,
+      private_key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       auth_uri: 'https://accounts.google.com/o/oauth2/auth',
       token_uri: 'https://oauth2.googleapis.com/token',
     },
@@ -778,7 +776,7 @@ async function uploadImageToCloudinary(buffer, filename) {
 
 async function writeToSpreadsheet(data) {
   try {
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+    const spreadsheetId = process.env.GSHEET_SPREADSHEET_ID;
     if (!spreadsheetId || !auth) {
       console.log('[WARN] スプレッドシート機能が無効化されています');
       return;
@@ -822,7 +820,7 @@ async function writeToSpreadsheet(data) {
     await sheets.spreadsheets.values.append({
       auth: authClient,
       spreadsheetId: spreadsheetId,
-      range: 'A:T', // A列からT列まで（20列）
+      range: `${process.env.GSHEET_SHEET_NAME || 'Entries'}!A:T`, // A列からT列まで（20列）
       valueInputOption: 'USER_ENTERED',
       resource: { values }
     });
