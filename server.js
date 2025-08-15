@@ -1,5 +1,5 @@
 /* =========================================================
- * server.js  最終版（画像カード選択式 + ステップ形式LIFF）
+ * server.js  LIFF修正 + 画像カード改善版
  * ========================================================= */
 
 import express from 'express';
@@ -71,12 +71,20 @@ app.get('/liff/env.js', (req, res) => {
   );
 });
 
-// ファイルアップロード設定
+// ファイルアップロード設定（サイズ制限を追加）
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 2 * 1024 * 1024, // 2MB（Base64埋め込みのため制限）
     files: 10
+  },
+  fileFilter: (req, file, cb) => {
+    // 画像ファイルのみ許可
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('画像ファイルのみアップロード可能です'), false);
+    }
   }
 });
 
@@ -102,9 +110,6 @@ app.use(express.json());
  * 質問フロー
  * ======================================================================== */
 const sessions = new Map(); // {userId: {answers:{}, last:{q,v}, step:number}}
-
-// シンプルな画像URL（確実に表示されるもの）
-const DEFAULT_IMG = 'https://scdn.line-apps.com/n/channel_devcenter/img/fx/01_1_cafe.png';
 
 // トリガー/コマンド
 const TRIGGER_START = ['カンタン見積りを依頼'];
@@ -163,45 +168,65 @@ async function safePush(to, messages){
   }
 }
 
-// 最適化されたFlexメッセージ（画像カード選択式）
+// 改善された画像カード（添付画像のような形式）
 function buildOptionsFlex(title, qid, opts){
-  // 選択肢を3つずつに分割してカルーセル作成
-  const chunks = [];
-  for (let i = 0; i < opts.length; i += 3) {
-    chunks.push(opts.slice(i, i + 3));
-  }
-
-  const bubbles = chunks.map(chunk => ({
+  // プレースホルダー画像URL（グレーの背景）
+  const placeholderImg = 'https://via.placeholder.com/300x200/f0f0f0/666666?text=%E9%81%B8%E6%8A%9E%E8%82%A2';
+  
+  const bubbles = opts.map(option => ({
     type: 'bubble',
-    size: 'micro',
+    size: 'kilo',
     body: {
       type: 'box',
       layout: 'vertical',
       contents: [
         {
-          type: 'text',
-          text: title,
-          weight: 'bold',
-          size: 'sm',
-          wrap: true
+          type: 'image',
+          url: placeholderImg,
+          size: 'full',
+          aspectMode: 'cover',
+          aspectRatio: '3:2',
+          gravity: 'center'
+        },
+        {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: option,
+              weight: 'bold',
+              size: 'lg',
+              color: '#333333',
+              align: 'center',
+              wrap: true
+            }
+          ],
+          spacing: 'sm',
+          paddingAll: '16px'
         }
-      ]
+      ],
+      paddingAll: '0px'
     },
     footer: {
       type: 'box',
       layout: 'vertical',
-      spacing: 'sm',
-      contents: chunk.map(v => ({
-        type: 'button',
-        style: 'secondary',
-        height: 'sm',
-        action: {
-          type: 'postback',
-          label: v.length > 15 ? v.substring(0, 12) + '...' : v,
-          data: JSON.stringify({t:'answer', q:qid, v}),
-          displayText: v
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          height: 'md',
+          color: '#00B900',
+          action: {
+            type: 'postback',
+            label: '選ぶ',
+            data: JSON.stringify({t:'answer', q:qid, v:option}),
+            displayText: option
+          }
         }
-      }))
+      ],
+      paddingAll: '16px',
+      paddingTop: '0px'
     }
   }));
 
@@ -478,13 +503,23 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
       return res.status(400).json({ error: '質問回答データが見つかりません' });
     }
 
-    // 写真をアップロード（実際の実装では適切なストレージサービスを使用）
-    const photoUrls = [];
+    // 画像をBase64エンコード
+    const imageData = [];
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
-      // ここでは仮のURLを生成（実際にはS3やCloudinaryなどにアップロード）
-      const photoUrl = `https://example.com/photos/${userId}_${Date.now()}_${i}.jpg`;
-      photoUrls.push(photoUrl);
+      try {
+        const base64 = photo.buffer.toString('base64');
+        const mimeType = photo.mimetype;
+        imageData.push({
+          filename: photo.originalname || `image_${i + 1}.jpg`,
+          base64: base64,
+          mimeType: mimeType,
+          size: photo.size
+        });
+        console.log(`[INFO] 画像処理完了: ${photo.originalname}, サイズ: ${photo.size}bytes`);
+      } catch (error) {
+        console.error(`[ERROR] 画像処理エラー: ${photo.originalname}`, error);
+      }
     }
 
     // スプレッドシートに記録
@@ -500,7 +535,7 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
       estimatedPrice: sess.estimatedPrice || 0
     });
 
-    // メール送信
+    // メール送信（Base64画像付き）
     await sendEmail({
       userId,
       name,
@@ -509,7 +544,7 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
       address1,
       address2,
       answers: sess.answers,
-      photoUrls,
+      imageData: imageData,
       estimatedPrice: sess.estimatedPrice || 0
     });
 
@@ -530,19 +565,40 @@ app.post('/api/submit', upload.array('photos', 10), async (req, res) => {
   }
 });
 
-// ユーザーセッション情報取得API
+// ユーザーセッション情報取得API（デバッグ情報追加）
 app.get('/api/user/:userId', (req, res) => {
   const { userId } = req.params;
+  console.log(`[DEBUG] ユーザーセッション取得要求: ${userId}`);
+  
   const sess = sessions.get(userId);
   
   if (!sess) {
+    console.log(`[DEBUG] セッションが見つかりません: ${userId}`);
+    console.log(`[DEBUG] 現在のセッション一覧:`, Array.from(sessions.keys()));
     return res.status(404).json({ error: 'セッションが見つかりません' });
   }
 
+  console.log(`[DEBUG] セッションデータ:`, sess);
+  
   res.json({
     answers: sess.answers,
     estimatedPrice: sess.estimatedPrice || 0,
     summary: summarize(sess.answers)
+  });
+});
+
+// デバッグ用エンドポイント
+app.get('/api/debug/sessions', (req, res) => {
+  const sessionList = Array.from(sessions.entries()).map(([userId, data]) => ({
+    userId,
+    answersCount: Object.keys(data.answers || {}).length,
+    estimatedPrice: data.estimatedPrice || 0,
+    lastActivity: data.lastActivity || 'unknown'
+  }));
+  
+  res.json({
+    totalSessions: sessions.size,
+    sessions: sessionList
   });
 });
 
@@ -594,7 +650,7 @@ async function writeToSpreadsheet(data) {
 }
 
 /* ===========================================================================
- * メール送信
+ * メール送信（Base64画像埋め込み）
  * ======================================================================== */
 async function sendEmail(data) {
   const emailWebappUrl = process.env.EMAIL_WEBAPP_URL;
@@ -607,35 +663,81 @@ async function sendEmail(data) {
 
   try {
     const subject = `【LINE見積り依頼】${data.name}様`;
+    
+    // 画像をHTMLに埋め込み
+    let imagesHtml = '';
+    if (data.imageData && data.imageData.length > 0) {
+      imagesHtml = '<h3>添付写真・図面</h3>';
+      data.imageData.forEach((img, index) => {
+        const sizeKB = Math.round(img.size / 1024);
+        imagesHtml += `
+          <div style="margin-bottom: 20px; border: 1px solid #ddd; padding: 10px;">
+            <h4>写真${index + 1}: ${img.filename} (${sizeKB}KB)</h4>
+            <img src="data:${img.mimeType};base64,${img.base64}" 
+                 style="max-width: 500px; max-height: 400px; border: 1px solid #ccc;" 
+                 alt="${img.filename}">
+          </div>
+        `;
+      });
+    } else {
+      imagesHtml = '<h3>添付写真・図面</h3><p>写真の添付はありませんでした。</p>';
+    }
+
     const htmlBody = `
-      <h2>LINE見積り依頼</h2>
-      <h3>お客様情報</h3>
-      <ul>
-        <li>お名前: ${data.name}</li>
-        <li>電話番号: ${data.phone}</li>
-        <li>郵便番号: ${data.zipcode}</li>
-        <li>住所: ${data.address1} ${data.address2}</li>
-      </ul>
-      
-      <h3>質問回答</h3>
-      <pre>${summarize(data.answers)}</pre>
-      
-      <h3>概算見積り</h3>
-      <p>￥${data.estimatedPrice.toLocaleString()}</p>
-      
-      <h3>添付写真</h3>
-      <p>写真枚数: ${data.photoUrls.length}枚</p>
-      ${data.photoUrls.map((url, i) => `<p>写真${i+1}: <a href="${url}">${url}</a></p>`).join('')}
+      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <h2 style="color: #00B900;">LINE見積り依頼</h2>
+        
+        <h3>お客様情報</h3>
+        <table style="border-collapse: collapse; width: 100%; margin-bottom: 20px;">
+          <tr style="background-color: #f5f5f5;">
+            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">お名前</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${data.name}</td>
+          </tr>
+          <tr>
+            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">電話番号</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${data.phone}</td>
+          </tr>
+          <tr style="background-color: #f5f5f5;">
+            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">郵便番号</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${data.zipcode}</td>
+          </tr>
+          <tr>
+            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">住所</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${data.address1} ${data.address2}</td>
+          </tr>
+        </table>
+        
+        <h3>質問回答</h3>
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+          <pre style="white-space: pre-wrap; font-family: inherit;">${summarize(data.answers)}</pre>
+        </div>
+        
+        <h3>概算見積り</h3>
+        <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+          <p style="font-size: 24px; font-weight: bold; color: #00B900; margin: 0;">￥${data.estimatedPrice.toLocaleString()}</p>
+          <p style="margin: 5px 0 0 0; color: #666;">※概算金額</p>
+        </div>
+        
+        ${imagesHtml}
+        
+        <hr style="margin: 30px 0;">
+        <p style="color: #666; font-size: 12px;">
+          このメールはLINE自動見積りシステムから自動送信されました。<br>
+          送信日時: ${new Date().toLocaleString('ja-JP')}
+        </p>
+      </div>
     `;
 
+    // Google Apps Scriptに送信（Base64データも含む）
     await axios.post(emailWebappUrl, {
       to: emailTo,
       subject,
       htmlBody,
-      photoUrls: data.photoUrls
+      // 従来のphotoUrlsは空配列（互換性のため）
+      photoUrls: []
     });
 
-    console.log('[INFO] メール送信完了');
+    console.log(`[INFO] メール送信完了: 画像${data.imageData.length}枚を埋め込み`);
   } catch (error) {
     console.error('[ERROR] メール送信エラー:', error);
   }
