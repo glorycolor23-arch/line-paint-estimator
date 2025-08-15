@@ -1,10 +1,18 @@
-// LIFF アプリケーション
-class LiffEstimateApp {
+// LIFF ステップ形式アプリケーション
+class LiffStepApp {
     constructor() {
         this.userId = null;
         this.userProfile = null;
         this.sessionData = null;
         this.selectedFiles = new Map(); // ファイル管理用
+        this.currentStep = 1;
+        this.formData = {
+            name: '',
+            phone: '',
+            zipcode: '',
+            address1: '',
+            address2: ''
+        };
         this.init();
     }
 
@@ -52,8 +60,8 @@ class LiffEstimateApp {
         // ローディング非表示
         document.getElementById('loading').style.display = 'none';
         
-        // フォーム表示
-        document.getElementById('estimate-form').style.display = 'block';
+        // ステップ1表示
+        this.showStep(1);
         
         // 概算見積り表示
         this.displayEstimate();
@@ -78,20 +86,39 @@ class LiffEstimateApp {
     }
 
     setupFormEvents() {
+        // ステップ1フォーム
+        document.getElementById('step1-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (this.validateStep1()) {
+                this.saveStep1Data();
+                this.goToStep(2);
+            }
+        });
+
+        // ステップ2フォーム
+        document.getElementById('step2-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (this.validateStep2()) {
+                this.saveStep2Data();
+                this.goToStep(3);
+            }
+        });
+
+        // ステップ3フォーム
+        document.getElementById('step3-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.goToStep(4);
+        });
+
         // ファイル選択イベント
         const fileInputs = document.querySelectorAll('input[type="file"]');
         fileInputs.forEach(input => {
             input.addEventListener('change', (e) => this.handleFileSelect(e));
         });
 
-        // フォーム送信イベント
-        const form = document.getElementById('estimate-form');
-        form.addEventListener('submit', (e) => this.handleSubmit(e));
-
-        // 最終確認更新
-        const inputs = form.querySelectorAll('input[type="text"], input[type="tel"]');
-        inputs.forEach(input => {
-            input.addEventListener('input', () => this.updateFinalSummary());
+        // 最終送信ボタン
+        document.getElementById('submit-btn').addEventListener('click', () => {
+            this.handleSubmit();
         });
     }
 
@@ -103,7 +130,7 @@ class LiffEstimateApp {
             const zipcode = zipcodeInput.value.replace(/[^0-9]/g, '');
             if (zipcode.length === 7) {
                 try {
-                    // 郵便番号APIを使用（実際の実装では適切なAPIを使用）
+                    // 郵便番号APIを使用
                     const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zipcode}`);
                     const data = await response.json();
                     
@@ -116,6 +143,101 @@ class LiffEstimateApp {
                 }
             }
         });
+    }
+
+    showStep(stepNumber) {
+        // 全ステップを非表示
+        for (let i = 1; i <= 4; i++) {
+            document.getElementById(`step${i}`).style.display = 'none';
+            document.getElementById(`step-indicator-${i}`).classList.remove('active', 'completed');
+        }
+
+        // 現在のステップを表示
+        document.getElementById(`step${stepNumber}`).style.display = 'block';
+        document.getElementById(`step-indicator-${stepNumber}`).classList.add('active');
+
+        // 完了したステップをマーク
+        for (let i = 1; i < stepNumber; i++) {
+            document.getElementById(`step-indicator-${i}`).classList.add('completed');
+        }
+
+        this.currentStep = stepNumber;
+
+        // ステップ4の場合は最終確認を更新
+        if (stepNumber === 4) {
+            this.updateFinalSummary();
+        }
+    }
+
+    goToStep(stepNumber) {
+        this.showStep(stepNumber);
+    }
+
+    validateStep1() {
+        const name = document.getElementById('name').value.trim();
+        const phone = document.getElementById('phone').value.trim();
+
+        // エラー表示をクリア
+        this.clearErrors();
+
+        let isValid = true;
+
+        if (!name) {
+            this.showFieldError(document.getElementById('name'), 'お名前は必須項目です');
+            isValid = false;
+        }
+
+        if (!phone) {
+            this.showFieldError(document.getElementById('phone'), '電話番号は必須項目です');
+            isValid = false;
+        } else {
+            const phoneValue = phone.replace(/[^0-9]/g, '');
+            if (phoneValue.length < 10 || phoneValue.length > 11) {
+                this.showFieldError(document.getElementById('phone'), '正しい電話番号を入力してください');
+                isValid = false;
+            }
+        }
+
+        return isValid;
+    }
+
+    validateStep2() {
+        const zipcode = document.getElementById('zipcode').value.trim();
+        const address1 = document.getElementById('address1').value.trim();
+
+        // エラー表示をクリア
+        this.clearErrors();
+
+        let isValid = true;
+
+        if (!zipcode) {
+            this.showFieldError(document.getElementById('zipcode'), '郵便番号は必須項目です');
+            isValid = false;
+        } else {
+            const zipcodeValue = zipcode.replace(/[^0-9]/g, '');
+            if (zipcodeValue.length !== 7) {
+                this.showFieldError(document.getElementById('zipcode'), '正しい郵便番号を入力してください（7桁）');
+                isValid = false;
+            }
+        }
+
+        if (!address1) {
+            this.showFieldError(document.getElementById('address1'), 'ご住所は必須項目です');
+            isValid = false;
+        }
+
+        return isValid;
+    }
+
+    saveStep1Data() {
+        this.formData.name = document.getElementById('name').value.trim();
+        this.formData.phone = document.getElementById('phone').value.trim();
+    }
+
+    saveStep2Data() {
+        this.formData.zipcode = document.getElementById('zipcode').value.trim();
+        this.formData.address1 = document.getElementById('address1').value.trim();
+        this.formData.address2 = document.getElementById('address2').value.trim();
     }
 
     handleFileSelect(event) {
@@ -148,8 +270,6 @@ class LiffEstimateApp {
                 reader.readAsDataURL(file);
             }
         });
-
-        this.updateFinalSummary();
     }
 
     removeFile(inputId, index) {
@@ -168,14 +288,11 @@ class LiffEstimateApp {
     }
 
     updateFinalSummary() {
-        const form = document.getElementById('estimate-form');
-        const formData = new FormData(form);
-        
         let summary = '【お客様情報】\n';
-        summary += `お名前: ${formData.get('name') || '未入力'}\n`;
-        summary += `電話番号: ${formData.get('phone') || '未入力'}\n`;
-        summary += `郵便番号: ${formData.get('zipcode') || '未入力'}\n`;
-        summary += `住所: ${formData.get('address1') || '未入力'} ${formData.get('address2') || ''}\n\n`;
+        summary += `お名前: ${this.formData.name}\n`;
+        summary += `電話番号: ${this.formData.phone}\n`;
+        summary += `郵便番号: ${this.formData.zipcode}\n`;
+        summary += `住所: ${this.formData.address1} ${this.formData.address2}\n\n`;
         
         summary += '【質問回答】\n';
         summary += this.sessionData?.summary || '';
@@ -193,13 +310,7 @@ class LiffEstimateApp {
         document.getElementById('final-summary').textContent = summary;
     }
 
-    async handleSubmit(event) {
-        event.preventDefault();
-        
-        if (!this.validateForm()) {
-            return;
-        }
-
+    async handleSubmit() {
         const submitBtn = document.getElementById('submit-btn');
         submitBtn.disabled = true;
         submitBtn.textContent = '送信中...';
@@ -211,11 +322,11 @@ class LiffEstimateApp {
             formData.append('userId', this.userId);
             
             // フォームデータ追加
-            const form = document.getElementById('estimate-form');
-            const inputs = form.querySelectorAll('input[type="text"], input[type="tel"]');
-            inputs.forEach(input => {
-                formData.append(input.name, input.value);
-            });
+            formData.append('name', this.formData.name);
+            formData.append('phone', this.formData.phone);
+            formData.append('zipcode', this.formData.zipcode);
+            formData.append('address1', this.formData.address1);
+            formData.append('address2', this.formData.address2);
 
             // ファイル追加
             this.selectedFiles.forEach((files, inputId) => {
@@ -245,59 +356,12 @@ class LiffEstimateApp {
         }
     }
 
-    validateForm() {
-        const requiredFields = [
-            { id: 'name', name: 'お名前' },
-            { id: 'phone', name: '電話番号' },
-            { id: 'zipcode', name: '郵便番号' },
-            { id: 'address1', name: 'ご住所' }
-        ];
-
-        let isValid = true;
-        
-        // エラー表示をクリア
-        document.querySelectorAll('.error-message').forEach(el => el.remove());
-        document.querySelectorAll('input.error').forEach(el => el.classList.remove('error'));
-
-        requiredFields.forEach(field => {
-            const input = document.getElementById(field.id);
-            const value = input.value.trim();
-            
-            if (!value) {
-                this.showFieldError(input, `${field.name}は必須項目です`);
-                isValid = false;
-            }
-        });
-
-        // 電話番号形式チェック
-        const phoneInput = document.getElementById('phone');
-        const phoneValue = phoneInput.value.replace(/[^0-9]/g, '');
-        if (phoneValue && (phoneValue.length < 10 || phoneValue.length > 11)) {
-            this.showFieldError(phoneInput, '正しい電話番号を入力してください');
-            isValid = false;
-        }
-
-        // 郵便番号形式チェック
-        const zipcodeInput = document.getElementById('zipcode');
-        const zipcodeValue = zipcodeInput.value.replace(/[^0-9]/g, '');
-        if (zipcodeValue && zipcodeValue.length !== 7) {
-            this.showFieldError(zipcodeInput, '正しい郵便番号を入力してください（7桁）');
-            isValid = false;
-        }
-
-        return isValid;
-    }
-
-    showFieldError(input, message) {
-        input.classList.add('error');
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        input.parentNode.appendChild(errorDiv);
-    }
-
     showSuccess() {
-        document.getElementById('estimate-form').style.display = 'none';
+        // 全ステップを非表示
+        for (let i = 1; i <= 4; i++) {
+            document.getElementById(`step${i}`).style.display = 'none';
+        }
+        
         document.getElementById('success').style.display = 'block';
         
         // 3秒後にLIFFを閉じる
@@ -313,16 +377,32 @@ class LiffEstimateApp {
         document.getElementById('error-message').textContent = message;
         document.getElementById('error').style.display = 'block';
     }
+
+    clearErrors() {
+        document.querySelectorAll('.error-message').forEach(el => el.remove());
+        document.querySelectorAll('input.error').forEach(el => el.classList.remove('error'));
+    }
+
+    showFieldError(input, message) {
+        input.classList.add('error');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = message;
+        input.parentNode.appendChild(errorDiv);
+    }
+}
+
+// グローバル関数
+function goToStep(stepNumber) {
+    if (window.app) {
+        window.app.goToStep(stepNumber);
+    }
 }
 
 // アプリケーション初期化
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-    app = new LiffEstimateApp();
+    app = new LiffStepApp();
+    window.app = app; // グローバルアクセス用
 });
-
-// グローバル関数（HTML から呼び出し用）
-window.app = {
-    removeFile: (inputId, index) => app?.removeFile(inputId, index)
-};
 
