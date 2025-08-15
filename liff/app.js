@@ -1,4 +1,3 @@
-// LIFF ステップ形式アプリケーション（デバッグ強化版）
 class LiffStepApp {
     constructor() {
         this.userId = null;
@@ -18,39 +17,121 @@ class LiffStepApp {
 
     async init() {
         try {
-            console.log('[DEBUG] LIFF初期化開始');
+            console.log('[DEBUG] アプリ初期化開始');
             
-            // 環境変数チェック
-            if (!window.ENV || !window.ENV.LIFF_ID) {
-                throw new Error('LIFF_IDが設定されていません');
+            // 5秒後にタイムアウト処理
+            const timeoutId = setTimeout(() => {
+                console.error('[ERROR] 初期化タイムアウト');
+                this.hideLoading();
+                this.showError('アプリケーションの読み込みがタイムアウトしました。ページを再読み込みしてください。');
+            }, 5000);
+            
+            await this.initializeLiff();
+            clearTimeout(timeoutId);
+            
+        } catch (error) {
+            console.error('[ERROR] アプリ初期化エラー:', error);
+            this.hideLoading();
+            this.showError('アプリケーションの初期化に失敗しました: ' + error.message);
+        }
+    }
+
+    async initializeLiff() {
+        console.log('[DEBUG] LIFF初期化開始');
+        
+        try {
+            // LIFF SDKの存在確認
+            if (typeof liff === 'undefined') {
+                throw new Error('LIFF SDKが読み込まれていません');
             }
             
-            console.log('[DEBUG] LIFF_ID:', window.ENV.LIFF_ID);
+            console.log('[DEBUG] LIFF SDK確認完了');
             
-            // LIFF初期化
-            await liff.init({ liffId: window.ENV.LIFF_ID });
-            console.log('[DEBUG] LIFF初期化完了');
+            // LIFF初期化 - 環境変数から取得するように修正
+            const liffId = window.LIFF_ID || '2007914959-XP5Rpoay';
+            console.log('[DEBUG] LIFF ID:', liffId);
             
+            await liff.init({ liffId: liffId });
+            console.log('[DEBUG] LIFF初期化成功');
+            
+            // ログイン状態確認
             if (!liff.isLoggedIn()) {
-                console.log('[DEBUG] ログインが必要です');
+                console.log('[DEBUG] 未ログイン - ログイン画面へ');
                 liff.login();
                 return;
             }
-
+            
+            console.log('[DEBUG] ログイン済み');
+            
             // ユーザー情報取得
-            this.userProfile = await liff.getProfile();
-            this.userId = this.userProfile.userId;
-            console.log('[DEBUG] ユーザー情報取得完了:', this.userId);
-
+            try {
+                const profile = await liff.getProfile();
+                this.userId = profile.userId;
+                this.userProfile = profile;
+                console.log('[DEBUG] ユーザーID取得:', this.userId);
+                console.log('[DEBUG] ユーザープロフィール:', profile);
+            } catch (profileError) {
+                console.error('[ERROR] プロフィール取得エラー:', profileError);
+                throw new Error('ユーザー情報の取得に失敗しました');
+            }
+            
             // セッションデータ取得
             await this.loadSessionData();
             
-            // UI初期化
-            this.initializeUI();
+            // DOM要素の存在確認
+            this.checkDOMElements();
+            
+            // フォーム初期化
+            this.setupFormEvents();
+            
+            // 初期ステップ表示
+            this.goToStep(1);
+            
+            // ローディング非表示
+            this.hideLoading();
+            
+            console.log('[DEBUG] LIFF初期化完了');
             
         } catch (error) {
             console.error('[ERROR] LIFF初期化エラー:', error);
-            this.showError(`アプリケーションの初期化に失敗しました: ${error.message}`);
+            this.hideLoading();
+            this.showError('アプリケーションの初期化に失敗しました: ' + error.message);
+        }
+    }
+
+    checkDOMElements() {
+        console.log('[DEBUG] DOM要素確認開始');
+        
+        const requiredElements = [
+            'step1', 'step2', 'step3', 'step4',
+            'name', 'phone', 'zipcode', 'address1',
+            'submit-btn'
+        ];
+        
+        const missingElements = [];
+        
+        for (const elementId of requiredElements) {
+            const element = document.getElementById(elementId);
+            if (!element) {
+                missingElements.push(elementId);
+            }
+        }
+        
+        if (missingElements.length > 0) {
+            console.error('[ERROR] 必要なDOM要素が見つかりません:', missingElements);
+            throw new Error(`必要な要素が見つかりません: ${missingElements.join(', ')}`);
+        }
+        
+        console.log('[DEBUG] DOM要素確認完了');
+    }
+
+    hideLoading() {
+        console.log('[DEBUG] ローディング非表示');
+        const loadingElement = document.getElementById('loading');
+        if (loadingElement) {
+            loadingElement.style.display = 'none';
+        } else {
+            console.warn('[WARN] ローディング要素が見つかりません');
         }
     }
 
@@ -58,470 +139,436 @@ class LiffStepApp {
         try {
             console.log('[DEBUG] セッションデータ取得開始:', this.userId);
             
-            const response = await fetch(`/api/user/${this.userId}`);
-            console.log('[DEBUG] API応答ステータス:', response.status);
+            if (!this.userId) {
+                console.warn('[WARN] ユーザーIDが設定されていません');
+                return;
+            }
+            
+            const response = await fetch(`/api/session/${this.userId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log('[DEBUG] セッションAPI応答:', response.status, response.statusText);
             
             if (response.ok) {
                 this.sessionData = await response.json();
                 console.log('[DEBUG] セッションデータ取得成功:', this.sessionData);
+                
+                // 概算見積り表示
+                if (this.sessionData && this.sessionData.estimate) {
+                    const estimateElement = document.getElementById('estimate-amount');
+                    if (estimateElement) {
+                        estimateElement.textContent = `¥${this.sessionData.estimate.toLocaleString()}`;
+                        console.log('[DEBUG] 概算見積り表示:', this.sessionData.estimate);
+                    }
+                }
             } else {
                 const errorText = await response.text();
-                console.log('[DEBUG] API応答エラー:', errorText);
-                throw new Error(`セッションデータが見つかりません (${response.status})`);
+                console.warn('[WARN] セッションデータ取得失敗:', response.status, errorText);
+                this.sessionData = null;
             }
         } catch (error) {
             console.error('[ERROR] セッションデータ取得エラー:', error);
-            this.showError('見積りデータが見つかりません。先にLINEで見積りを完了してください。');
+            this.sessionData = null;
         }
-    }
-
-    initializeUI() {
-        console.log('[DEBUG] UI初期化開始');
-        
-        // ローディング非表示
-        document.getElementById('loading').style.display = 'none';
-        
-        // ステップ1表示
-        this.showStep(1);
-        
-        // 概算見積り表示
-        this.displayEstimate();
-        
-        // フォームイベント設定
-        this.setupFormEvents();
-        
-        // 郵便番号自動入力設定
-        this.setupZipcodeInput();
-        
-        console.log('[DEBUG] UI初期化完了');
-    }
-
-    displayEstimate() {
-        if (!this.sessionData) {
-            console.log('[WARN] セッションデータがありません');
-            return;
-        }
-
-        // 価格表示
-        const priceElement = document.getElementById('estimated-price');
-        if (priceElement) {
-            priceElement.textContent = `¥${this.sessionData.estimatedPrice.toLocaleString()}`;
-        }
-
-        // 回答サマリー表示
-        const summaryElement = document.getElementById('answers-summary');
-        if (summaryElement) {
-            summaryElement.textContent = this.sessionData.summary;
-        }
-        
-        console.log('[DEBUG] 概算見積り表示完了');
     }
 
     setupFormEvents() {
         console.log('[DEBUG] フォームイベント設定開始');
         
-        // ステップ1フォーム
-        const step1Form = document.getElementById('step1-form');
-        if (step1Form) {
-            step1Form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                if (this.validateStep1()) {
-                    this.saveStep1Data();
-                    this.goToStep(2);
-                }
+        try {
+            // 次へボタン
+            const nextButtons = document.querySelectorAll('.next-btn');
+            console.log('[DEBUG] 次へボタン数:', nextButtons.length);
+            nextButtons.forEach((btn, index) => {
+                btn.addEventListener('click', (e) => {
+                    const step = parseInt(e.target.dataset.step);
+                    console.log('[DEBUG] 次へボタンクリック:', step);
+                    this.nextStep(step);
+                });
+            });
+            
+            // 戻るボタン
+            const prevButtons = document.querySelectorAll('.prev-btn');
+            console.log('[DEBUG] 戻るボタン数:', prevButtons.length);
+            prevButtons.forEach((btn, index) => {
+                btn.addEventListener('click', (e) => {
+                    const step = parseInt(e.target.dataset.step);
+                    console.log('[DEBUG] 戻るボタンクリック:', step);
+                    this.prevStep(step);
+                });
+            });
+            
+            // 送信ボタン
+            const submitBtn = document.getElementById('submit-btn');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    console.log('[DEBUG] 送信ボタンクリック');
+                    this.submitForm();
+                });
+                console.log('[DEBUG] 送信ボタンイベント設定完了');
+            } else {
+                console.warn('[WARN] 送信ボタンが見つかりません');
+            }
+            
+            // 入力フィールドのバリデーション
+            this.setupValidation();
+            
+            // ファイル選択
+            this.setupFileInputs();
+            
+            console.log('[DEBUG] フォームイベント設定完了');
+            
+        } catch (error) {
+            console.error('[ERROR] フォームイベント設定エラー:', error);
+            throw error;
+        }
+    }
+
+    setupValidation() {
+        console.log('[DEBUG] バリデーション設定開始');
+        
+        // ステップ1のバリデーション
+        const nameInput = document.getElementById('name');
+        const phoneInput = document.getElementById('phone');
+        
+        if (nameInput) {
+            nameInput.addEventListener('input', () => {
+                console.log('[DEBUG] 名前入力変更');
+                this.validateStep1();
             });
         }
-
-        // ステップ2フォーム
-        const step2Form = document.getElementById('step2-form');
-        if (step2Form) {
-            step2Form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                if (this.validateStep2()) {
-                    this.saveStep2Data();
-                    this.goToStep(3);
-                }
-            });
-        }
-
-        // ステップ3フォーム
-        const step3Form = document.getElementById('step3-form');
-        if (step3Form) {
-            step3Form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.goToStep(4);
-            });
-        }
-
-        // ファイル選択イベント
-        const fileInputs = document.querySelectorAll('input[type="file"]');
-        fileInputs.forEach(input => {
-            input.addEventListener('change', (e) => this.handleFileSelect(e));
-        });
-
-        // 最終送信ボタン
-        const submitBtn = document.getElementById('submit-btn');
-        if (submitBtn) {
-            submitBtn.addEventListener('click', () => {
-                this.handleSubmit();
+        if (phoneInput) {
+            phoneInput.addEventListener('input', () => {
+                console.log('[DEBUG] 電話番号入力変更');
+                this.validateStep1();
             });
         }
         
-        console.log('[DEBUG] フォームイベント設定完了');
-    }
-
-    setupZipcodeInput() {
+        // ステップ2のバリデーション
         const zipcodeInput = document.getElementById('zipcode');
         const address1Input = document.getElementById('address1');
-
-        if (!zipcodeInput || !address1Input) {
-            console.log('[WARN] 郵便番号入力要素が見つかりません');
-            return;
-        }
-
-        zipcodeInput.addEventListener('blur', async () => {
-            const zipcode = zipcodeInput.value.replace(/[^0-9]/g, '');
-            if (zipcode.length === 7) {
-                try {
-                    console.log('[DEBUG] 住所検索開始:', zipcode);
-                    // 郵便番号APIを使用
-                    const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zipcode}`);
-                    const data = await response.json();
-                    
-                    if (data.results && data.results.length > 0) {
-                        const result = data.results[0];
-                        address1Input.value = `${result.address1}${result.address2}${result.address3}`;
-                        console.log('[DEBUG] 住所検索成功:', address1Input.value);
-                    }
-                } catch (error) {
-                    console.error('[ERROR] 住所取得エラー:', error);
-                }
-            }
-        });
-    }
-
-    showStep(stepNumber) {
-        console.log('[DEBUG] ステップ表示:', stepNumber);
         
-        // 全ステップを非表示
-        for (let i = 1; i <= 4; i++) {
-            const stepElement = document.getElementById(`step${i}`);
-            const indicatorElement = document.getElementById(`step-indicator-${i}`);
-            
-            if (stepElement) stepElement.style.display = 'none';
-            if (indicatorElement) {
-                indicatorElement.classList.remove('active', 'completed');
-            }
+        if (zipcodeInput) {
+            zipcodeInput.addEventListener('input', () => {
+                console.log('[DEBUG] 郵便番号入力変更');
+                this.validateStep2();
+            });
         }
-
-        // 現在のステップを表示
-        const currentStepElement = document.getElementById(`step${stepNumber}`);
-        const currentIndicatorElement = document.getElementById(`step-indicator-${stepNumber}`);
+        if (address1Input) {
+            address1Input.addEventListener('input', () => {
+                console.log('[DEBUG] 住所入力変更');
+                this.validateStep2();
+            });
+        }
         
-        if (currentStepElement) currentStepElement.style.display = 'block';
-        if (currentIndicatorElement) currentIndicatorElement.classList.add('active');
-
-        // 完了したステップをマーク
-        for (let i = 1; i < stepNumber; i++) {
-            const indicatorElement = document.getElementById(`step-indicator-${i}`);
-            if (indicatorElement) indicatorElement.classList.add('completed');
-        }
-
-        this.currentStep = stepNumber;
-
-        // ステップ4の場合は最終確認を更新
-        if (stepNumber === 4) {
-            this.updateFinalSummary();
-        }
-    }
-
-    goToStep(stepNumber) {
-        this.showStep(stepNumber);
+        console.log('[DEBUG] バリデーション設定完了');
     }
 
     validateStep1() {
         const name = document.getElementById('name')?.value.trim() || '';
         const phone = document.getElementById('phone')?.value.trim() || '';
-
-        // エラー表示をクリア
-        this.clearErrors();
-
-        let isValid = true;
-
-        if (!name) {
-            this.showFieldError('name', 'お名前を入力してください');
-            isValid = false;
-        }
-
-        if (!phone) {
-            this.showFieldError('phone', '電話番号を入力してください');
-            isValid = false;
-        } else if (!/^[0-9-]+$/.test(phone)) {
-            this.showFieldError('phone', '電話番号は数字とハイフンのみで入力してください');
-            isValid = false;
-        }
-
-        // 次へボタンの状態更新
-        this.updateNextButtonState(1, isValid);
-
-        return isValid;
-    }
-
-    // 次へボタンの状態更新
-    updateNextButtonState(step, isValid) {
-        const nextBtn = document.querySelector(`#step${step} .btn-next`);
-        if (!nextBtn) return;
         
-        if (isValid) {
-            nextBtn.classList.remove('btn-disabled');
-            nextBtn.classList.add('btn-primary');
-            nextBtn.disabled = false;
-        } else {
-            nextBtn.classList.add('btn-disabled');
-            nextBtn.classList.remove('btn-primary');
-            nextBtn.disabled = true;
+        const isValid = name.length > 0 && phone.length > 0;
+        console.log('[DEBUG] ステップ1バリデーション:', { name: name.length, phone: phone.length, isValid });
+        
+        const nextBtn = document.querySelector('[data-step="1"].next-btn');
+        if (nextBtn) {
+            nextBtn.disabled = !isValid;
+            nextBtn.classList.toggle('disabled', !isValid);
         }
-    }
-            isValid = false;
-        }
-
-        if (!phone) {
-            this.showFieldError(document.getElementById('phone'), '電話番号は必須項目です');
-            isValid = false;
-        } else {
-            const phoneValue = phone.replace(/[^0-9]/g, '');
-            if (phoneValue.length < 10 || phoneValue.length > 11) {
-                this.showFieldError(document.getElementById('phone'), '正しい電話番号を入力してください');
-                isValid = false;
-            }
-        }
-
+        
         return isValid;
     }
 
     validateStep2() {
         const zipcode = document.getElementById('zipcode')?.value.trim() || '';
         const address1 = document.getElementById('address1')?.value.trim() || '';
-
-        this.clearErrors();
-
-        let isValid = true;
-
-        if (!zipcode) {
-            this.showFieldError('zipcode', '郵便番号を入力してください');
-            isValid = false;
-        } else if (!/^[0-9]{7}$/.test(zipcode.replace('-', ''))) {
-            this.showFieldError('zipcode', '郵便番号は7桁の数字で入力してください');
-            isValid = false;
+        
+        const isValid = zipcode.length >= 7 && address1.length > 0;
+        console.log('[DEBUG] ステップ2バリデーション:', { zipcode: zipcode.length, address1: address1.length, isValid });
+        
+        const nextBtn = document.querySelector('[data-step="2"].next-btn');
+        if (nextBtn) {
+            nextBtn.disabled = !isValid;
+            nextBtn.classList.toggle('disabled', !isValid);
         }
-
-        if (!address1) {
-            this.showFieldError('address1', '住所を入力してください');
-            isValid = false;
-        }
-
-        // 次へボタンの状態更新
-        this.updateNextButtonState(2, isValid);
-
+        
         return isValid;
     }
 
-        if (!address1) {
-            this.showFieldError(document.getElementById('address1'), 'ご住所は必須項目です');
-            isValid = false;
+    validateStep3() {
+        // 立面図と平面図が必須
+        const requiredFiles = ['elevation', 'floor_plan'];
+        let hasRequired = true;
+        
+        for (const fileType of requiredFiles) {
+            if (!this.selectedFiles.has(fileType)) {
+                hasRequired = false;
+                break;
+            }
         }
-
-        return isValid;
+        
+        console.log('[DEBUG] ステップ3バリデーション:', { 
+            selectedFiles: Array.from(this.selectedFiles.keys()), 
+            hasRequired 
+        });
+        
+        const nextBtn = document.querySelector('[data-step="3"].next-btn');
+        if (nextBtn) {
+            nextBtn.disabled = !hasRequired;
+            nextBtn.classList.toggle('disabled', !hasRequired);
+        }
+        
+        return hasRequired;
     }
 
-    saveStep1Data() {
-        this.formData.name = document.getElementById('name')?.value.trim() || '';
-        this.formData.phone = document.getElementById('phone')?.value.trim() || '';
-        console.log('[DEBUG] ステップ1データ保存:', this.formData);
-    }
-
-    saveStep2Data() {
-        this.formData.zipcode = document.getElementById('zipcode')?.value.trim() || '';
-        this.formData.address1 = document.getElementById('address1')?.value.trim() || '';
-        this.formData.address2 = document.getElementById('address2')?.value.trim() || '';
-        console.log('[DEBUG] ステップ2データ保存:', this.formData);
+    setupFileInputs() {
+        console.log('[DEBUG] ファイル入力設定開始');
+        
+        const fileInputs = document.querySelectorAll('input[type="file"]');
+        console.log('[DEBUG] ファイル入力数:', fileInputs.length);
+        
+        fileInputs.forEach((input, index) => {
+            input.addEventListener('change', (e) => {
+                console.log('[DEBUG] ファイル選択変更:', index);
+                this.handleFileSelect(e);
+            });
+        });
+        
+        console.log('[DEBUG] ファイル入力設定完了');
     }
 
     handleFileSelect(event) {
         const input = event.target;
-        const previewId = input.id + '-preview';
-        const previewContainer = document.getElementById(previewId);
+        const file = input.files[0];
+        const fileType = input.dataset.type;
         
-        if (!previewContainer) return;
-
-        // 既存のプレビューをクリア
-        previewContainer.innerHTML = '';
+        console.log('[DEBUG] ファイル選択:', fileType, file?.name, file?.size);
         
-        // 選択されたファイルを保存
-        const files = Array.from(input.files);
-        this.selectedFiles.set(input.id, files);
-
-        console.log(`[DEBUG] ファイル選択: ${input.id}, ${files.length}ファイル`);
-
-        // プレビュー表示（スマートフォン対応）
-        files.forEach((file, index) => {
-            console.log(`[DEBUG] ファイル処理: ${file.name}, タイプ: ${file.type}, サイズ: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
-            
-            // ファイルサイズチェック（15MB制限）
+        if (file) {
+            // ファイルサイズチェック (15MB)
             if (file.size > 15 * 1024 * 1024) {
-                alert(`ファイル「${file.name}」のサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(2)}MB）。15MB以下のファイルを選択してください。`);
+                alert('ファイルサイズが大きすぎます。15MB以下のファイルを選択してください。');
+                input.value = '';
                 return;
             }
             
-            // 画像ファイルかどうかチェック（HEIC/HEIF含む）
-            const isImage = file.type.startsWith('image/') || 
-                           file.name.toLowerCase().endsWith('.heic') || 
-                           file.name.toLowerCase().endsWith('.heif');
-            
-            if (isImage) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const previewItem = document.createElement('div');
-                    previewItem.className = 'preview-item';
-                    
-                    // HEIC/HEIF形式の場合は特別な表示
-                    const isHEIC = file.name.toLowerCase().endsWith('.heic') || 
-                                  file.name.toLowerCase().endsWith('.heif');
-                    
-                    if (isHEIC) {
-                        previewItem.innerHTML = `
-                            <div class="heic-preview">
-                                <div class="heic-icon">📷</div>
-                                <div class="heic-info">
-                                    <div class="filename">${file.name}</div>
-                                    <div class="filesize">${(file.size / 1024 / 1024).toFixed(2)}MB</div>
-                                    <div class="filetype">HEIC形式</div>
-                                </div>
-                            </div>
-                            <button type="button" class="preview-remove" onclick="app.removeFile('${input.id}', ${index})">×</button>
-                        `;
-                    } else {
-                        previewItem.innerHTML = `
-                            <img src="${e.target.result}" alt="プレビュー">
-                            <div class="file-info">
-                                <div class="filename">${file.name}</div>
-                                <div class="filesize">${(file.size / 1024 / 1024).toFixed(2)}MB</div>
-                            </div>
-                            <button type="button" class="preview-remove" onclick="app.removeFile('${input.id}', ${index})">×</button>
-                        `;
-                    }
-                    previewContainer.appendChild(previewItem);
-                };
-                
-                if (isHEIC) {
-                    // HEIC/HEIFの場合はreadAsDataURLをスキップ
-                    reader.onload({ target: { result: null } });
-                } else {
-                    reader.readAsDataURL(file);
-                }
-            } else {
-                alert(`ファイル「${file.name}」は画像ファイルではありません。JPEG、PNG、HEIC等の画像ファイルを選択してください。`);
+            // ファイル形式チェック
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
+            if (!allowedTypes.includes(file.type) && !file.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|heic|heif)$/)) {
+                alert('対応していないファイル形式です。JPEG、PNG、GIF、WebP、HEIC形式のファイルを選択してください。');
+                input.value = '';
+                return;
             }
-        });
-    }
-
-    removeFile(inputId, index) {
-        const files = this.selectedFiles.get(inputId) || [];
-        files.splice(index, 1);
-        this.selectedFiles.set(inputId, files);
-
-        // input要素も更新
-        const input = document.getElementById(inputId);
-        if (input) {
-            const dt = new DataTransfer();
-            files.forEach(file => dt.items.add(file));
-            input.files = dt.files;
-
-            // プレビュー再表示
-            this.handleFileSelect({ target: input });
+            
+            this.selectedFiles.set(fileType, file);
+            this.showFilePreview(fileType, file);
+        } else {
+            this.selectedFiles.delete(fileType);
+            this.hideFilePreview(fileType);
+        }
+        
+        // ステップ3のバリデーション更新
+        if (this.currentStep === 3) {
+            this.validateStep3();
         }
     }
 
-    updateFinalSummary() {
-        let summary = '【お客様情報】\n';
-        summary += `お名前: ${this.formData.name}\n`;
-        summary += `電話番号: ${this.formData.phone}\n`;
-        summary += `郵便番号: ${this.formData.zipcode}\n`;
-        summary += `住所: ${this.formData.address1} ${this.formData.address2}\n\n`;
+    showFilePreview(fileType, file) {
+        const previewElement = document.getElementById(`preview-${fileType}`);
+        if (!previewElement) {
+            console.warn('[WARN] プレビュー要素が見つかりません:', fileType);
+            return;
+        }
         
-        summary += '【質問回答】\n';
-        summary += this.sessionData?.summary || '';
-        summary += '\n\n';
+        if (file.type.startsWith('image/') && !file.type.includes('heic') && !file.type.includes('heif')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewElement.innerHTML = `
+                    <img src="${e.target.result}" alt="プレビュー" style="max-width: 100px; max-height: 100px; object-fit: cover;">
+                    <p>${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)</p>
+                `;
+            };
+            reader.readAsDataURL(file);
+        } else {
+            // HEIC/HEIFまたはプレビューできない場合
+            previewElement.innerHTML = `
+                <div class="file-icon">📷</div>
+                <p>${file.name}</p>
+                <p>${(file.size / 1024 / 1024).toFixed(2)}MB</p>
+            `;
+        }
         
-        summary += '【概算見積り】\n';
-        summary += `¥${this.sessionData?.estimatedPrice?.toLocaleString() || '0'}\n\n`;
-        
-        // アップロードファイル数
-        let totalFiles = 0;
-        this.selectedFiles.forEach(files => totalFiles += files.length);
-        summary += `【添付写真・図面】\n`;
-        summary += `合計 ${totalFiles} ファイル`;
+        previewElement.style.display = 'block';
+    }
 
-        const finalSummaryElement = document.getElementById('final-summary');
-        if (finalSummaryElement) {
-            finalSummaryElement.textContent = summary;
+    hideFilePreview(fileType) {
+        const previewElement = document.getElementById(`preview-${fileType}`);
+        if (previewElement) {
+            previewElement.style.display = 'none';
+            previewElement.innerHTML = '';
         }
     }
 
-    async handleSubmit() {
+    goToStep(step) {
+        console.log('[DEBUG] ステップ移動:', this.currentStep, '->', step);
+        
+        try {
+            // 全ステップを非表示
+            for (let i = 1; i <= 4; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (stepElement) {
+                    stepElement.style.display = 'none';
+                } else {
+                    console.warn(`[WARN] ステップ${i}要素が見つかりません`);
+                }
+            }
+            
+            // 指定ステップを表示
+            const targetStep = document.getElementById(`step${step}`);
+            if (targetStep) {
+                targetStep.style.display = 'block';
+                console.log('[DEBUG] ステップ表示:', step);
+            } else {
+                console.error(`[ERROR] ステップ${step}要素が見つかりません`);
+                throw new Error(`ステップ${step}が見つかりません`);
+            }
+            
+            // ステップインジケーター更新
+            this.updateStepIndicator(step);
+            
+            this.currentStep = step;
+            
+            // 各ステップのバリデーション実行
+            if (step === 1) this.validateStep1();
+            if (step === 2) this.validateStep2();
+            if (step === 3) this.validateStep3();
+            
+            console.log('[DEBUG] ステップ移動完了:', step);
+            
+        } catch (error) {
+            console.error('[ERROR] ステップ移動エラー:', error);
+            this.showError('ページの表示に失敗しました: ' + error.message);
+        }
+    }
+
+    updateStepIndicator(activeStep) {
+        for (let i = 1; i <= 4; i++) {
+            const indicator = document.querySelector(`.step-indicator .step:nth-child(${i})`);
+            if (indicator) {
+                indicator.classList.toggle('active', i === activeStep);
+                indicator.classList.toggle('completed', i < activeStep);
+            }
+        }
+    }
+
+    nextStep(currentStep) {
+        console.log('[DEBUG] 次のステップへ:', currentStep);
+        
+        // バリデーション
+        let isValid = true;
+        if (currentStep === 1) isValid = this.validateStep1();
+        if (currentStep === 2) isValid = this.validateStep2();
+        if (currentStep === 3) isValid = this.validateStep3();
+        
+        if (!isValid) {
+            console.warn('[WARN] バリデーションエラー');
+            return;
+        }
+        
+        // フォームデータ保存
+        this.saveFormData();
+        
+        // 次のステップへ
+        this.goToStep(currentStep + 1);
+    }
+
+    prevStep(currentStep) {
+        console.log('[DEBUG] 前のステップへ:', currentStep);
+        this.goToStep(currentStep - 1);
+    }
+
+    saveFormData() {
+        const nameInput = document.getElementById('name');
+        const phoneInput = document.getElementById('phone');
+        const zipcodeInput = document.getElementById('zipcode');
+        const address1Input = document.getElementById('address1');
+        const address2Input = document.getElementById('address2');
+        
+        if (nameInput) this.formData.name = nameInput.value.trim();
+        if (phoneInput) this.formData.phone = phoneInput.value.trim();
+        if (zipcodeInput) this.formData.zipcode = zipcodeInput.value.trim();
+        if (address1Input) this.formData.address1 = address1Input.value.trim();
+        if (address2Input) this.formData.address2 = address2Input.value.trim();
+        
+        console.log('[DEBUG] フォームデータ保存:', this.formData);
+    }
+
+    async submitForm() {
+        console.log('[DEBUG] フォーム送信開始');
+        
         const submitBtn = document.getElementById('submit-btn');
+        if (!submitBtn) {
+            console.error('[ERROR] 送信ボタンが見つかりません');
+            return;
+        }
+        
+        // ローディング表示
         const loadingOverlay = document.getElementById('loading-overlay');
-        
-        if (!submitBtn) return;
-        
-        // ローディング表示開始
-        submitBtn.disabled = true;
-        submitBtn.textContent = '送信中...';
         if (loadingOverlay) {
             loadingOverlay.style.display = 'flex';
         }
-
+        
+        submitBtn.disabled = true;
+        submitBtn.textContent = '送信中...';
+        
         try {
-            console.log('[DEBUG] 送信開始');
+            // 最終バリデーション
+            if (!this.userId) {
+                throw new Error('ユーザーIDが設定されていません');
+            }
             
+            if (!this.formData.name || !this.formData.phone) {
+                throw new Error('必須項目が入力されていません');
+            }
+            
+            // フォームデータ準備
             const formData = new FormData();
-            
-            // ユーザーID追加
             formData.append('userId', this.userId);
-            
-            // フォームデータ追加
             formData.append('name', this.formData.name);
             formData.append('phone', this.formData.phone);
             formData.append('zipcode', this.formData.zipcode);
             formData.append('address1', this.formData.address1);
             formData.append('address2', this.formData.address2);
-
-            // ファイル追加
-            let totalFiles = 0;
-            this.selectedFiles.forEach((files, inputId) => {
-                files.forEach(file => {
-                    formData.append('photos', file);
-                    totalFiles++;
-                });
-            });
             
-            console.log(`[DEBUG] 送信データ: ファイル${totalFiles}個`);
-
+            // ファイル追加
+            for (const [fileType, file] of this.selectedFiles) {
+                formData.append(fileType, file);
+                console.log('[DEBUG] ファイル追加:', fileType, file.name);
+            }
+            
+            console.log('[DEBUG] 送信データ準備完了');
+            console.log('[DEBUG] 送信ファイル数:', this.selectedFiles.size);
+            
             // 送信
             const response = await fetch('/api/submit', {
                 method: 'POST',
                 body: formData
             });
-
-            console.log('[DEBUG] 送信応答ステータス:', response.status);
-
+            
+            console.log('[DEBUG] 送信応答:', response.status, response.statusText);
+            
             if (response.ok) {
                 const result = await response.json();
                 console.log('[DEBUG] 送信成功:', result);
                 this.showSuccess();
             } else {
-                const error = await response.json();
-                throw new Error(error.error || '送信に失敗しました');
+                const errorData = await response.json().catch(() => ({ error: '不明なエラー' }));
+                throw new Error(errorData.error || `送信に失敗しました (${response.status})`);
             }
 
         } catch (error) {
@@ -532,7 +579,7 @@ class LiffStepApp {
                 loadingOverlay.style.display = 'none';
             }
             
-            alert('送信に失敗しました。もう一度お試しください。');
+            alert('送信に失敗しました。もう一度お試しください。\n\nエラー: ' + error.message);
             submitBtn.disabled = false;
             submitBtn.textContent = '見積もりを依頼';
         }
@@ -554,7 +601,11 @@ class LiffStepApp {
         }
         
         const successElement = document.getElementById('success');
-        if (successElement) successElement.style.display = 'block';
+        if (successElement) {
+            successElement.style.display = 'block';
+        } else {
+            alert('見積もり依頼を送信しました。ありがとうございます。');
+        }
         
         // 3秒後にLIFFを閉じる
         setTimeout(() => {
@@ -567,43 +618,38 @@ class LiffStepApp {
     showError(message) {
         console.log('[DEBUG] エラー画面表示:', message);
         
-        document.getElementById('loading').style.display = 'none';
+        // ローディング非表示
+        this.hideLoading();
         
-        const errorMessageElement = document.getElementById('error-message');
-        const errorElement = document.getElementById('error');
-        
-        if (errorMessageElement) errorMessageElement.textContent = message;
-        if (errorElement) errorElement.style.display = 'block';
-    }
-
-    clearErrors() {
-        document.querySelectorAll('.error-message').forEach(el => el.remove());
-        document.querySelectorAll('input.error').forEach(el => el.classList.remove('error'));
-    }
-
-    showFieldError(input, message) {
-        if (!input) return;
-        
-        input.classList.add('error');
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-message';
-        errorDiv.textContent = message;
-        input.parentNode.appendChild(errorDiv);
+        // エラーメッセージ表示
+        const errorElement = document.getElementById('error-message');
+        if (errorElement) {
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        } else {
+            alert('エラー: ' + message);
+        }
     }
 }
 
-// グローバル関数
-function goToStep(stepNumber) {
-    if (window.app) {
-        window.app.goToStep(stepNumber);
-    }
-}
-
-// アプリケーション初期化
-let app;
+// アプリ初期化
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[DEBUG] DOM読み込み完了');
-    app = new LiffStepApp();
-    window.app = app; // グローバルアクセス用
+    
+    // LIFF SDKの読み込み確認
+    if (typeof liff === 'undefined') {
+        console.error('[ERROR] LIFF SDKが読み込まれていません');
+        alert('LIFF SDKが読み込まれていません。ページを再読み込みしてください。');
+        return;
+    }
+    
+    console.log('[DEBUG] LIFF SDK確認完了');
+    
+    try {
+        new LiffStepApp();
+    } catch (error) {
+        console.error('[ERROR] アプリ初期化失敗:', error);
+        alert('アプリケーションの初期化に失敗しました: ' + error.message);
+    }
 });
 
