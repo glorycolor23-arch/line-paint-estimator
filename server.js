@@ -763,7 +763,7 @@ async function handleEvent(ev){
       console.log(`[DEBUG] 見積り開始`);
       sessions.set(userId, {answers:{}, last:{}, step:0, estimatedPrice: 0});
       await safeReply(ev.replyToken, { type:'text', text:'見積もりを開始します。以下の質問にお答えください。' });
-      await sendNext(userId);
+      await sendNext(userId, ev.replyToken);
       return;
     }
 
