@@ -23,11 +23,13 @@
             </div>
         </header>
 
-        <!-- ローディング画面 -->
-        <div id="loading" class="loading">
-            <div class="spinner"></div>
-            <p>読み込み中...</p>
-        </div>
+        <!-- メインコンテンツ -->
+        <main id="main-content" class="main-content">
+            <!-- ローディング画面 -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>読み込み中...</p>
+            </div>
 
         <!-- エラー画面 -->
         <div id="error" class="error-screen" style="display: none;">
@@ -185,6 +187,7 @@
                 <button class="btn btn-primary" onclick="liff.closeWindow()">閉じる</button>
             </div>
         </div>
+        </main>
     </div>
 
     <script src="app.js"></script>
