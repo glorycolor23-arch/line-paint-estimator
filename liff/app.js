@@ -470,10 +470,16 @@ class LiffStepApp {
 
     async handleSubmit() {
         const submitBtn = document.getElementById('submit-btn');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        
         if (!submitBtn) return;
         
+        // ローディング表示開始
         submitBtn.disabled = true;
         submitBtn.textContent = '送信中...';
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
 
         try {
             console.log('[DEBUG] 送信開始');
@@ -520,6 +526,12 @@ class LiffStepApp {
 
         } catch (error) {
             console.error('[ERROR] 送信エラー:', error);
+            
+            // ローディング非表示
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            
             alert('送信に失敗しました。もう一度お試しください。');
             submitBtn.disabled = false;
             submitBtn.textContent = '見積もりを依頼';
@@ -528,6 +540,12 @@ class LiffStepApp {
 
     showSuccess() {
         console.log('[DEBUG] 成功画面表示');
+        
+        // ローディング非表示
+        const loadingOverlay = document.getElementById('loading-overlay');
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
         
         // 全ステップを非表示
         for (let i = 1; i <= 4; i++) {
