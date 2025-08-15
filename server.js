@@ -1,72 +1,66 @@
-/* =========================================================
- * server.js  LIFF修正 + 画像カード改善版
- * ========================================================= */
+const express = require('express');
+const { Client, middleware } = require('@line/bot-sdk');
+const multer = require('multer');
+const axios = require('axios');
+const { google } = require('googleapis');
+const path = require('path');
 
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { Client, middleware as lineMiddleware } from '@line/bot-sdk';
-import multer from 'multer';
-import axios from 'axios';
-import { google } from 'googleapis';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-
-// ---- LINE 設定 -------------------------------------------------------------
-const config = {
-  channelSecret: process.env.CHANNEL_SECRET,
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
-};
-if (!config.channelSecret || !config.channelAccessToken) {
-  console.error('[FATAL] CHANNEL_SECRET / CHANNEL_ACCESS_TOKEN が未設定です');
-  process.exit(1);
-}
-const client = new Client(config);
-
-// ---- Google Sheets 設定 ---------------------------------------------------
-const GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
-const GSHEET_SPREADSHEET_ID = process.env.GSHEET_SPREADSHEET_ID;
-const GSHEET_SHEET_NAME = process.env.GSHEET_SHEET_NAME || 'Sheet1';
-
-let sheetsAuth = null;
-if (GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
-  sheetsAuth = new google.auth.JWT(
-    GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    null,
-    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
-}
-
-// ---- Express ---------------------------------------------------------------
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-// CORS設定
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
+// LINE Bot設定
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+const client = new Client(config);
+const lineMiddleware = middleware(config);
+
+// Cloudinary設定（画像アップロード用）
+const cloudinary = require('cloudinary').v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-app.get('/health', (_, res) => res.status(200).send('ok'));
+// Google Sheets設定
+const sheets = google.sheets('v4');
+const auth = new google.auth.GoogleAuth({
+  credentials: {
+    type: 'service_account',
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+    token_uri: 'https://oauth2.googleapis.com/token',
+  },
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
 
-// LIFF 静的配信
-app.use('/liff', express.static(path.join(__dirname, 'liff'), { index: 'index.html' }));
+// メール送信設定
+const nodemailer = require('nodemailer');
+const transporter = nodemailer.createTransporter({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
-// フロント用環境JS
+// 静的ファイル配信
+app.use('/liff', express.static(path.join(__dirname, 'liff')));
+
+// LIFF環境変数注入
 app.get('/liff/env.js', (req, res) => {
-  const liffId   = process.env.LIFF_ID || '';
-  const addUrl   = process.env.FRIEND_ADD_URL || '';
-  const mailUrl  = process.env.EMAIL_WEBAPP_URL || '';
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.status(200).send(
+  const liffId = process.env.LIFF_ID;
+  const addUrl = process.env.LINE_ADD_FRIEND_URL || '';
+  const mailUrl = process.env.EMAIL_WEBAPP_URL || '';
+  
+  res.setHeader('Content-Type', 'application/javascript');
+  res.send(
     `window.ENV={LIFF_ID:${JSON.stringify(liffId)},FRIEND_ADD_URL:${JSON.stringify(addUrl)},EMAIL_WEBAPP_URL:${JSON.stringify(mailUrl)}};`
   );
 });
@@ -144,10 +138,11 @@ const handleMulterError = (err, req, res, next) => {
 
 /* Webhook: 署名検証前に rawBody を確保 */
 app.use('/webhook', express.json({
-  verify: (req, res, buf) => { req.rawBody = buf.toString(); }
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
 }));
 
-/* LINE middleware（署名検証） */
 app.post('/webhook', lineMiddleware(config), async (req, res) => {
   res.status(200).end('OK');
   try {
@@ -179,22 +174,145 @@ const QUESTIONS = [
   { id:'q6_work',    title:'ご希望の工事内容は？', options:['外壁塗装','屋根塗装','外壁塗装+屋根塗装'] },
   { id:'q7_wall',    title:'外壁の種類は？（外壁を選んだ場合）', options:['モルタル','サイディング','タイル','ALC'],
                       conditional:(a)=> (a.q6_work||'').includes('外壁') },
+  { id:'q7_wall_paint', title:'外壁塗装で使いたい塗料は？', options:['一般的な塗料（コスト 一般的）','コストが安い塗料（耐久性 低い）','耐久性が高い塗料（コスト 高い）','遮熱性が高い（コスト 高い）'],
+                      conditional:(a)=> (a.q6_work||'').includes('外壁') },
   { id:'q8_roof',    title:'屋根の種類は？（屋根を選んだ場合）', options:['瓦','スレート','ガルバリウム','トタン'],
+                      conditional:(a)=> (a.q6_work||'').includes('屋根') },
+  { id:'q8_roof_paint', title:'屋根塗装で使いたい塗料は？', options:['一般的な塗料（コスト 一般的）','コストが安い塗料（耐久性 低い）','耐久性が高い塗料（コスト 高い）','遮熱性が高い（コスト 高い）'],
                       conditional:(a)=> (a.q6_work||'').includes('屋根') },
   { id:'q9_leak',    title:'雨漏りや漏水の症状はありますか？', options:['雨の日に水滴が落ちる','天井にシミがある','ない'] },
   { id:'q10_dist',   title:'隣や裏の家との距離は？（周囲で一番近い距離）', options:['30cm以下','50cm以下','70cm以下','70cm以上'] },
 ];
 
-// 概算計算（ダミー）
+// 概算計算（柔軟な計算式）
 function calcRoughPrice(a){
-  let base = 1000000;
-  if ((a.q1_floors||'').includes('2')) base += 150000;
-  if ((a.q1_floors||'').includes('3')) base += 300000;
-  if ((a.q6_work||'').includes('屋根')) base += 180000;
-  if ((a.q6_work||'').includes('外壁')) base += 220000;
-  if ((a.q7_wall||'').includes('タイル')) base += 120000;
-  if ((a.q9_leak||'') !== 'ない') base += 90000;
-  return Math.round(base/1000)*1000;
+  // 基本料金設定
+  const BASE_PRICE = 1000000; // 基本料金：100万円
+  
+  // 係数設定（後で調整しやすいように分離）
+  const COEFFICIENTS = {
+    // 階数による係数
+    floors: {
+      '1階建て': 1.0,
+      '2階建て': 1.15,  // +15%
+      '3階建て': 1.30   // +30%
+    },
+    
+    // 間取りによる係数
+    layout: {
+      '1K': 0.8, '1DK': 0.85, '1LDK': 0.9,
+      '2K': 1.0, '2DK': 1.05, '2LDK': 1.1,
+      '3K': 1.15, '3DK': 1.2, '4K': 1.25, '4DK': 1.3, '4LDK': 1.35
+    },
+    
+    // 工事内容による追加料金
+    work: {
+      '外壁塗装': 220000,
+      '屋根塗装': 180000,
+      '外壁塗装+屋根塗装': 380000  // セット割引
+    },
+    
+    // 外壁材による係数
+    wallMaterial: {
+      'モルタル': 1.0,
+      'サイディング': 1.05,
+      'タイル': 1.2,
+      'ALC': 1.1
+    },
+    
+    // 外壁塗料による係数
+    wallPaint: {
+      'コストが安い塗料（耐久性 低い）': 0.8,
+      '一般的な塗料（コスト 一般的）': 1.0,
+      '耐久性が高い塗料（コスト 高い）': 1.3,
+      '遮熱性が高い（コスト 高い）': 1.4
+    },
+    
+    // 屋根材による係数
+    roofMaterial: {
+      '瓦': 1.1,
+      'スレート': 1.0,
+      'ガルバリウム': 1.15,
+      'トタン': 0.9
+    },
+    
+    // 屋根塗料による係数
+    roofPaint: {
+      'コストが安い塗料（耐久性 低い）': 0.8,
+      '一般的な塗料（コスト 一般的）': 1.0,
+      '耐久性が高い塗料（コスト 高い）': 1.3,
+      '遮熱性が高い（コスト 高い）': 1.4
+    },
+    
+    // 雨漏りによる追加料金
+    leak: {
+      'ない': 0,
+      '天井にシミがある': 50000,
+      '雨の日に水滴が落ちる': 90000
+    },
+    
+    // 隣家距離による係数（作業難易度）
+    distance: {
+      '70cm以上': 1.0,
+      '70cm以下': 1.05,
+      '50cm以下': 1.1,
+      '30cm以下': 1.15
+    }
+  };
+  
+  // 計算開始
+  let totalPrice = BASE_PRICE;
+  
+  // 階数による係数適用
+  const floorsCoeff = COEFFICIENTS.floors[a.q1_floors] || 1.0;
+  totalPrice *= floorsCoeff;
+  
+  // 間取りによる係数適用
+  const layoutCoeff = COEFFICIENTS.layout[a.q2_layout] || 1.0;
+  totalPrice *= layoutCoeff;
+  
+  // 工事内容による追加料金
+  const workPrice = COEFFICIENTS.work[a.q6_work] || 0;
+  totalPrice += workPrice;
+  
+  // 外壁関連の計算（外壁塗装が含まれる場合）
+  if ((a.q6_work||'').includes('外壁')) {
+    // 外壁材による係数
+    const wallMaterialCoeff = COEFFICIENTS.wallMaterial[a.q7_wall] || 1.0;
+    
+    // 外壁塗料による係数
+    const wallPaintCoeff = COEFFICIENTS.wallPaint[a.q7_wall_paint] || 1.0;
+    
+    // 外壁部分の料金に係数を適用
+    const wallBasePrice = COEFFICIENTS.work['外壁塗装'];
+    const wallAdjustment = wallBasePrice * (wallMaterialCoeff * wallPaintCoeff - 1);
+    totalPrice += wallAdjustment;
+  }
+  
+  // 屋根関連の計算（屋根塗装が含まれる場合）
+  if ((a.q6_work||'').includes('屋根')) {
+    // 屋根材による係数
+    const roofMaterialCoeff = COEFFICIENTS.roofMaterial[a.q8_roof] || 1.0;
+    
+    // 屋根塗料による係数
+    const roofPaintCoeff = COEFFICIENTS.roofPaint[a.q8_roof_paint] || 1.0;
+    
+    // 屋根部分の料金に係数を適用
+    const roofBasePrice = COEFFICIENTS.work['屋根塗装'];
+    const roofAdjustment = roofBasePrice * (roofMaterialCoeff * roofPaintCoeff - 1);
+    totalPrice += roofAdjustment;
+  }
+  
+  // 雨漏りによる追加料金
+  const leakPrice = COEFFICIENTS.leak[a.q9_leak] || 0;
+  totalPrice += leakPrice;
+  
+  // 隣家距離による係数適用
+  const distanceCoeff = COEFFICIENTS.distance[a.q10_dist] || 1.0;
+  totalPrice *= distanceCoeff;
+  
+  // 1000円単位で四捨五入
+  return Math.round(totalPrice / 1000) * 1000;
 }
 
 // 安全送信（結果: true/false）
@@ -298,7 +416,9 @@ function summarize(a){
   return [
     `・階数: ${a.q1_floors||'—'} / 間取り: ${a.q2_layout||'—'} / 築年数: ${a.q3_age||'—'}`,
     `・過去塗装: ${a.q4_painted||'—'} / 前回から: ${a.q5_last||'—'}`,
-    `・工事内容: ${a.q6_work||'—'} / 外壁: ${a.q7_wall||'—'} / 屋根: ${a.q8_roof||'—'}`,
+    `・工事内容: ${a.q6_work||'—'}`,
+    `・外壁: ${a.q7_wall||'—'} / 外壁塗料: ${a.q7_wall_paint||'—'}`,
+    `・屋根: ${a.q8_roof||'—'} / 屋根塗料: ${a.q8_roof_paint||'—'}`,
     `・雨漏り: ${a.q9_leak||'—'} / 距離: ${a.q10_dist||'—'}`
   ].join('\n');
 }
@@ -398,9 +518,9 @@ async function sendNext(userId, replyToken=null){
     // セッションに概算価格を保存（LIFF で使用するため）
     sess.estimatedPrice = price;
     sessions.set(userId, sess);
-    
+
     console.log(`[DEBUG] 概算見積り: ${price}, ユーザー: ${userId}`);
-    
+
     const msgs = [
       { type:'text', text:'ありがとうございます。概算を作成しました。' },
       { type:'text', text:`【回答の確認】\n${summarize(sess.answers)}` },
@@ -556,6 +676,174 @@ async function handleEvent(ev){
 }
 
 /* ===========================================================================
+ * 画像アップロード関数
+ * ======================================================================== */
+
+// Cloudinaryに画像をアップロード
+async function uploadImageToCloudinary(buffer, filename) {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'image',
+        public_id: `line-paint/${Date.now()}_${filename}`,
+        format: 'jpg', // HEIC/HEIFもJPEGに変換
+        quality: 'auto:good', // 自動品質調整
+      },
+      (error, result) => {
+        if (error) {
+          console.error('[ERROR] Cloudinaryアップロードエラー:', error);
+          reject(error);
+        } else {
+          console.log('[INFO] Cloudinaryアップロード成功:', result.secure_url);
+          resolve(result.secure_url);
+        }
+      }
+    ).end(buffer);
+  });
+}
+
+/* ===========================================================================
+ * スプレッドシート書き込み関数
+ * ======================================================================== */
+
+async function writeToSpreadsheet(data) {
+  try {
+    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      console.log('[WARN] スプレッドシートIDが設定されていません');
+      return;
+    }
+
+    const authClient = await auth.getClient();
+    
+    // 現在時刻（ISO形式）
+    const timestamp = new Date().toISOString();
+    
+    // 概算金額の計算
+    const estimatedPrice = data.estimatedPrice || calcRoughPrice(data.answers);
+    
+    // 画像URLの結合
+    const imageUrls = (data.imageUrls || []).join('\n');
+    
+    // スプレッドシートに書き込むデータ
+    const values = [[
+      timestamp,                           // Timestamp (ISO)
+      data.userId,                         // LINE_USER_ID
+      data.name,                           // 氏名
+      data.zipcode,                        // 郵便番号
+      data.address1,                       // 住所1
+      data.address2,                       // 住所2
+      data.answers.q1_floors || '',        // Q1 階数
+      data.answers.q2_layout || '',        // Q2 間取り
+      data.answers.q6_work || '',          // Q3 工事
+      data.answers.q4_painted || '',       // Q4 過去塗装
+      data.answers.q5_last || '',          // Q5 前回から
+      data.answers.q7_wall || '',          // Q6 外壁
+      data.answers.q7_wall_paint || '',    // Q7 外壁塗料
+      data.answers.q8_roof || '',          // Q8 屋根
+      data.answers.q8_roof_paint || '',    // Q9 屋根塗料
+      data.answers.q9_leak || '',          // Q10 雨漏り
+      data.answers.q10_dist || '',         // Q11 距離
+      data.photoCount || 0,                // 受領写真枚数
+      estimatedPrice,                      // 概算金額
+      imageUrls                            // 画像URL一覧
+    ]];
+
+    await sheets.spreadsheets.values.append({
+      auth: authClient,
+      spreadsheetId: spreadsheetId,
+      range: 'A:T', // A列からT列まで（20列）
+      valueInputOption: 'USER_ENTERED',
+      resource: { values }
+    });
+
+    console.log('[INFO] スプレッドシート書き込み成功');
+  } catch (error) {
+    console.error('[ERROR] スプレッドシート書き込みエラー:', error);
+    throw error;
+  }
+}
+
+/* ===========================================================================
+ * メール送信関数
+ * ======================================================================== */
+
+async function sendEmail(data) {
+  try {
+    const toEmail = process.env.EMAIL_TO;
+    if (!toEmail) {
+      console.log('[WARN] 送信先メールアドレスが設定されていません');
+      return;
+    }
+
+    // 概算金額の計算
+    const estimatedPrice = data.estimatedPrice || calcRoughPrice(data.answers);
+    
+    // 画像URLリストの作成
+    let imageSection = '';
+    if (data.imageUrls && data.imageUrls.length > 0) {
+      imageSection = `
+        <h3>添付画像・図面</h3>
+        <ul>
+          ${data.imageUrls.map((url, index) => 
+            `<li><a href="${url}" target="_blank">画像${index + 1}</a></li>`
+          ).join('')}
+        </ul>
+      `;
+    }
+
+    const htmlContent = `
+      <h2>見積り依頼フォーム送信</h2>
+      
+      <h3>お客様情報</h3>
+      <table border="1" cellpadding="8" cellspacing="0">
+        <tr><td><strong>お名前</strong></td><td>${data.name}</td></tr>
+        <tr><td><strong>電話番号</strong></td><td>${data.phone}</td></tr>
+        <tr><td><strong>郵便番号</strong></td><td>${data.zipcode}</td></tr>
+        <tr><td><strong>住所</strong></td><td>${data.address1} ${data.address2}</td></tr>
+      </table>
+      
+      <h3>質問回答</h3>
+      <table border="1" cellpadding="8" cellspacing="0">
+        <tr><td><strong>階数</strong></td><td>${data.answers.q1_floors || '—'}</td></tr>
+        <tr><td><strong>間取り</strong></td><td>${data.answers.q2_layout || '—'}</td></tr>
+        <tr><td><strong>築年数</strong></td><td>${data.answers.q3_age || '—'}</td></tr>
+        <tr><td><strong>過去塗装</strong></td><td>${data.answers.q4_painted || '—'}</td></tr>
+        <tr><td><strong>前回塗装</strong></td><td>${data.answers.q5_last || '—'}</td></tr>
+        <tr><td><strong>工事内容</strong></td><td>${data.answers.q6_work || '—'}</td></tr>
+        <tr><td><strong>外壁種類</strong></td><td>${data.answers.q7_wall || '—'}</td></tr>
+        <tr><td><strong>外壁塗料</strong></td><td>${data.answers.q7_wall_paint || '—'}</td></tr>
+        <tr><td><strong>屋根種類</strong></td><td>${data.answers.q8_roof || '—'}</td></tr>
+        <tr><td><strong>屋根塗料</strong></td><td>${data.answers.q8_roof_paint || '—'}</td></tr>
+        <tr><td><strong>雨漏り</strong></td><td>${data.answers.q9_leak || '—'}</td></tr>
+        <tr><td><strong>隣家距離</strong></td><td>${data.answers.q10_dist || '—'}</td></tr>
+      </table>
+      
+      <h3>概算見積り</h3>
+      <p style="font-size: 24px; color: #00B900; font-weight: bold;">¥${estimatedPrice.toLocaleString()}</p>
+      
+      ${imageSection}
+      
+      <hr>
+      <p><small>送信日時: ${new Date().toLocaleString('ja-JP')}</small></p>
+    `;
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: toEmail,
+      subject: `【見積り依頼】${data.name}様より`,
+      html: htmlContent
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('[INFO] メール送信成功');
+  } catch (error) {
+    console.error('[ERROR] メール送信エラー:', error);
+    throw error;
+  }
+}
+
+/* ===========================================================================
  * LIFF API エンドポイント
  * ======================================================================== */
 
@@ -589,8 +877,8 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
       return res.status(400).json({ error: '質問回答データが見つかりません。先にLINEで見積りを完了してください。' });
     }
 
-    // 画像をBase64エンコード（スマートフォン対応）
-    const imageData = [];
+    // 画像をCloudinaryにアップロード
+    const imageUrls = [];
     for (let i = 0; i < photos.length; i++) {
       const photo = photos[i];
       try {
@@ -605,51 +893,19 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
           continue;
         }
         
-        // HEIC/HEIF形式の検出
-        const isHEIC = photo.mimetype === 'image/heic' || photo.mimetype === 'image/heif' || 
-                       photo.originalname.toLowerCase().endsWith('.heic') || 
-                       photo.originalname.toLowerCase().endsWith('.heif');
+        console.log(`[INFO] 画像アップロード開始: ${photo.originalname}, サイズ: ${(photo.size / 1024 / 1024).toFixed(2)}MB`);
         
-        if (isHEIC) {
-          console.log(`[INFO] HEIC/HEIF形式を検出: ${photo.originalname}`);
-          // HEIC/HEIFの場合、MIMEタイプをJPEGとして扱う（メール送信時の互換性のため）
-        }
+        const imageUrl = await uploadImageToCloudinary(photo.buffer, photo.originalname);
+        imageUrls.push(imageUrl);
         
-        const base64 = photo.buffer.toString('base64');
-        let mimeType = photo.mimetype;
-        
-        // MIMEタイプの正規化
-        if (mimeType === 'application/octet-stream') {
-          // 拡張子から推測
-          const ext = photo.originalname.toLowerCase().match(/\.[^.]+$/)?.[0];
-          if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
-          else if (ext === '.png') mimeType = 'image/png';
-          else if (ext === '.heic' || ext === '.heif') mimeType = 'image/heic';
-          else mimeType = 'image/jpeg'; // デフォルト
-        }
-        
-        // Base64サイズチェック（メール送信制限考慮）
-        const base64SizeMB = base64.length / (1024 * 1024);
-        if (base64SizeMB > 8) { // 約6MB相当
-          console.warn(`[WARN] Base64サイズが大きい: ${photo.originalname}, Base64サイズ: ${base64SizeMB.toFixed(2)}MB`);
-        }
-        
-        imageData.push({
-          filename: photo.originalname || `image_${i + 1}.jpg`,
-          base64: base64,
-          mimeType: mimeType,
-          size: photo.size,
-          isHEIC: isHEIC
-        });
-        
-        console.log(`[INFO] 画像処理完了: ${photo.originalname}, サイズ: ${(photo.size / 1024 / 1024).toFixed(2)}MB, MIME: ${mimeType}`);
+        console.log(`[INFO] 画像アップロード完了: ${photo.originalname} -> ${imageUrl}`);
       } catch (error) {
-        console.error(`[ERROR] 画像処理エラー: ${photo.originalname}`, error);
-        // 画像処理エラーは継続（他の画像は処理する）
+        console.error(`[ERROR] 画像アップロードエラー: ${photo.originalname}`, error);
+        // 画像アップロードエラーは継続（他の画像は処理する）
       }
     }
 
-    console.log(`[INFO] 処理完了画像数: ${imageData.length}/${photos.length}`);
+    console.log(`[INFO] アップロード完了画像数: ${imageUrls.length}/${photos.length}`);
 
     // スプレッドシートに記録
     try {
@@ -661,8 +917,9 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
         address1,
         address2,
         answers: sess.answers,
-        photoCount: imageData.length,
-        estimatedPrice: sess.estimatedPrice || 0
+        photoCount: imageUrls.length,
+        estimatedPrice: sess.estimatedPrice || 0,
+        imageUrls: imageUrls
       });
       console.log('[INFO] スプレッドシート書き込み成功');
     } catch (error) {
@@ -670,7 +927,7 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
       // スプレッドシートエラーは継続（メール送信は実行）
     }
 
-    // メール送信（Base64画像付き）
+    // メール送信（画像URL付き）
     try {
       await sendEmail({
         userId,
@@ -680,7 +937,7 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
         address1,
         address2,
         answers: sess.answers,
-        imageData: imageData,
+        imageUrls: imageUrls,
         estimatedPrice: sess.estimatedPrice || 0
       });
       console.log('[INFO] メール送信成功');
@@ -716,33 +973,37 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
 
 // ユーザーセッション情報取得API（デバッグ情報追加）
 app.get('/api/user/:userId', (req, res) => {
-  const { userId } = req.params;
-  console.log(`[DEBUG] ユーザーセッション取得要求: ${userId}`);
+  const userId = req.params.userId;
+  console.log('[DEBUG] ユーザーセッション取得要求:', userId);
   
   const sess = sessions.get(userId);
-  
   if (!sess) {
-    console.log(`[DEBUG] セッションが見つかりません: ${userId}`);
-    console.log(`[DEBUG] 現在のセッション一覧:`, Array.from(sessions.keys()));
+    console.log('[DEBUG] セッションが見つかりません:', userId);
     return res.status(404).json({ error: 'セッションが見つかりません' });
   }
 
-  console.log(`[DEBUG] セッションデータ:`, sess);
+  // 概算価格の計算
+  const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers);
   
-  res.json({
+  const response = {
+    userId: userId,
     answers: sess.answers,
-    estimatedPrice: sess.estimatedPrice || 0,
-    summary: summarize(sess.answers)
-  });
+    estimatedPrice: estimatedPrice,
+    summary: summarize(sess.answers),
+    step: sess.step || 0
+  };
+  
+  console.log('[DEBUG] セッションデータ:', response);
+  res.json(response);
 });
 
-// デバッグ用エンドポイント
+// デバッグ用：現在のセッション一覧
 app.get('/api/debug/sessions', (req, res) => {
-  const sessionList = Array.from(sessions.entries()).map(([userId, data]) => ({
+  const sessionList = Array.from(sessions.entries()).map(([userId, sess]) => ({
     userId,
-    answersCount: Object.keys(data.answers || {}).length,
-    estimatedPrice: data.estimatedPrice || 0,
-    lastActivity: data.lastActivity || 'unknown'
+    answersCount: Object.keys(sess.answers || {}).length,
+    estimatedPrice: sess.estimatedPrice,
+    step: sess.step
   }));
   
   res.json({
@@ -751,148 +1012,8 @@ app.get('/api/debug/sessions', (req, res) => {
   });
 });
 
-/* ===========================================================================
- * Google Sheets 連携
- * ======================================================================== */
-async function writeToSpreadsheet(data) {
-  if (!sheetsAuth || !GSHEET_SPREADSHEET_ID) {
-    console.log('[WARN] Google Sheets 設定が不完全です');
-    return;
-  }
-
-  try {
-    const sheets = google.sheets({ version: 'v4', auth: sheetsAuth });
-    
-    const row = [
-      new Date().toISOString(), // Timestamp (ISO)
-      data.userId, // LINE_USER_ID
-      data.name, // 氏名
-      data.zipcode, // 郵便番号
-      data.address1, // 住所1
-      data.address2, // 住所2
-      data.answers.q1_floors || '', // Q1 階数
-      data.answers.q2_layout || '', // Q2 間取り
-      data.answers.q6_work || '', // Q3 工事
-      data.answers.q4_painted || '', // Q4 過去塗装
-      data.answers.q5_last || '', // Q5 前回から
-      data.answers.q7_wall || '', // Q6 外壁
-      data.answers.q8_roof || '', // Q7 屋根
-      data.answers.q9_leak || '', // Q8 雨漏り
-      data.answers.q10_dist || '', // Q9 距離
-      data.photoCount, // 受領写真枚数
-      data.estimatedPrice // 概算金額
-    ];
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: GSHEET_SPREADSHEET_ID,
-      range: `${GSHEET_SHEET_NAME}!A:Q`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [row]
-      }
-    });
-
-    console.log('[INFO] スプレッドシート書き込み完了');
-  } catch (error) {
-    console.error('[ERROR] スプレッドシート書き込みエラー:', error);
-  }
-}
-
-/* ===========================================================================
- * メール送信（Base64画像埋め込み）
- * ======================================================================== */
-async function sendEmail(data) {
-  const emailWebappUrl = process.env.EMAIL_WEBAPP_URL;
-  const emailTo = process.env.EMAIL_TO;
-  
-  if (!emailWebappUrl || !emailTo) {
-    console.log('[WARN] メール送信設定が不完全です');
-    return;
-  }
-
-  try {
-    const subject = `【LINE見積り依頼】${data.name}様`;
-    
-    // 画像をHTMLに埋め込み
-    let imagesHtml = '';
-    if (data.imageData && data.imageData.length > 0) {
-      imagesHtml = '<h3>添付写真・図面</h3>';
-      data.imageData.forEach((img, index) => {
-        const sizeKB = Math.round(img.size / 1024);
-        imagesHtml += `
-          <div style="margin-bottom: 20px; border: 1px solid #ddd; padding: 10px;">
-            <h4>写真${index + 1}: ${img.filename} (${sizeKB}KB)</h4>
-            <img src="data:${img.mimeType};base64,${img.base64}" 
-                 style="max-width: 500px; max-height: 400px; border: 1px solid #ccc;" 
-                 alt="${img.filename}">
-          </div>
-        `;
-      });
-    } else {
-      imagesHtml = '<h3>添付写真・図面</h3><p>写真の添付はありませんでした。</p>';
-    }
-
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-        <h2 style="color: #00B900;">LINE見積り依頼</h2>
-        
-        <h3>お客様情報</h3>
-        <table style="border-collapse: collapse; width: 100%; margin-bottom: 20px;">
-          <tr style="background-color: #f5f5f5;">
-            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">お名前</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${data.name}</td>
-          </tr>
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">電話番号</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${data.phone}</td>
-          </tr>
-          <tr style="background-color: #f5f5f5;">
-            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">郵便番号</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${data.zipcode}</td>
-          </tr>
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">住所</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${data.address1} ${data.address2}</td>
-          </tr>
-        </table>
-        
-        <h3>質問回答</h3>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-          <pre style="white-space: pre-wrap; font-family: inherit;">${summarize(data.answers)}</pre>
-        </div>
-        
-        <h3>概算見積り</h3>
-        <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-          <p style="font-size: 24px; font-weight: bold; color: #00B900; margin: 0;">￥${data.estimatedPrice.toLocaleString()}</p>
-          <p style="margin: 5px 0 0 0; color: #666;">※概算金額</p>
-        </div>
-        
-        ${imagesHtml}
-        
-        <hr style="margin: 30px 0;">
-        <p style="color: #666; font-size: 12px;">
-          このメールはLINE自動見積りシステムから自動送信されました。<br>
-          送信日時: ${new Date().toLocaleString('ja-JP')}
-        </p>
-      </div>
-    `;
-
-    // Google Apps Scriptに送信（Base64データも含む）
-    await axios.post(emailWebappUrl, {
-      to: emailTo,
-      subject,
-      htmlBody,
-      // 従来のphotoUrlsは空配列（互換性のため）
-      photoUrls: []
-    });
-
-    console.log(`[INFO] メール送信完了: 画像${data.imageData.length}枚を埋め込み`);
-  } catch (error) {
-    console.error('[ERROR] メール送信エラー:', error);
-  }
-}
-
-// ---- 起動 ------------------------------------------------------------------
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`listening on ${PORT}`));
+// サーバー起動
+app.listen(PORT, () => {
+  console.log(`listening on ${PORT}`);
+});
 
