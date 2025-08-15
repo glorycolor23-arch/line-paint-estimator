@@ -29,12 +29,36 @@ header {
 
 header h1 {
     font-size: 24px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
 }
 
-.subtitle {
-    font-size: 14px;
-    opacity: 0.9;
+/* ステップインジケーター */
+.step-indicator {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.step {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    transition: all 0.3s;
+}
+
+.step.active {
+    background-color: white;
+    color: #00B900;
+}
+
+.step.completed {
+    background-color: #4CAF50;
+    color: white;
 }
 
 /* ローディング */
@@ -75,15 +99,53 @@ header h1 {
     margin-top: 10px;
 }
 
-/* セクション */
-.section {
+/* ステップコンテンツ */
+.step-content {
     padding: 20px;
-    border-bottom: 1px solid #eee;
+    min-height: calc(100vh - 120px);
 }
 
-.section h2 {
-    font-size: 18px;
-    margin-bottom: 16px;
+.step-header {
+    margin-bottom: 24px;
+}
+
+.step-header h2 {
+    font-size: 20px;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.step-header p {
+    color: #666;
+    font-size: 14px;
+}
+
+/* 注意書き */
+.notice {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+}
+
+.notice p {
+    margin: 0;
+    color: #856404;
+}
+
+.notice strong {
+    color: #d63031;
+}
+
+/* セクション */
+.section {
+    margin-bottom: 24px;
+}
+
+.section h3 {
+    font-size: 16px;
+    margin-bottom: 12px;
     color: #333;
     border-left: 4px solid #00B900;
     padding-left: 12px;
@@ -166,9 +228,13 @@ header h1 {
     line-height: 1.4;
 }
 
-/* アップロードグループ */
+/* アップロードセクション */
+.upload-section {
+    display: grid;
+    gap: 20px;
+}
+
 .upload-group {
-    margin-bottom: 24px;
     padding: 16px;
     border: 2px dashed #ddd;
     border-radius: 8px;
@@ -234,6 +300,10 @@ header h1 {
 }
 
 /* 最終確認 */
+.confirmation-section {
+    margin-bottom: 24px;
+}
+
 .final-summary {
     background-color: #f8f9fa;
     border-radius: 8px;
@@ -243,31 +313,47 @@ header h1 {
     white-space: pre-line;
 }
 
-/* 送信セクション */
-.submit-section {
-    padding: 30px 20px;
-    text-align: center;
+/* ステップボタン */
+.step-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-top: 32px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
 }
 
-.submit-btn {
-    background: linear-gradient(135deg, #00B900, #00A000);
-    color: white;
-    border: none;
-    padding: 16px 40px;
-    font-size: 18px;
+.prev-btn, .next-btn, .submit-btn {
+    flex: 1;
+    padding: 14px 20px;
+    font-size: 16px;
     font-weight: 600;
+    border: none;
     border-radius: 8px;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-    min-width: 200px;
+    transition: all 0.2s;
 }
 
-.submit-btn:hover {
+.prev-btn {
+    background-color: #f5f5f5;
+    color: #666;
+}
+
+.prev-btn:hover {
+    background-color: #e0e0e0;
+}
+
+.next-btn, .submit-btn {
+    background: linear-gradient(135deg, #00B900, #00A000);
+    color: white;
+}
+
+.next-btn:hover, .submit-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 185, 0, 0.3);
 }
 
-.submit-btn:disabled {
+.next-btn:disabled, .submit-btn:disabled {
     background: #ccc;
     cursor: not-allowed;
     transform: none;
@@ -317,7 +403,7 @@ header h1 {
         font-size: 20px;
     }
     
-    .section {
+    .step-content {
         padding: 16px;
     }
     
@@ -325,10 +411,12 @@ header h1 {
         font-size: 28px;
     }
     
-    .submit-btn {
-        padding: 14px 30px;
-        font-size: 16px;
-        min-width: 180px;
+    .step-buttons {
+        flex-direction: column;
+    }
+    
+    .prev-btn, .next-btn, .submit-btn {
+        margin-bottom: 8px;
     }
 }
 
