@@ -25,6 +25,9 @@ body {
     color: white;
     padding: 20px;
     text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .header h1 {
@@ -32,38 +35,34 @@ body {
     margin-bottom: 15px;
 }
 
-.progress-container {
-    margin-top: 15px;
-}
-
 .progress-bar {
     background-color: rgba(255, 255, 255, 0.3);
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
-    margin-bottom: 10px;
+    margin-bottom: 5px;
 }
 
 .progress-fill {
     background-color: white;
     height: 100%;
-    width: 25%;
-    transition: width 0.3s ease;
+    width: 0%;
+    transition: width 0.5s ease;
 }
 
 .progress-text {
     font-size: 0.9rem;
-    opacity: 0.9;
 }
 
-/* ローディング */
-.loading {
+/* ローディング・エラー画面 */
+.loading, .error-screen {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100vh;
-    background-color: white;
+    height: 80vh;
+    text-align: center;
+    padding: 20px;
 }
 
 .spinner {
@@ -81,29 +80,9 @@ body {
     100% { transform: rotate(360deg); }
 }
 
-/* エラー画面 */
-.error-screen {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    background-color: white;
-}
-
-.error-content {
-    text-align: center;
-    padding: 20px;
-}
-
-.error-content h2 {
-    color: #e74c3c;
-    margin-bottom: 15px;
-}
-
-/* ステップ */
+/* ステップ共通 */
 .step {
     padding: 20px;
-    min-height: calc(100vh - 120px);
 }
 
 .step-header {
@@ -111,141 +90,129 @@ body {
     margin-bottom: 30px;
 }
 
-.step-header h2 {
-    color: #333;
-    margin-bottom: 10px;
-}
-
-.step-header p {
-    color: #666;
-    font-size: 0.9rem;
-}
-
-/* 質問画像 */
-.question-image {
-    text-align: center;
-    margin-bottom: 30px;
-    padding: 20px;
-    background-color: #f9f9f9;
-    border-radius: 12px;
-}
-
-.question-image img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-#image-caption {
-    margin-top: 15px;
-    font-size: 0.9rem;
-    color: #666;
-    font-weight: 500;
-}
-
-/* 質問選択肢 */
+/* --- 質問選択肢 (カードデザイン) --- */
 .question-options {
     display: grid;
     gap: 15px;
     margin-bottom: 30px;
 }
 
-.option-button {
+.option-card {
     background: white;
     border: 2px solid #e0e0e0;
     border-radius: 12px;
-    padding: 20px;
-    text-align: center;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.option-card:hover {
+    border-color: #00B900;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.option-card.selected {
+    border-color: #00B900;
+    background-color: #f0fff0;
+    box-shadow: 0 0 0 2px #00B900;
+}
+
+.option-card .option-image {
+    width: 100%;
+    height: 120px;
+    overflow: hidden;
+    background-color: #f5f5f5;
+}
+
+.option-card .option-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.option-card .option-content {
+    padding: 15px;
+    text-align: center;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.option-card h4 {
     font-size: 1rem;
-    font-weight: 500;
+    font-weight: 600;
     color: #333;
+    margin-bottom: 5px;
 }
 
-.option-button:hover {
-    border-color: #00B900;
-    background-color: #f8fff8;
-}
-
-.option-button.selected {
-    border-color: #00B900;
-    background-color: #00B900;
-    color: white;
-}
-
-.option-button.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* 専門用語の説明 */
-.option-description {
-    font-size: 0.8rem;
+.option-card p {
+    font-size: 0.85rem;
     color: #666;
-    margin-top: 8px;
-    line-height: 1.4;
 }
 
-.option-button.selected .option-description {
-    color: rgba(255, 255, 255, 0.9);
-}
-
-/* 概算見積りカード */
+/* --- 概算見積りカード --- */
 .estimate-card {
-    background: linear-gradient(135deg, #f8fff8, #e8f5e8);
-    border: 2px solid #00B900;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
     border-radius: 16px;
     padding: 25px;
     margin-bottom: 30px;
-    text-align: center;
 }
 
 .estimate-amount-section {
-    margin-bottom: 20px;
+    text-align: center;
+    margin-bottom: 25px;
 }
 
 .estimate-label {
-    display: block;
     font-size: 1rem;
     color: #666;
-    margin-bottom: 10px;
 }
 
 .estimate-price {
-    display: block;
     font-size: 2.5rem;
     font-weight: bold;
     color: #00B900;
-    margin-bottom: 15px;
 }
 
-.estimate-conditions {
-    background-color: white;
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 15px;
+.estimate-details {
     font-size: 0.9rem;
     color: #333;
     text-align: left;
+    margin-bottom: 15px;
+}
+.estimate-details h3 {
+    font-size: 1rem;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #00B900;
+    padding-bottom: 5px;
+}
+.estimate-details ul {
+    list-style: none;
+    padding-left: 0;
+}
+.estimate-details li {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+.estimate-details li:last-child {
+    border-bottom: none;
 }
 
 .estimate-note {
     font-size: 0.8rem;
     color: #666;
-    line-height: 1.4;
+    text-align: center;
+    padding: 10px;
+    background: #e9ecef;
+    border-radius: 8px;
 }
 
-.estimate-note p {
-    margin-bottom: 5px;
-}
-
-/* フォーム */
-.form {
-    margin-bottom: 30px;
-}
-
+/* --- フォーム --- */
 .form-group {
     margin-bottom: 20px;
 }
@@ -254,25 +221,26 @@ body {
     display: block;
     font-weight: 500;
     margin-bottom: 8px;
-    color: #333;
 }
 
 .required {
     color: #e74c3c;
+    font-size: 0.8em;
+    margin-left: 4px;
 }
 
 .form-group input {
     width: 100%;
     padding: 12px 16px;
-    border: 2px solid #e0e0e0;
+    border: 1px solid #ccc;
     border-radius: 8px;
     font-size: 1rem;
-    transition: border-color 0.3s ease;
 }
 
 .form-group input:focus {
     outline: none;
     border-color: #00B900;
+    box-shadow: 0 0 0 2px rgba(0, 185, 0, 0.2);
 }
 
 .form-group small {
@@ -282,102 +250,45 @@ body {
     color: #666;
 }
 
-/* アップロードセクション */
-.upload-section {
-    margin-bottom: 30px;
-}
-
-.upload-instructions {
-    background-color: #f9f9f9;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-}
-
-.upload-instructions h3 {
-    color: #333;
-    margin-bottom: 15px;
-    font-size: 1.1rem;
-}
-
-.upload-instructions ul {
-    list-style-type: none;
-    padding-left: 0;
-}
-
-.upload-instructions li {
-    padding: 5px 0;
-    padding-left: 20px;
-    position: relative;
-}
-
-.upload-instructions li:before {
-    content: "📷";
-    position: absolute;
-    left: 0;
-}
-
-.upload-area {
-    margin-bottom: 20px;
-}
-
+/* --- 写真アップロード --- */
 .drop-zone {
     border: 2px dashed #ccc;
     border-radius: 12px;
-    padding: 40px 20px;
+    padding: 30px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
     background-color: #fafafa;
 }
 
-.drop-zone:hover {
+.drop-zone:hover, .drop-zone.dragover {
     border-color: #00B900;
     background-color: #f8fff8;
 }
 
-.drop-zone.dragover {
-    border-color: #00B900;
-    background-color: #f0fff0;
-}
-
-.drop-zone-content {
-    pointer-events: none;
-}
-
 .upload-icon {
-    font-size: 2rem;
+    font-size: 2.5rem;
+    color: #00B900;
     margin-bottom: 10px;
 }
 
-.drop-zone p {
-    font-size: 1rem;
-    color: #333;
-    margin-bottom: 5px;
-}
-
-.drop-zone small {
-    color: #666;
-    font-size: 0.8rem;
-}
-
-/* 写真プレビュー */
 .photo-preview {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 15px;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin-top: 20px;
 }
 
 .photo-item {
     position: relative;
     border-radius: 8px;
     overflow: hidden;
-    background-color: #f5f5f5;
+    border: 1px solid #ddd;
 }
 
 .photo-item img {
     width: 100%;
-    height: 120px;
+    height: 100px;
     object-fit: cover;
 }
 
@@ -385,29 +296,19 @@ body {
     position: absolute;
     top: 5px;
     right: 5px;
-    background-color: rgba(231, 76, 60, 0.9);
+    background-color: rgba(0, 0, 0, 0.6);
     color: white;
     border: none;
     border-radius: 50%;
     width: 24px;
     height: 24px;
     cursor: pointer;
-    font-size: 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.photo-name {
-    padding: 8px;
-    font-size: 0.7rem;
-    color: #666;
+    font-size: 1rem;
+    line-height: 24px;
     text-align: center;
-    background-color: white;
-    word-break: break-all;
 }
 
-/* ナビゲーション */
+/* --- ナビゲーションボタン --- */
 .navigation {
     display: flex;
     justify-content: space-between;
@@ -416,15 +317,14 @@ body {
 }
 
 .btn {
-    padding: 12px 24px;
+    padding: 14px 24px;
     border: none;
     border-radius: 8px;
     font-size: 1rem;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.3s ease;
     flex: 1;
-    max-width: 200px;
 }
 
 .btn-primary {
@@ -442,16 +342,15 @@ body {
 }
 
 .btn-secondary {
-    background-color: #f5f5f5;
+    background-color: #f1f3f5;
     color: #333;
-    border: 1px solid #ddd;
 }
 
 .btn-secondary:hover {
-    background-color: #e5e5e5;
+    background-color: #e9ecef;
 }
 
-/* 送信完了画面 */
+/* --- 完了画面 --- */
 .complete-content {
     text-align: center;
     padding: 40px 20px;
@@ -460,278 +359,4 @@ body {
 .success-icon {
     font-size: 4rem;
     margin-bottom: 20px;
-}
-
-.complete-content h2 {
-    color: #00B900;
-    margin-bottom: 20px;
-}
-
-.complete-content p {
-    color: #666;
-    margin-bottom: 15px;
-    line-height: 1.6;
-}
-
-/* レスポンシブ */
-@media (max-width: 480px) {
-    .container {
-        margin: 0;
-    }
-    
-    .step {
-        padding: 15px;
-    }
-    
-    .estimate-price {
-        font-size: 2rem;
-    }
-    
-    .navigation {
-        flex-direction: column;
-    }
-    
-    .btn {
-        max-width: none;
-    }
-    
-    .photo-preview {
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    }
-    
-    .photo-item img {
-        height: 100px;
-    }
-}
-
-/* アニメーション */
-.step {
-    opacity: 1;
-    transform: translateX(0);
-    transition: all 0.3s ease;
-}
-
-.step.active {
-    opacity: 1;
-    transform: translateX(0);
-}
-
-/* 追加のユーティリティクラス */
-.text-center {
-    text-align: center;
-}
-
-.mb-20 {
-    margin-bottom: 20px;
-}
-
-.mt-20 {
-    margin-top: 20px;
-}
-
-.hidden {
-    display: none !important;
-}
-
-
-/* 質問選択肢（ラジオボタン形式） */
-.question-option {
-    margin-bottom: 15px;
-}
-
-.question-option input[type="radio"] {
-    display: none;
-}
-
-.option-label {
-    display: block;
-    background: white;
-    border: 2px solid #e0e0e0;
-    border-radius: 12px;
-    padding: 20px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-size: 1rem;
-    font-weight: 500;
-    color: #333;
-}
-
-.option-label:hover {
-    border-color: #00B900;
-    background-color: #f8fff8;
-}
-
-.question-option input[type="radio"]:checked + .option-label {
-    border-color: #00B900;
-    background-color: #00B900;
-    color: white;
-}
-
-.option-title {
-    font-weight: 600;
-    margin-bottom: 5px;
-}
-
-.option-description {
-    font-size: 0.85rem;
-    color: #666;
-    line-height: 1.4;
-}
-
-.question-option input[type="radio"]:checked + .option-label .option-description {
-    color: rgba(255, 255, 255, 0.9);
-}
-
-/* 概算見積り詳細 */
-.estimate-details {
-    background-color: white;
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 15px;
-    text-align: left;
-}
-
-.estimate-breakdown {
-    margin-bottom: 15px;
-}
-
-.breakdown-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 0.9rem;
-}
-
-.breakdown-item:last-child {
-    border-bottom: none;
-    font-weight: 600;
-    color: #00B900;
-}
-
-.estimate-note {
-    font-size: 0.8rem;
-    color: #666;
-    line-height: 1.4;
-    text-align: center;
-    margin-top: 10px;
-}
-
-/* サマリー項目 */
-.summary-item {
-    padding: 5px 0;
-    font-size: 0.9rem;
-    color: #333;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.summary-item:last-child {
-    border-bottom: none;
-}
-
-/* 写真アイテム改善 */
-.photo-info {
-    padding: 8px;
-    background-color: white;
-}
-
-.photo-name {
-    font-size: 0.7rem;
-    color: #333;
-    margin-bottom: 2px;
-    word-break: break-all;
-}
-
-.photo-size {
-    font-size: 0.6rem;
-    color: #666;
-}
-
-.remove-photo {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    background-color: rgba(231, 76, 60, 0.9);
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-}
-
-.remove-photo:hover {
-    background-color: rgba(231, 76, 60, 1);
-}
-
-
-/* style.css に追記・修正 */
-
-/* 既存の .option-button を削除またはコメントアウトし、
-   新しい .option-card スタイルを追加します */
-
-.question-options {
-    display: grid;
-    /* 画面幅に応じて列数を自動調整 */
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 15px;
-    margin-bottom: 30px;
-}
-
-.option-card {
-    background: white;
-    border: 2px solid #e0e0e0;
-    border-radius: 12px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    overflow: hidden; /* カードからはみ出さないように */
-    display: flex;
-    flex-direction: column;
-}
-
-.option-card:hover {
-    border-color: #00B900;
-    transform: translateY(-3px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-
-.option-card.selected {
-    border-color: #00B900;
-    background-color: #e8f5e8; /* 選択時の背景色 */
-    box-shadow: 0 0 0 3px #00B900;
-}
-
-.option-card .option-image {
-    width: 100%;
-    height: 120px; /* 画像の高さを固定 */
-    overflow: hidden;
-}
-
-.option-card .option-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover; /* 画像がコンテナに合わせてトリミングされる */
-}
-
-.option-card .option-content {
-    padding: 15px;
-    text-align: center;
-}
-
-.option-card h4 {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 5px;
-}
-
-.option-card p {
-    font-size: 0.85rem;
-    color: #666;
 }
