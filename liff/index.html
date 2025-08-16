@@ -74,15 +74,17 @@
                 
                 <div class="estimate-card">
                     <div class="estimate-amount-section">
-                        <span class="estimate-label">概算金額</span>
-                        <span id="estimate-amount" class="estimate-price">¥0</span>
+                        <span class="estimate-label">概算見積り金額</span>
+                        <span id="estimate-price" class="estimate-price">¥0</span>
                     </div>
-                    <div id="estimate-summary" class="estimate-conditions">
-                        条件情報を読み込み中...
+                    
+                    <div id="estimate-details" class="estimate-details">
+                        <!-- 詳細は動的に生成 -->
                     </div>
+                    
                     <div class="estimate-note">
-                        <p>※ 上記は入力内容を基にした概算です</p>
-                        <p>※ 正式な見積りには現地調査が必要です</p>
+                        <p>※上記は概算金額です。正確な見積りには現地調査が必要です。</p>
+                        <p>※実際の金額は現地の状況により変動する場合があります。</p>
                     </div>
                 </div>
                 
@@ -95,11 +97,11 @@
             <!-- ステップ3: お客様情報入力 -->
             <div id="step3" class="step" style="display: none;">
                 <div class="step-header">
-                    <h2>お客様情報</h2>
+                    <h2>お客様情報入力</h2>
                     <p>詳細見積りのために必要な情報をご入力ください</p>
                 </div>
                 
-                <form id="customer-form" class="form">
+                <form class="form">
                     <div class="form-group">
                         <label for="name">お名前 <span class="required">*</span></label>
                         <input type="text" id="name" name="name" required>
@@ -108,31 +110,31 @@
                     <div class="form-group">
                         <label for="phone">電話番号 <span class="required">*</span></label>
                         <input type="tel" id="phone" name="phone" required>
-                        <small>数字のみ入力してください（ハイフンなし）</small>
+                        <small>例: 090-1234-5678</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="zipcode">郵便番号 <span class="required">*</span></label>
-                        <input type="text" id="zipcode" name="zipcode" required pattern="[0-9]{7}" maxlength="7">
-                        <small>7桁の数字で入力してください（ハイフンなし）</small>
+                        <input type="text" id="zipcode" name="zipcode" pattern="[0-9]{7}" required>
+                        <small>例: 1234567（ハイフンなし）</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="address1">住所1 <span class="required">*</span></label>
                         <input type="text" id="address1" name="address1" required>
-                        <small>都道府県・市区町村・町域</small>
+                        <small>都道府県・市区町村・町名</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="address2">住所2</label>
                         <input type="text" id="address2" name="address2">
-                        <small>番地・建物名など</small>
+                        <small>建物名・部屋番号など</small>
                     </div>
                 </form>
                 
                 <div class="navigation">
-                    <button class="btn btn-secondary" onclick="showStep(2)">見積り結果に戻る</button>
-                    <button class="btn btn-primary" onclick="showStep(4)">写真アップロードへ</button>
+                    <button class="btn btn-secondary" onclick="showStep(2)">前へ</button>
+                    <button class="btn btn-primary" onclick="showStep(4)">次へ</button>
                 </div>
             </div>
 
@@ -140,40 +142,40 @@
             <div id="step4" class="step" style="display: none;">
                 <div class="step-header">
                     <h2>写真アップロード</h2>
-                    <p>より正確な見積りのために、建物の写真をアップロードしてください</p>
+                    <p>現地調査の参考として、建物の写真をアップロードしてください</p>
                 </div>
                 
                 <div class="upload-section">
                     <div class="upload-instructions">
-                        <h3>撮影していただきたい写真</h3>
+                        <h3>撮影のポイント</h3>
                         <ul>
-                            <li>建物全体（正面・側面・背面）</li>
-                            <li>外壁の状態（近景）</li>
-                            <li>屋根の状態</li>
-                            <li>気になる箇所（ひび割れ・汚れなど）</li>
-                            <li>周辺環境（隣家との距離など）</li>
+                            <li>建物全体が写るように撮影</li>
+                            <li>外壁の状態がわかるように撮影</li>
+                            <li>屋根の状態がわかるように撮影</li>
+                            <li>気になる箇所があれば重点的に撮影</li>
                         </ul>
                     </div>
                     
                     <div class="upload-area">
-                        <input type="file" id="photo-input" multiple accept="image/*" style="display: none;">
-                        <div id="drop-zone" class="drop-zone" onclick="document.getElementById('photo-input').click()">
+                        <div id="drop-zone" class="drop-zone">
                             <div class="drop-zone-content">
                                 <div class="upload-icon">📷</div>
-                                <p>写真を選択またはドラッグ&ドロップ</p>
-                                <small>最大10枚まで、1枚15MBまで</small>
+                                <p>写真をドラッグ&ドロップ</p>
+                                <p>または</p>
+                                <small>クリックしてファイルを選択（最大10枚、15MB以下）</small>
                             </div>
+                            <input type="file" id="photo-input" multiple accept="image/*" style="display: none;">
                         </div>
                     </div>
                     
                     <div id="photo-preview" class="photo-preview">
-                        <!-- 選択された写真のプレビューが表示される -->
+                        <!-- アップロードされた写真のプレビュー -->
                     </div>
                 </div>
                 
                 <div class="navigation">
-                    <button class="btn btn-secondary" onclick="showStep(3)">お客様情報に戻る</button>
-                    <button id="submit-btn" class="btn btn-primary" onclick="submitForm()">送信</button>
+                    <button class="btn btn-secondary" onclick="showStep(3)">前へ</button>
+                    <button class="btn btn-primary" onclick="submitForm()">送信</button>
                 </div>
             </div>
 
@@ -193,6 +195,4 @@
     <script src="app.js"></script>
 </body>
 </html>
-
-
 
