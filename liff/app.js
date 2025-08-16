@@ -1,3 +1,370 @@
+// 質問データ定義
+const QUESTIONS = [
+    {
+        id: 'q1_floors',
+        title: '工事物件の階数は？',
+        description: '建物の階数を選択してください',
+        options: ['1階建て', '2階建て', '3階建て', '4階建て以上'],
+        hasImage: false
+    },
+    {
+        id: 'q2_rooms',
+        title: '間取りは？',
+        description: '建物の間取りを選択してください',
+        options: ['1K・1DK', '1LDK・2K・2DK', '2LDK・3K・3DK', '3LDK・4K・4DK', '4LDK以上'],
+        hasImage: false
+    },
+    {
+        id: 'q3_age',
+        title: '築年数は？',
+        description: '建物の築年数を選択してください',
+        options: ['5年未満', '5-10年', '11-15年', '16-20年', '21年以上'],
+        hasImage: false
+    },
+    {
+        id: 'q4_work_type',
+        title: '工事内容は？',
+        description: '希望する工事内容を選択してください',
+        options: ['外壁塗装のみ', '屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'],
+        hasImage: false
+    },
+    {
+        id: 'q5_wall_area',
+        title: '外壁の面積は？',
+        description: '建物の外壁面積を選択してください',
+        options: ['100㎡未満', '100-150㎡', '151-200㎡', '201-250㎡', '251㎡以上'],
+        hasImage: false,
+        condition: (answers) => ['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q6_roof_area',
+        title: '屋根の面積は？',
+        description: '建物の屋根面積を選択してください',
+        options: ['50㎡未満', '50-80㎡', '81-120㎡', '121-150㎡', '151㎡以上'],
+        hasImage: false,
+        condition: (answers) => ['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q7_wall_material',
+        title: '外壁の種類は？',
+        description: '現在の外壁材を選択してください',
+        options: [
+            {
+                value: 'モルタル',
+                label: 'モルタル',
+                description: 'セメント・砂・水を混ぜた材料で仕上げた外壁'
+            },
+            {
+                value: 'サイディング',
+                label: 'サイディング',
+                description: 'パネル状の外壁材を張り合わせた外壁'
+            },
+            {
+                value: 'タイル',
+                label: 'タイル',
+                description: '陶磁器製のタイルを貼った外壁'
+            },
+            {
+                value: 'ALC',
+                label: 'ALC',
+                description: '軽量気泡コンクリートの外壁材'
+            }
+        ],
+        hasImage: true,
+        imageUrl: '/liff/images/wall_materials.png',
+        condition: (answers) => ['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q8_roof_material',
+        title: '屋根の種類は？',
+        description: '現在の屋根材を選択してください',
+        options: [
+            {
+                value: '瓦',
+                label: '瓦',
+                description: '粘土を焼いて作った伝統的な屋根材'
+            },
+            {
+                value: 'スレート',
+                label: 'スレート',
+                description: '薄い板状のセメント系屋根材'
+            },
+            {
+                value: 'ガルバリウム',
+                label: 'ガルバリウム',
+                description: '亜鉛アルミ合金でメッキした金属屋根材'
+            },
+            {
+                value: 'トタン',
+                label: 'トタン',
+                description: '亜鉛でメッキした薄い鉄板の屋根材'
+            }
+        ],
+        hasImage: true,
+        imageUrl: '/liff/images/roof_materials.png',
+        condition: (answers) => ['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q9_wall_condition',
+        title: '外壁の状態は？',
+        description: '現在の外壁の劣化状況を選択してください',
+        options: ['良好', '軽微な汚れ・色あせ', 'ひび割れ・剥がれ', '重度の劣化'],
+        hasImage: false,
+        condition: (answers) => ['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q10_roof_condition',
+        title: '屋根の状態は？',
+        description: '現在の屋根の劣化状況を選択してください',
+        options: ['良好', '軽微な汚れ・色あせ', 'ひび割れ・剥がれ', '重度の劣化'],
+        hasImage: false,
+        condition: (answers) => ['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
+    },
+    {
+        id: 'q11_paint_grade',
+        title: '塗料のグレードは？',
+        description: '希望する塗料のグレードを選択してください',
+        options: [
+            {
+                value: 'スタンダード',
+                label: 'スタンダード',
+                description: 'アクリル・ウレタン系塗料（耐用年数5-8年）'
+            },
+            {
+                value: 'ハイグレード',
+                label: 'ハイグレード',
+                description: 'シリコン系塗料（耐用年数10-12年）'
+            },
+            {
+                value: 'プレミアム',
+                label: 'プレミアム',
+                description: 'フッ素・無機系塗料（耐用年数15-20年）'
+            }
+        ],
+        hasImage: false
+    },
+    {
+        id: 'q12_urgency',
+        title: '工事の希望時期は？',
+        description: '工事を希望する時期を選択してください',
+        options: ['1ヶ月以内', '2-3ヶ月以内', '半年以内', '1年以内', '未定'],
+        hasImage: false
+    }
+];
+
+// 質問フロー管理クラス
+class QuestionFlow {
+    constructor() {
+        this.questions = QUESTIONS;
+        this.answers = {};
+        this.currentQuestionIndex = 0;
+    }
+    
+    // 条件に基づいて表示すべき質問を取得
+    getVisibleQuestions() {
+        return this.questions.filter(q => {
+            if (!q.condition) return true;
+            return q.condition(this.answers);
+        });
+    }
+    
+    // 現在の質問を取得
+    getCurrentQuestion() {
+        const visibleQuestions = this.getVisibleQuestions();
+        return visibleQuestions[this.currentQuestionIndex] || null;
+    }
+    
+    // 回答を設定
+    setAnswer(questionId, answer) {
+        this.answers[questionId] = answer;
+        console.log('[DEBUG] 回答設定:', questionId, '=', answer);
+    }
+    
+    // 次の質問へ
+    nextQuestion() {
+        const visibleQuestions = this.getVisibleQuestions();
+        if (this.currentQuestionIndex < visibleQuestions.length - 1) {
+            this.currentQuestionIndex++;
+            return this.getCurrentQuestion();
+        }
+        return null;
+    }
+    
+    // 前の質問へ
+    previousQuestion() {
+        if (this.currentQuestionIndex > 0) {
+            this.currentQuestionIndex--;
+            return this.getCurrentQuestion();
+        }
+        return null;
+    }
+    
+    // 概算見積り計算
+    calculateEstimate() {
+        const answers = this.answers;
+        let totalPrice = 0;
+        let breakdown = {};
+        
+        // 基本価格の設定
+        const basePrices = {
+            floors: {
+                '1階建て': 50000,
+                '2階建て': 80000,
+                '3階建て': 120000,
+                '4階建て以上': 160000
+            },
+            rooms: {
+                '1K・1DK': 1.0,
+                '1LDK・2K・2DK': 1.2,
+                '2LDK・3K・3DK': 1.4,
+                '3LDK・4K・4DK': 1.6,
+                '4LDK以上': 1.8
+            },
+            age: {
+                '5年未満': 1.0,
+                '5-10年': 1.1,
+                '11-15年': 1.2,
+                '16-20年': 1.3,
+                '21年以上': 1.4
+            }
+        };
+        
+        // 外壁塗装価格
+        if (['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)) {
+            const wallAreaPrices = {
+                '100㎡未満': 400000,
+                '100-150㎡': 600000,
+                '151-200㎡': 800000,
+                '201-250㎡': 1000000,
+                '251㎡以上': 1200000
+            };
+            
+            const wallMaterialMultiplier = {
+                'モルタル': 1.0,
+                'サイディング': 1.1,
+                'タイル': 1.3,
+                'ALC': 1.2
+            };
+            
+            const wallConditionMultiplier = {
+                '良好': 1.0,
+                '軽微な汚れ・色あせ': 1.1,
+                'ひび割れ・剥がれ': 1.3,
+                '重度の劣化': 1.5
+            };
+            
+            let wallPrice = wallAreaPrices[answers.q5_wall_area] || 600000;
+            wallPrice *= wallMaterialMultiplier[answers.q7_wall_material] || 1.0;
+            wallPrice *= wallConditionMultiplier[answers.q9_wall_condition] || 1.0;
+            
+            breakdown.wall = Math.round(wallPrice);
+            totalPrice += breakdown.wall;
+        }
+        
+        // 屋根塗装価格
+        if (['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)) {
+            const roofAreaPrices = {
+                '50㎡未満': 200000,
+                '50-80㎡': 300000,
+                '81-120㎡': 400000,
+                '121-150㎡': 500000,
+                '151㎡以上': 600000
+            };
+            
+            const roofMaterialMultiplier = {
+                '瓦': 1.2,
+                'スレート': 1.0,
+                'ガルバリウム': 1.1,
+                'トタン': 0.9
+            };
+            
+            const roofConditionMultiplier = {
+                '良好': 1.0,
+                '軽微な汚れ・色あせ': 1.1,
+                'ひび割れ・剥がれ': 1.3,
+                '重度の劣化': 1.5
+            };
+            
+            let roofPrice = roofAreaPrices[answers.q6_roof_area] || 300000;
+            roofPrice *= roofMaterialMultiplier[answers.q8_roof_material] || 1.0;
+            roofPrice *= roofConditionMultiplier[answers.q10_roof_condition] || 1.0;
+            
+            breakdown.roof = Math.round(roofPrice);
+            totalPrice += breakdown.roof;
+        }
+        
+        // 付帯部塗装価格
+        if (answers.q4_work_type === '外壁・屋根・付帯部塗装') {
+            breakdown.additional = 150000;
+            totalPrice += breakdown.additional;
+        }
+        
+        // 塗料グレード調整
+        const paintGradeMultiplier = {
+            'スタンダード': 1.0,
+            'ハイグレード': 1.3,
+            'プレミアム': 1.6
+        };
+        
+        totalPrice *= paintGradeMultiplier[answers.q11_paint_grade] || 1.0;
+        
+        // 築年数・間取り調整
+        totalPrice *= basePrices.rooms[answers.q2_rooms] || 1.0;
+        totalPrice *= basePrices.age[answers.q3_age] || 1.0;
+        
+        // 緊急度調整
+        const urgencyMultiplier = {
+            '1ヶ月以内': 1.1,
+            '2-3ヶ月以内': 1.0,
+            '半年以内': 0.95,
+            '1年以内': 0.9,
+            '未定': 0.9
+        };
+        
+        totalPrice *= urgencyMultiplier[answers.q12_urgency] || 1.0;
+        
+        return {
+            totalPrice: Math.round(totalPrice),
+            breakdown: breakdown,
+            details: {
+                workType: answers.q4_work_type,
+                paintGrade: answers.q11_paint_grade,
+                urgency: answers.q12_urgency
+            }
+        };
+    }
+    
+    // 条件サマリー生成
+    generateSummary() {
+        const answers = this.answers;
+        const summary = [];
+        
+        // 基本情報
+        if (answers.q1_floors) summary.push(`建物: ${answers.q1_floors}`);
+        if (answers.q2_rooms) summary.push(`間取り: ${answers.q2_rooms}`);
+        if (answers.q3_age) summary.push(`築年数: ${answers.q3_age}`);
+        
+        // 工事内容
+        if (answers.q4_work_type) summary.push(`工事内容: ${answers.q4_work_type}`);
+        
+        // 外壁情報
+        if (answers.q5_wall_area) summary.push(`外壁面積: ${answers.q5_wall_area}`);
+        if (answers.q7_wall_material) summary.push(`外壁材: ${answers.q7_wall_material}`);
+        if (answers.q9_wall_condition) summary.push(`外壁状態: ${answers.q9_wall_condition}`);
+        
+        // 屋根情報
+        if (answers.q6_roof_area) summary.push(`屋根面積: ${answers.q6_roof_area}`);
+        if (answers.q8_roof_material) summary.push(`屋根材: ${answers.q8_roof_material}`);
+        if (answers.q10_roof_condition) summary.push(`屋根状態: ${answers.q10_roof_condition}`);
+        
+        // 塗料・時期
+        if (answers.q11_paint_grade) summary.push(`塗料グレード: ${answers.q11_paint_grade}`);
+        if (answers.q12_urgency) summary.push(`希望時期: ${answers.q12_urgency}`);
+        
+        return summary;
+    }
+}
+
 // LIFF見積りフォームアプリケーション
 class LIFFEstimateApp {
     constructor() {
@@ -17,11 +384,17 @@ class LIFFEstimateApp {
             // ローディング表示
             this.showLoading();
             
+            // 質問フロー初期化（LIFF初期化前に実行）
+            try {
+                this.questionFlow = new QuestionFlow();
+                console.log('[DEBUG] QuestionFlow初期化成功');
+            } catch (error) {
+                console.error('[ERROR] QuestionFlow初期化エラー:', error);
+                throw new Error('QuestionFlowの初期化に失敗しました');
+            }
+            
             // LIFF初期化
             await this.initLIFF();
-            
-            // 質問フロー初期化
-            this.questionFlow = new QuestionFlow();
             
             // UI初期化
             this.initUI();
@@ -38,6 +411,12 @@ class LIFFEstimateApp {
     }
     
     async initLIFF() {
+        // ローカルテスト用：LIFF_IDが設定されていない場合はスキップ
+        if (!this.liffId || this.liffId === 'dummy_liff_id') {
+            console.log('[DEBUG] ローカルテストモード：LIFF初期化をスキップ');
+            return;
+        }
+        
         if (!window.liff) {
             throw new Error('LIFF SDKが読み込まれていません');
         }
@@ -304,6 +683,27 @@ class LIFFEstimateApp {
         // 条件サマリー表示
         const summaryContainer = document.getElementById('estimate-summary');
         summaryContainer.innerHTML = summary.map(item => `<div class="summary-item">• ${item}</div>`).join('');
+        
+        // 詳細情報表示
+        const detailsContainer = document.getElementById('estimate-details');
+        if (detailsContainer) {
+            let detailsHtml = '<div class="estimate-breakdown">';
+            
+            if (estimate.breakdown.wall) {
+                detailsHtml += `<div class="breakdown-item">外壁塗装: ¥${estimate.breakdown.wall.toLocaleString()}</div>`;
+            }
+            if (estimate.breakdown.roof) {
+                detailsHtml += `<div class="breakdown-item">屋根塗装: ¥${estimate.breakdown.roof.toLocaleString()}</div>`;
+            }
+            if (estimate.breakdown.additional) {
+                detailsHtml += `<div class="breakdown-item">付帯部塗装: ¥${estimate.breakdown.additional.toLocaleString()}</div>`;
+            }
+            
+            detailsHtml += '</div>';
+            detailsHtml += '<div class="estimate-note">※上記は概算金額です。正確な見積りには現地調査が必要です。</div>';
+            
+            detailsContainer.innerHTML = detailsHtml;
+        }
     }
     
     showCustomerInfoStep() {
@@ -314,6 +714,16 @@ class LIFFEstimateApp {
             const input = document.getElementById(key);
             if (input) {
                 input.value = this.customerData[key];
+            }
+        });
+        
+        // 入力検証イベントリスナー
+        const requiredFields = ['name', 'phone', 'zipcode', 'address1'];
+        requiredFields.forEach(fieldId => {
+            const input = document.getElementById(fieldId);
+            if (input) {
+                input.addEventListener('input', () => this.updateSubmitButton());
+                input.addEventListener('blur', () => this.updateSubmitButton());
             }
         });
     }
@@ -341,6 +751,10 @@ class LIFFEstimateApp {
                 const result = data.results[0];
                 const address = `${result.address1}${result.address2}${result.address3}`;
                 document.getElementById('address1').value = address;
+                
+                // 顧客データを更新
+                this.customerData.address1 = address;
+                this.updateSubmitButton();
             }
         } catch (error) {
             console.error('住所自動入力エラー:', error);
@@ -476,13 +890,46 @@ class LIFFEstimateApp {
                 };
             }
             
-            // サーバーに送信
-            const response = await fetch('/api/submit-estimate', {
+            // FormDataを作成（写真アップロード対応）
+            const formData = new FormData();
+            
+            // 基本データを追加
+            formData.append('userId', submitData.lineUser?.userId || 'unknown');
+            formData.append('name', this.customerData.name);
+            formData.append('phone', this.customerData.phone);
+            formData.append('zipcode', this.customerData.zipcode);
+            formData.append('address1', this.customerData.address1);
+            formData.append('address2', this.customerData.address2 || '');
+            
+            // 写真を追加
+            this.uploadedPhotos.forEach((photo, index) => {
+                // Base64データをBlobに変換
+                const byteCharacters = atob(photo.data.split(',')[1]);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: photo.type });
+                formData.append('photos', blob, photo.name);
+            });
+            
+            // 質問回答を先に保存
+            await fetch('/api/answers', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(submitData)
+                body: JSON.stringify({
+                    userId: submitData.lineUser?.userId || 'unknown',
+                    answers: this.questionFlow.answers
+                })
+            });
+            
+            // サーバーに送信
+            const response = await fetch('/api/submit', {
+                method: 'POST',
+                body: formData
             });
             
             if (!response.ok) {
