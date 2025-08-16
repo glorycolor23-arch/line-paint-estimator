@@ -484,12 +484,26 @@ class LIFFEstimateApp {
     }
     
     showLoading() {
-        document.getElementById('loading').style.display = 'block';
+        console.log('[DEBUG] showLoading開始');
+        const loadingElement = document.getElementById('loading');
+        if (loadingElement) {
+            loadingElement.style.display = 'block';
+            console.log('[DEBUG] ローディング表示');
+        } else {
+            console.error('[ERROR] loading要素が見つかりません');
+        }
         this.hideAllSteps();
     }
     
     hideLoading() {
-        document.getElementById('loading').style.display = 'none';
+        console.log('[DEBUG] hideLoading開始');
+        const loadingElement = document.getElementById('loading');
+        if (loadingElement) {
+            loadingElement.style.display = 'none';
+            console.log('[DEBUG] ローディング非表示');
+        } else {
+            console.error('[ERROR] loading要素が見つかりません');
+        }
     }
     
     showError(message) {
@@ -508,6 +522,8 @@ class LIFFEstimateApp {
     }
     
     showStep(stepNumber) {
+        console.log('[DEBUG] showStep開始:', stepNumber);
+        
         this.hideLoading();
         this.hideAllSteps();
         
@@ -515,35 +531,52 @@ class LIFFEstimateApp {
         
         switch (stepNumber) {
             case 1:
+                console.log('[DEBUG] 質問ステップを表示');
                 this.showQuestionStep();
                 break;
             case 2:
+                console.log('[DEBUG] 見積りステップを表示');
                 this.showEstimateStep();
                 break;
             case 3:
+                console.log('[DEBUG] 顧客情報ステップを表示');
                 this.showCustomerInfoStep();
                 break;
             case 4:
+                console.log('[DEBUG] 写真アップロードステップを表示');
                 this.showPhotoUploadStep();
                 break;
             case 5:
+                console.log('[DEBUG] 完了ステップを表示');
                 this.showCompleteStep();
                 break;
         }
         
         this.updateProgress();
+        console.log('[DEBUG] showStep完了:', stepNumber);
     }
     
     showQuestionStep() {
-        document.getElementById('step1').style.display = 'block';
+        console.log('[DEBUG] showQuestionStep開始');
+        
+        const step1Element = document.getElementById('step1');
+        if (!step1Element) {
+            console.error('[ERROR] step1要素が見つかりません');
+            return;
+        }
+        
+        step1Element.style.display = 'block';
+        console.log('[DEBUG] step1要素を表示');
         
         const question = this.questionFlow.getCurrentQuestion();
         if (!question) {
+            console.log('[DEBUG] 全質問完了、見積りステップへ');
             // 全質問完了
             this.showStep(2);
             return;
         }
         
+        console.log('[DEBUG] 現在の質問:', question);
         this.renderQuestion(question);
     }
     
