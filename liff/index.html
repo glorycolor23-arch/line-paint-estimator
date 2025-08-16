@@ -6,6 +6,7 @@
     <title>見積り依頼フォーム</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <!-- env.jsはapp.jsより前に読み込む -->
     <script src="env.js"></script>
 </head>
 <body>
@@ -35,7 +36,7 @@
             <div id="error" class="error-screen" style="display: none;">
                 <div class="error-content">
                     <h2>エラーが発生しました</h2>
-                    <p id="error-message">申し訳ございません。エラーが発生しました。</p>
+                    <p id="error-message">申し訳ございません 。エラーが発生しました。</p>
                     <button onclick="location.reload()" class="btn btn-primary">再読み込み</button>
                 </div>
             </div>
@@ -47,21 +48,15 @@
                     <p id="question-description">以下からお選びください</p>
                 </div>
                 
-                <!-- 画像表示エリア -->
-                <div id="question-image" class="question-image" style="display: none;">
-                    <img id="question-img" src="" alt="参考画像">
-                    <p id="image-caption">参考画像</p>
-                </div>
-                
-                <!-- 選択肢 -->
+                <!-- 選択肢 (カード形式で表示) -->
                 <div id="question-options" class="question-options">
                     <!-- 動的に生成 -->
                 </div>
                 
                 <!-- ナビゲーション -->
                 <div class="navigation">
-                    <button id="prev-btn" class="btn btn-secondary" onclick="previousQuestion()" style="display: none;">前へ</button>
-                    <button id="next-btn" class="btn btn-primary" onclick="nextQuestion()" disabled>次へ</button>
+                    <button id="prev-btn" class="btn btn-secondary" onclick="window.liffApp.previousQuestion()" style="display: none;">前へ</button>
+                    <button id="next-btn" class="btn btn-primary" onclick="window.liffApp.nextQuestion()" disabled>次へ</button>
                 </div>
             </div>
 
@@ -75,9 +70,11 @@
                 <div class="estimate-card">
                     <div class="estimate-amount-section">
                         <span class="estimate-label">概算見積り金額</span>
+                        <!-- IDを 'estimate-price' に統一 -->
                         <span id="estimate-price" class="estimate-price">¥0</span>
                     </div>
                     
+                    <!-- 見積もり条件詳細 -->
                     <div id="estimate-details" class="estimate-details">
                         <!-- 詳細は動的に生成 -->
                     </div>
@@ -89,8 +86,8 @@
                 </div>
                 
                 <div class="navigation">
-                    <button class="btn btn-secondary" onclick="showStep(1)">質問に戻る</button>
-                    <button class="btn btn-primary" onclick="showStep(3)">詳細見積りを依頼</button>
+                    <button class="btn btn-secondary" onclick="window.liffApp.showStep(1)">質問に戻る</button>
+                    <button class="btn btn-primary" onclick="window.liffApp.showStep(3)">詳細見積りを依頼</button>
                 </div>
             </div>
 
@@ -101,7 +98,7 @@
                     <p>詳細見積りのために必要な情報をご入力ください</p>
                 </div>
                 
-                <form class="form">
+                <form class="form" onsubmit="return false;">
                     <div class="form-group">
                         <label for="name">お名前 <span class="required">*</span></label>
                         <input type="text" id="name" name="name" required>
@@ -110,31 +107,33 @@
                     <div class="form-group">
                         <label for="phone">電話番号 <span class="required">*</span></label>
                         <input type="tel" id="phone" name="phone" required>
-                        <small>例: 090-1234-5678</small>
+                        <small>例: 09012345678</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="zipcode">郵便番号 <span class="required">*</span></label>
-                        <input type="number" id="zipcode" name="zipcode" pattern="[0-9]{7}" required placeholder="1234567">
+                        <!-- 住所自動入力のためのイベントハンドラを追加 -->
+                        <input type="tel" id="zipcode" name="zipcode" required placeholder="1234567"
+                               onkeyup="AjaxZip3.zip2addr(this,'','address1','address1');">
                         <small>例: 1234567（ハイフンなし）</small>
                     </div>
                     
                     <div class="form-group">
-                        <label for="address1">住所1 <span class="required">*</span></label>
+                        <label for="address1">住所 <span class="required">*</span></label>
                         <input type="text" id="address1" name="address1" required>
-                        <small>都道府県・市区町村・町名</small>
+                        <small>都道府県・市区町村・番地</small>
                     </div>
                     
                     <div class="form-group">
-                        <label for="address2">住所2</label>
+                        <label for="address2">建物名など</label>
                         <input type="text" id="address2" name="address2">
                         <small>建物名・部屋番号など</small>
                     </div>
                 </form>
                 
                 <div class="navigation">
-                    <button class="btn btn-secondary" onclick="showStep(2)">前へ</button>
-                    <button class="btn btn-primary" onclick="showStep(4)">次へ</button>
+                    <button class="btn btn-secondary" onclick="window.liffApp.showStep(2)">前へ</button>
+                    <button class="btn btn-primary" onclick="window.liffApp.showStep(4)">次へ</button>
                 </div>
             </div>
 
@@ -142,27 +141,16 @@
             <div id="step4" class="step" style="display: none;">
                 <div class="step-header">
                     <h2>写真アップロード</h2>
-                    <p>現地調査の参考として、建物の写真をアップロードしてください</p>
+                    <p>より正確な見積りのため、建物の写真をアップロードしてください（任意）</p>
                 </div>
                 
                 <div class="upload-section">
-                    <div class="upload-instructions">
-                        <h3>撮影のポイント</h3>
-                        <ul>
-                            <li>建物全体が写るように撮影</li>
-                            <li>外壁の状態がわかるように撮影</li>
-                            <li>屋根の状態がわかるように撮影</li>
-                            <li>気になる箇所があれば重点的に撮影</li>
-                        </ul>
-                    </div>
-                    
                     <div class="upload-area">
                         <div id="drop-zone" class="drop-zone">
                             <div class="drop-zone-content">
                                 <div class="upload-icon">📷</div>
-                                <p>写真をドラッグ&ドロップ</p>
-                                <p>または</p>
-                                <small>クリックしてファイルを選択（最大10枚、15MB以下）</small>
+                                <p>タップしてカメラ／アルバムから選択</p>
+                                <small>またはPCからドラッグ＆ドロップ (最大10枚)</small>
                             </div>
                             <input type="file" id="photo-input" multiple accept="image/*" style="display: none;">
                         </div>
@@ -174,25 +162,27 @@
                 </div>
                 
                 <div class="navigation">
-                    <button class="btn btn-secondary" onclick="showStep(3)">前へ</button>
-                    <button class="btn btn-primary" onclick="submitForm()">送信</button>
+                    <button class="btn btn-secondary" onclick="window.liffApp.showStep(3)">前へ</button>
+                    <button class="btn btn-primary" onclick="window.liffApp.submitForm()">この内容で送信する</button>
                 </div>
             </div>
 
-            <!-- 送信完了画面 -->
+            <!-- 送信完了画面 (IDを 'complete' に) -->
             <div id="complete" class="step" style="display: none;">
                 <div class="complete-content">
                     <div class="success-icon">✅</div>
                     <h2>送信完了</h2>
                     <p>お見積りのご依頼ありがとうございます。</p>
-                    <p>1〜3営業日程度でLINEにてお送りいたします。</p>
-                    <button class="btn btn-primary" onclick="liff.closeWindow()">閉じる</button>
+                    <p>内容を確認の上、1〜3営業日以内に担当者よりLINEでご連絡いたします。</p>
+                    <button class="btn btn-primary" onclick="liff.closeWindow()">画面を閉じる</button>
                 </div>
             </div>
         </main>
     </div>
 
+    <!-- 外部ライブラリと自作スクリプト -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://ajaxzip3.github.io/ajaxzip3.js" charset="UTF-8"></script>
     <script src="app.js"></script>
 </body>
 </html>
-
