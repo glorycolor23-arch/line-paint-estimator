@@ -1,3 +1,60 @@
-node_modules
+# 機密情報を含むファイル
 .env
-uploads
+.env.local
+.env.production
+.env.staging
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# アップロードファイル
+uploads/
+upload/
+photos/
+
+# ログファイル
+*.log
+logs/
+
+# 一時ファイル
+.tmp/
+temp/
+
+# OS生成ファイル
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# エディタ設定
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# バックアップファイル
+*.bak
+*.backup
+
+# 開発用ファイル
+.env.development
+.env.test
+
+# セキュリティ関連
+*.pem
+*.key
+*.crt
+*.p12
+
+# データベース
+*.db
+*.sqlite
+*.sqlite3
+
