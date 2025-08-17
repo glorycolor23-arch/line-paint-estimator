@@ -14,143 +14,207 @@
         <header class="header">
             <h1>見積り依頼フォーム</h1>
             <div class="progress-container">
-                <div class="progress-fill" id="progress-fill"></div>
-            </div>
-            <div class="progress-text">
-                <span id="current-step">1</span> / <span id="total-steps">4</span>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <div class="progress-text">
+                    <span id="current-step">1</span> / <span id="total-steps">4</span>
+                </div>
             </div>
         </header>
 
-        <!-- ローディング画面 -->
-        <div id="loading" class="loading">
-            <div class="loading-spinner"></div>
-        </div>
+        <!-- メインコンテンツ -->
+        <main id="main-content" class="main-content">
+            <!-- ローディング画面 -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>読み込み中...</p>
+            </div>
 
-        <!-- エラー画面 -->
-        <div id="error" class="error" style="display: none;">
-            <h2>エラーが発生しました</h2>
-            <div id="error-message" class="error-message"></div>
-            <button class="retry-btn" onclick="location.reload()">再読み込み</button>
-        </div>
+            <!-- エラー画面 -->
+            <div id="error" class="error-screen" style="display: none;">
+                <div class="error-content">
+                    <h2>エラーが発生しました</h2>
+                    <p id="error-message">申し訳ございません。エラーが発生しました。</p>
+                    <button onclick="location.reload()" class="btn btn-primary">再読み込み</button>
+                </div>
+            </div>
 
-        <!-- ステップ1: 質問フォーム -->
-        <div id="step1" class="step">
-            <div class="question-section">
-                <h2 id="question-title" class="question-title">質問タイトル</h2>
-                <p id="question-description" class="question-description">質問の説明</p>
+            <!-- ステップ1: 質問フォーム -->
+            <div id="step1" class="step" style="display: none;">
+                <div class="step-header">
+                    <h2 id="question-title">質問</h2>
+                    <p id="question-description">以下からお選びください</p>
+                </div>
+                
+                <!-- 画像表示エリア -->
+                <div id="question-image" class="question-image" style="display: none;">
+                    <img id="question-img" src="" alt="参考画像">
+                    <p id="image-caption">参考画像</p>
+                </div>
+                
+                <!-- 選択肢 -->
                 <div id="question-options" class="question-options">
-                    <!-- 動的に生成される選択肢 -->
+                    <!-- 動的に生成 -->
+                </div>
+                
+                <!-- ナビゲーション -->
+                <div class="navigation">
+                    <button id="prev-btn" class="btn btn-secondary" onclick="previousQuestion()" style="display: none;">前へ</button>
+                    <button id="next-btn" class="btn btn-primary" onclick="nextQuestion()" disabled>次へ</button>
                 </div>
             </div>
-            
-            <div class="navigation">
-                <button id="prev-btn" class="nav-btn secondary" onclick="previousQuestion()" style="display: none;">前へ</button>
-                <button id="next-btn" class="nav-btn" onclick="nextQuestion()" disabled>次へ</button>
-            </div>
-        </div>
 
-        <!-- ステップ2: 概算見積り結果 -->
-        <div id="step2" class="step" style="display: none;">
-            <div class="estimate-section">
-                <h2 class="question-title">概算見積り結果</h2>
-                <div id="estimate-amount" class="estimate-amount">¥0</div>
-                <div id="estimate-details" class="estimate-details">
-                    <!-- 動的に生成される詳細 -->
+            <!-- ステップ2: 概算見積り結果 -->
+            <div id="step2" class="step" style="display: none;">
+                <div class="step-header">
+                    <h2>概算見積り結果</h2>
+                    <p>ご回答いただいた内容を基に概算見積りを算出しました</p>
                 </div>
-                <p style="color: #666; font-size: 14px; margin-top: 20px;">
-                    ※この金額は概算です。正確な見積りは現地調査後にご提示いたします。
-                </p>
+                
+                <div class="estimate-card">
+                    <div class="estimate-amount-section">
+                        <span class="estimate-label">概算見積り金額</span>
+                        <span id="estimate-price" class="estimate-price">¥0</span>
+                    </div>
+                    
+                    <div id="estimate-details" class="estimate-details">
+                        <!-- 詳細は動的に生成 -->
+                    </div>
+                    
+                    <div class="estimate-note">
+                        <p>※上記は概算金額です。正確な見積りには現地調査が必要です。</p>
+                        <p>※実際の金額は現地の状況により変動する場合があります。</p>
+                    </div>
+                </div>
+                
+                <div class="navigation">
+                    <button class="btn btn-secondary" onclick="showStep(1)">質問に戻る</button>
+                    <button class="btn btn-primary" onclick="showStep(3)">詳細見積りを依頼</button>
+                </div>
             </div>
-            
-            <div class="navigation">
-                <button class="nav-btn secondary" onclick="showStep(1)">質問に戻る</button>
-                <button class="nav-btn" onclick="showStep(3)">詳細見積りを依頼</button>
-            </div>
-        </div>
 
-        <!-- ステップ3: お客様情報入力 -->
-        <div id="step3" class="step" style="display: none;">
-            <div class="form-section">
-                <h2 class="question-title">お客様情報入力</h2>
-                
-                <div class="form-group">
-                    <label for="name">お名前 <span style="color: red;">*</span></label>
-                    <input type="text" id="name" name="name" required placeholder="山田太郎">
+            <!-- ステップ3: お客様情報入力 -->
+            <div id="step3" class="step" style="display: none;">
+                <div class="step-header">
+                    <h2>お客様情報入力</h2>
+                    <p>詳細見積りのために必要な情報をご入力ください</p>
                 </div>
                 
-                <div class="form-group">
-                    <label for="phone">電話番号 <span style="color: red;">*</span></label>
-                    <input type="tel" id="phone" name="phone" required placeholder="09012345678">
-                </div>
+                <form class="form">
+                    <div class="form-group">
+                        <label for="name">お名前 <span class="required">*</span></label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="phone">電話番号 <span class="required">*</span></label>
+                        <input type="tel" id="phone" name="phone" required>
+                        <small>例: 090-1234-5678</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="zipcode">郵便番号 <span class="required">*</span></label>
+                        <input type="number" id="zipcode" name="zipcode" pattern="[0-9]{7}" required placeholder="1234567">
+                        <small>例: 1234567（ハイフンなし）</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="address1">住所 <span class="required">*</span></label>
+                        <input type="text" id="address1" name="address1" required>
+                        <small>都道府県・市区町村・町名</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="address2">番地等以降の住所</label>
+                        <input type="text" id="address2" name="address2">
+                        <small>建物名・部屋番号など</small>
+                    </div>
+                </form>
                 
-                <div class="form-group">
-                    <label for="zipcode">郵便番号 <span style="color: red;">*</span></label>
-                    <input type="number" id="zipcode" name="zipcode" pattern="[0-9]{7}" required placeholder="1234567">
-                </div>
-                
-                <div class="form-group">
-                    <label for="address1">住所 <span style="color: red;">*</span></label>
-                    <input type="text" id="address1" name="address1" required placeholder="東京都渋谷区渋谷1-1-1">
-                </div>
-                
-                <div class="form-group">
-                    <label for="address2">番地等以降の住所</label>
-                    <input type="text" id="address2" name="address2" placeholder="マンション名・部屋番号など">
+                <div class="navigation">
+                    <button class="btn btn-secondary" onclick="showStep(2)">前へ</button>
+                    <button class="btn btn-primary" onclick="showStep(4)">次へ</button>
                 </div>
             </div>
-            
-            <div class="navigation">
-                <button class="nav-btn secondary" onclick="showStep(2)">見積りに戻る</button>
-                <button class="nav-btn" onclick="showStep(4)">写真アップロードへ</button>
-            </div>
-        </div>
 
-        <!-- ステップ4: 写真アップロード -->
-        <div id="step4" class="step" style="display: none;">
-            <div class="photo-upload-section">
-                <h2 class="question-title">写真アップロード</h2>
-                <p class="question-description">建物の外観や気になる箇所の写真をアップロードしてください（最大10枚）</p>
-                
-                <div id="upload-area" class="upload-area">
-                    <i>📷</i>
-                    <div class="upload-text">写真をドラッグ&ドロップまたはクリックして選択</div>
-                    <button type="button" id="camera-btn" class="camera-btn">📱 カメラ・アルバムから選択</button>
+            <!-- ステップ4: 写真アップロード -->
+            <div id="step4" class="step" style="display: none;">
+                <div class="step-header">
+                    <h2>写真アップロード</h2>
+                    <p>現地調査の参考として、建物の写真をアップロードしてください</p>
                 </div>
                 
-                <input type="file" id="photo-input" accept="image/*" multiple capture="environment">
-                
-                <div id="photo-preview" class="photo-preview">
-                    <!-- 動的に生成される写真プレビュー -->
+                <div class="upload-section">
+                    <div class="upload-instructions">
+                        <h3>撮影のポイント</h3>
+                        <ul>
+                            <li>外観正面：建物の正面全体</li>
+                            <li>外観側面：建物の側面</li>
+                            <li>外観背面：建物の背面</li>
+                            <li>屋根全体：屋根の状態</li>
+                            <li>外壁詳細：外壁の劣化状況</li>
+                            <li>損傷箇所：気になる箇所</li>
+                            <li>平面図・立面図：お持ちの場合</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 写真種類選択 -->
+                    <div class="photo-type-selector">
+                        <label for="photo-type">写真の種類を選択してください</label>
+                        <select id="photo-type" name="photo-type">
+                            <option value="">写真の種類を選択してください</option>
+                            <option value="facade">外観正面</option>
+                            <option value="side">外観側面</option>
+                            <option value="back">外観背面</option>
+                            <option value="roof">屋根全体</option>
+                            <option value="wall_detail">外壁詳細</option>
+                            <option value="damage">損傷箇所</option>
+                            <option value="floor_plan">平面図</option>
+                            <option value="elevation">立面図</option>
+                            <option value="other">その他</option>
+                        </select>
+                    </div>
+                    
+                    <div class="upload-area">
+                        <div id="drop-zone" class="drop-zone">
+                            <div class="drop-zone-content">
+                                <div class="upload-icon">📷</div>
+                                <p>写真をドラッグ&ドロップ</p>
+                                <p>または</p>
+                                <button type="button" class="camera-btn">カメラで撮影</button>
+                                <button type="button" class="camera-btn">アルバムから選択</button>
+                                <small>最大10枚、15MB以下</small>
+                            </div>
+                            <input type="file" id="photo-input" multiple accept="image/*" capture="environment" style="display: none;">
+                            <input type="file" id="album-input" multiple accept="image/*" style="display: none;">
+                        </div>
+                    </div>
+                    
+                    <div id="photo-preview" class="photo-preview">
+                        <!-- アップロードされた写真のプレビュー -->
+                    </div>
                 </div>
                 
-                <div class="submit-section">
-                    <button id="submit-btn" class="submit-btn disabled" onclick="submitForm()" disabled>
-                        写真をアップロードしてください
-                    </button>
+                <div class="navigation">
+                    <button class="btn btn-secondary" onclick="showStep(3)">前へ</button>
+                    <button id="submit-btn" class="btn btn-primary disabled" onclick="submitForm()" disabled>写真をアップロードしてください</button>
                 </div>
             </div>
-            
-            <div class="navigation">
-                <button class="nav-btn secondary" onclick="showStep(3)">お客様情報に戻る</button>
-            </div>
-        </div>
 
-        <!-- ステップ5: 完了画面 -->
-        <div id="step5" class="step" style="display: none;">
-            <div class="completion-section">
-                <div class="completion-icon">✅</div>
-                <h2 class="completion-title">送信完了</h2>
-                <div class="completion-message">
-                    <p>見積り依頼を受け付けました。</p>
-                    <p>担当者より3営業日以内にご連絡いたします。</p>
-                    <p>ありがとうございました。</p>
+            <!-- 送信完了画面 -->
+            <div id="complete" class="step" style="display: none;">
+                <div class="complete-content">
+                    <div class="success-icon">✅</div>
+                    <h2>送信完了</h2>
+                    <p>お見積りのご依頼ありがとうございます。</p>
+                    <p>1〜3営業日程度でLINEにてお送りいたします。</p>
+                    <button class="btn btn-primary" onclick="liff.closeWindow()">閉じる</button>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="app.js"></script>
 </body>
 </html>
-
-
