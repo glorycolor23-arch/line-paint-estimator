@@ -1,7 +1,7 @@
-// LIFF見積りアプリ（正しい質問項目版）
+// LIFF見積りアプリ（最終版）
 console.log('[DEBUG] LIFF見積りアプリ開始');
 
-// 正しい質問データ（12問）
+// 修正された質問データ（12問）
 const QUESTIONS = [
     {
         id: 'q1_floors',
@@ -12,7 +12,8 @@ const QUESTIONS = [
             { value: '2階建て', label: '2階建て' },
             { value: '3階建て', label: '3階建て' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'vertical'
     },
     {
         id: 'q2_layout',
@@ -27,11 +28,13 @@ const QUESTIONS = [
             { value: '2LDK', label: '2LDK' },
             { value: '3K', label: '3K' },
             { value: '3DK', label: '3DK' },
+            { value: '3LDK', label: '3LDK' },
             { value: '4K', label: '4K' },
             { value: '4DK', label: '4DK' },
             { value: '4LDK', label: '4LDK' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'grid-3x4'
     },
     {
         id: 'q3_age',
@@ -46,7 +49,8 @@ const QUESTIONS = [
             { value: '〜50年', label: '〜50年' },
             { value: '51年以上', label: '51年以上' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'vertical'
     },
     {
         id: 'q4_painted',
@@ -56,7 +60,8 @@ const QUESTIONS = [
             { value: 'はい', label: 'はい' },
             { value: 'いいえ', label: 'いいえ' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'horizontal'
     },
     {
         id: 'q5_last',
@@ -70,6 +75,7 @@ const QUESTIONS = [
             { value: '21年以上', label: '21年以上' }
         ],
         hasImage: false,
+        layout: 'vertical',
         condition: (answers) => answers.q4_painted === 'はい'
     },
     {
@@ -81,7 +87,8 @@ const QUESTIONS = [
             { value: '屋根塗装', label: '屋根塗装のみ' },
             { value: '外壁塗装+屋根塗装', label: '外壁・屋根塗装' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'vertical'
     },
     {
         id: 'q7_wall',
@@ -114,6 +121,7 @@ const QUESTIONS = [
             }
         ],
         hasImage: true,
+        layout: 'grid-2x2',
         condition: (answers) => answers.q6_work === '外壁塗装' || answers.q6_work === '外壁塗装+屋根塗装'
     },
     {
@@ -147,6 +155,7 @@ const QUESTIONS = [
             }
         ],
         hasImage: true,
+        layout: 'grid-2x2',
         condition: (answers) => answers.q6_work === '屋根塗装' || answers.q6_work === '外壁塗装+屋根塗装'
     },
     {
@@ -154,11 +163,27 @@ const QUESTIONS = [
         title: '雨漏りはありますか？',
         description: '雨漏りの状況を教えてください',
         options: [
-            { value: '雨の日に水滴が落ちる', label: '雨の日に水滴が落ちる' },
-            { value: '天井にシミがある', label: '天井にシミがある' },
-            { value: 'ない', label: 'ない' }
+            { 
+                value: '雨の日に水滴が落ちる', 
+                label: '雨の日に水滴が落ちる',
+                image: '/images/leak_drip.jpg',
+                description: '雨の日に室内に水滴が落ちてくる'
+            },
+            { 
+                value: '天井にシミがある', 
+                label: '天井にシミがある',
+                image: '/images/leak_stain.jpg',
+                description: '天井や壁にシミや変色がある'
+            },
+            { 
+                value: 'ない', 
+                label: 'ない',
+                image: '/images/no_leak.jpg',
+                description: '雨漏りの症状はない'
+            }
         ],
-        hasImage: false
+        hasImage: true,
+        layout: 'vertical'
     },
     {
         id: 'q10_dist',
@@ -170,19 +195,41 @@ const QUESTIONS = [
             { value: '70cm以下', label: '70cm以下' },
             { value: '70cm以上', label: '70cm以上' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'vertical'
     },
     {
         id: 'q11_wall_paint',
         title: '外壁塗料のグレードは？',
         description: '希望する塗料のグレードを選択してください',
         options: [
-            { value: 'コストが安い塗料（耐久性 低い）', label: 'コストが安い塗料' },
-            { value: '一般的な塗料（コスト 一般的）', label: '一般的な塗料' },
-            { value: '耐久性が高い塗料（コスト 高い）', label: '耐久性が高い塗料' },
-            { value: '遮熱性が高い（コスト 高い）', label: '遮熱性が高い塗料' }
+            { 
+                value: 'コストが安い塗料', 
+                label: 'コストが安い塗料',
+                price: '¥2,500 / 1m²',
+                description: '耐久性は低いがコストを抑えられる'
+            },
+            { 
+                value: '一般的な塗料', 
+                label: '一般的な塗料',
+                price: '¥3,500 / 1m²',
+                description: 'コストと性能のバランスが良い'
+            },
+            { 
+                value: '耐久性が高い塗料', 
+                label: '耐久性が高い塗料',
+                price: '¥4,500 / 1m²',
+                description: '長期間の耐久性を重視'
+            },
+            { 
+                value: '遮熱性が高い塗料', 
+                label: '遮熱性が高い塗料',
+                price: '¥5,000 / 1m²',
+                description: '夏の暑さを軽減する高機能塗料'
+            }
         ],
         hasImage: false,
+        layout: 'vertical',
         condition: (answers) => answers.q6_work === '外壁塗装' || answers.q6_work === '外壁塗装+屋根塗装'
     },
     {
@@ -196,7 +243,8 @@ const QUESTIONS = [
             { value: '1年以内', label: '1年以内' },
             { value: '未定', label: '未定' }
         ],
-        hasImage: false
+        hasImage: false,
+        layout: 'vertical'
     }
 ];
 
@@ -255,59 +303,154 @@ class QuestionFlow {
     }
 
     calculateEstimate() {
-        // 概算見積り計算ロジック
-        const BASE_PRICE = 1000000; // 基本料金：100万円
+        // 詳細な概算見積り計算ロジック
+        let totalPrice = 0;
+        let breakdown = {};
         
-        const COEFFICIENTS = {
-            floors: { '1階建て': 1.0, '2階建て': 1.15, '3階建て': 1.30 },
-            layout: { '1K': 0.8, '1DK': 0.85, '1LDK': 0.9, '2K': 1.0, '2DK': 1.05, '2LDK': 1.1, '3K': 1.15, '3DK': 1.2, '4K': 1.25, '4DK': 1.3, '4LDK': 1.35 },
-            work: { '外壁塗装': 220000, '屋根塗装': 180000, '外壁塗装+屋根塗装': 380000 },
-            wallMaterial: { 'モルタル': 1.0, 'サイディング': 1.05, 'タイル': 1.2, 'ALC': 1.1 },
-            wallPaint: { 'コストが安い塗料（耐久性 低い）': 0.8, '一般的な塗料（コスト 一般的）': 1.0, '耐久性が高い塗料（コスト 高い）': 1.3, '遮熱性が高い（コスト 高い）': 1.4 },
-            age: { '新築': 0.8, '〜10年': 0.9, '〜20年': 1.0, '〜30年': 1.1, '〜40年': 1.2, '〜50年': 1.3, '51年以上': 1.4 },
-            leak: { '雨の日に水滴が落ちる': 150000, '天井にシミがある': 100000, 'ない': 0 },
-            distance: { '30cm以下': 1.3, '50cm以下': 1.2, '70cm以下': 1.1, '70cm以上': 1.0 }
+        // 基本料金設定
+        const BASE_PRICES = {
+            '外壁塗装': 800000,
+            '屋根塗装': 600000,
+            '外壁塗装+屋根塗装': 1200000
         };
-
-        let price = BASE_PRICE;
         
-        // 各係数を適用
-        if (this.answers.q1_floors && COEFFICIENTS.floors[this.answers.q1_floors]) {
-            price *= COEFFICIENTS.floors[this.answers.q1_floors];
+        // 工事内容による基本料金
+        if (this.answers.q6_work && BASE_PRICES[this.answers.q6_work]) {
+            totalPrice = BASE_PRICES[this.answers.q6_work];
+            breakdown.baseWork = {
+                type: this.answers.q6_work,
+                price: BASE_PRICES[this.answers.q6_work]
+            };
         }
-        if (this.answers.q2_layout && COEFFICIENTS.layout[this.answers.q2_layout]) {
-            price *= COEFFICIENTS.layout[this.answers.q2_layout];
+        
+        // 階数による係数
+        const FLOOR_MULTIPLIERS = {
+            '1階建て': 1.0,
+            '2階建て': 1.2,
+            '3階建て': 1.4
+        };
+        
+        if (this.answers.q1_floors && FLOOR_MULTIPLIERS[this.answers.q1_floors]) {
+            const multiplier = FLOOR_MULTIPLIERS[this.answers.q1_floors];
+            totalPrice *= multiplier;
+            breakdown.floors = {
+                type: this.answers.q1_floors,
+                multiplier: multiplier
+            };
         }
-        if (this.answers.q3_age && COEFFICIENTS.age[this.answers.q3_age]) {
-            price *= COEFFICIENTS.age[this.answers.q3_age];
+        
+        // 間取りによる係数
+        const LAYOUT_MULTIPLIERS = {
+            '1K': 0.8, '1DK': 0.85, '1LDK': 0.9,
+            '2K': 1.0, '2DK': 1.05, '2LDK': 1.1,
+            '3K': 1.15, '3DK': 1.2, '3LDK': 1.25,
+            '4K': 1.3, '4DK': 1.35, '4LDK': 1.4
+        };
+        
+        if (this.answers.q2_layout && LAYOUT_MULTIPLIERS[this.answers.q2_layout]) {
+            const multiplier = LAYOUT_MULTIPLIERS[this.answers.q2_layout];
+            totalPrice *= multiplier;
+            breakdown.layout = {
+                type: this.answers.q2_layout,
+                multiplier: multiplier
+            };
         }
-        if (this.answers.q6_work && COEFFICIENTS.work[this.answers.q6_work]) {
-            price += COEFFICIENTS.work[this.answers.q6_work];
+        
+        // 築年数による追加料金
+        const AGE_ADDITIONS = {
+            '新築': 0,
+            '〜10年': 0,
+            '〜20年': 50000,
+            '〜30年': 100000,
+            '〜40年': 150000,
+            '〜50年': 200000,
+            '51年以上': 300000
+        };
+        
+        if (this.answers.q3_age && AGE_ADDITIONS[this.answers.q3_age] !== undefined) {
+            const addition = AGE_ADDITIONS[this.answers.q3_age];
+            totalPrice += addition;
+            breakdown.age = {
+                type: this.answers.q3_age,
+                addition: addition
+            };
         }
-        if (this.answers.q7_wall && COEFFICIENTS.wallMaterial[this.answers.q7_wall]) {
-            price *= COEFFICIENTS.wallMaterial[this.answers.q7_wall];
+        
+        // 塗料グレードによる係数
+        const PAINT_MULTIPLIERS = {
+            'コストが安い塗料': 0.8,
+            '一般的な塗料': 1.0,
+            '耐久性が高い塗料': 1.3,
+            '遮熱性が高い塗料': 1.5
+        };
+        
+        if (this.answers.q11_wall_paint && PAINT_MULTIPLIERS[this.answers.q11_wall_paint]) {
+            const multiplier = PAINT_MULTIPLIERS[this.answers.q11_wall_paint];
+            totalPrice *= multiplier;
+            breakdown.paint = {
+                type: this.answers.q11_wall_paint,
+                multiplier: multiplier
+            };
         }
-        if (this.answers.q11_wall_paint && COEFFICIENTS.wallPaint[this.answers.q11_wall_paint]) {
-            price *= COEFFICIENTS.wallPaint[this.answers.q11_wall_paint];
+        
+        // 雨漏りによる追加料金
+        const LEAK_ADDITIONS = {
+            '雨の日に水滴が落ちる': 200000,
+            '天井にシミがある': 100000,
+            'ない': 0
+        };
+        
+        if (this.answers.q9_leak && LEAK_ADDITIONS[this.answers.q9_leak] !== undefined) {
+            const addition = LEAK_ADDITIONS[this.answers.q9_leak];
+            totalPrice += addition;
+            breakdown.leak = {
+                type: this.answers.q9_leak,
+                addition: addition
+            };
         }
-        if (this.answers.q9_leak && COEFFICIENTS.leak[this.answers.q9_leak]) {
-            price += COEFFICIENTS.leak[this.answers.q9_leak];
+        
+        // 隣家距離による係数
+        const DISTANCE_MULTIPLIERS = {
+            '30cm以下': 1.3,
+            '50cm以下': 1.2,
+            '70cm以下': 1.1,
+            '70cm以上': 1.0
+        };
+        
+        if (this.answers.q10_dist && DISTANCE_MULTIPLIERS[this.answers.q10_dist]) {
+            const multiplier = DISTANCE_MULTIPLIERS[this.answers.q10_dist];
+            totalPrice *= multiplier;
+            breakdown.distance = {
+                type: this.answers.q10_dist,
+                multiplier: multiplier
+            };
         }
-        if (this.answers.q10_dist && COEFFICIENTS.distance[this.answers.q10_dist]) {
-            price *= COEFFICIENTS.distance[this.answers.q10_dist];
-        }
-
+        
+        // 万円単位で丸める
+        totalPrice = Math.round(totalPrice / 10000) * 10000;
+        
         return {
-            total: Math.round(price / 10000) * 10000, // 万円単位で丸める
-            breakdown: {
-                base: BASE_PRICE,
-                floors: this.answers.q1_floors,
-                layout: this.answers.q2_layout,
-                work: this.answers.q6_work,
-                wall: this.answers.q7_wall,
-                paint: this.answers.q11_wall_paint
-            }
+            total: totalPrice,
+            breakdown: breakdown,
+            details: this.getSelectedDetails()
         };
+    }
+    
+    getSelectedDetails() {
+        const details = [];
+        
+        if (this.answers.q1_floors) details.push(`階数: ${this.answers.q1_floors}`);
+        if (this.answers.q2_layout) details.push(`間取り: ${this.answers.q2_layout}`);
+        if (this.answers.q3_age) details.push(`築年数: ${this.answers.q3_age}`);
+        if (this.answers.q6_work) details.push(`工事内容: ${this.answers.q6_work}`);
+        if (this.answers.q7_wall) details.push(`外壁材: ${this.answers.q7_wall}`);
+        if (this.answers.q8_roof) details.push(`屋根材: ${this.answers.q8_roof}`);
+        if (this.answers.q9_leak) details.push(`雨漏り: ${this.answers.q9_leak}`);
+        if (this.answers.q10_dist) details.push(`隣家距離: ${this.answers.q10_dist}`);
+        if (this.answers.q11_wall_paint) details.push(`塗料: ${this.answers.q11_wall_paint}`);
+        if (this.answers.q12_timing) details.push(`希望時期: ${this.answers.q12_timing}`);
+        
+        return details;
     }
 }
 
@@ -328,14 +471,9 @@ class LIFFEstimateApp {
         try {
             console.log('[DEBUG] DOM読み込み完了、アプリ初期化開始');
             
-            // 質問フロー初期化（LIFF初期化前に実行）
-            try {
-                this.questionFlow = new QuestionFlow();
-                console.log('[DEBUG] QuestionFlow初期化成功');
-            } catch (error) {
-                console.error('[ERROR] QuestionFlow初期化エラー:', error);
-                throw new Error('QuestionFlowの初期化に失敗しました');
-            }
+            // 質問フロー初期化
+            this.questionFlow = new QuestionFlow();
+            console.log('[DEBUG] QuestionFlow初期化成功');
 
             // ローディング表示
             this.showLoading();
@@ -344,16 +482,15 @@ class LIFFEstimateApp {
             console.log('[DEBUG] LIFF初期化開始');
             await this.initLiff();
             
-            // ログイン済み確認
-            console.log('[DEBUG] ログイン済み');
-            
             // 最初のステップを表示
             console.log('[DEBUG] showStep開始: 1');
             this.showStep(1);
             
             // ローディング非表示
-            console.log('[DEBUG] hideLoading開始');
             this.hideLoading();
+            
+            // 画面上部にスクロール
+            this.scrollToTop();
             
             console.log('[DEBUG] アプリ初期化完了');
             
@@ -401,6 +538,16 @@ class LIFFEstimateApp {
         }
     }
 
+    scrollToTop() {
+        // ヘッダー位置にスクロール
+        const header = document.querySelector('.header');
+        if (header) {
+            header.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+
     showLoading() {
         console.log('[DEBUG] ローディング表示');
         const loading = document.getElementById('loading');
@@ -414,9 +561,6 @@ class LIFFEstimateApp {
         const loading = document.getElementById('loading');
         if (loading) {
             loading.style.display = 'none';
-            console.log('[DEBUG] ローディング非表示成功');
-        } else {
-            console.error('[ERROR] loading要素が見つかりません');
         }
     }
 
@@ -457,12 +601,15 @@ class LIFFEstimateApp {
         
         // ステップ別の処理
         if (stepNumber === 1) {
-            console.log('[DEBUG] 質問ステップを表示');
             this.showQuestionStep();
         } else if (stepNumber === 2) {
-            console.log('[DEBUG] 見積りステップを表示');
             this.showEstimateStep();
+        } else if (stepNumber === 4) {
+            this.initPhotoUpload();
         }
+        
+        // 画面上部にスクロール
+        this.scrollToTop();
         
         console.log('[DEBUG] showStep完了: ' + stepNumber);
     }
@@ -492,27 +639,15 @@ class LIFFEstimateApp {
         const titleElement = document.getElementById('question-title');
         if (titleElement) {
             titleElement.textContent = question.title;
-            console.log('[DEBUG] 質問タイトル設定:', question.title);
         }
         
         // 質問説明設定
         const descElement = document.getElementById('question-description');
         if (descElement) {
             descElement.textContent = question.description;
-            console.log('[DEBUG] 質問説明設定:', question.description);
-        }
-        
-        // 画像表示
-        const imageContainer = document.getElementById('question-image');
-        if (question.hasImage && imageContainer) {
-            imageContainer.style.display = 'block';
-            console.log('[DEBUG] 質問画像表示');
-        } else if (imageContainer) {
-            imageContainer.style.display = 'none';
         }
         
         // 選択肢レンダリング
-        console.log('[DEBUG] 選択肢レンダリング開始');
         this.renderOptions(question);
         
         console.log('[DEBUG] renderQuestion完了');
@@ -529,11 +664,14 @@ class LIFFEstimateApp {
         
         // 既存の選択肢をクリア
         container.innerHTML = '';
-        console.log('[DEBUG] 既存の選択肢をクリア');
+        
+        // レイアウトクラスを設定
+        container.className = 'question-options';
+        if (question.layout) {
+            container.classList.add(`layout-${question.layout}`);
+        }
         
         question.options.forEach((option, index) => {
-            console.log('[DEBUG] 選択肢作成:', index, option.value);
-            
             const optionElement = document.createElement('div');
             optionElement.className = 'option-card';
             
@@ -545,7 +683,8 @@ class LIFFEstimateApp {
                     </div>
                     <div class="option-content">
                         <h4>${option.label}</h4>
-                        ${option.description ? `<p>${option.description}</p>` : ''}
+                        ${option.description ? `<p class="option-description">${option.description}</p>` : ''}
+                        ${option.price ? `<p class="option-price">${option.price}</p>` : ''}
                     </div>
                 `;
             } else {
@@ -553,25 +692,24 @@ class LIFFEstimateApp {
                 optionElement.innerHTML = `
                     <div class="option-content">
                         <h4>${option.label}</h4>
-                        ${option.description ? `<p>${option.description}</p>` : ''}
+                        ${option.description ? `<p class="option-description">${option.description}</p>` : ''}
+                        ${option.price ? `<p class="option-price">${option.price}</p>` : ''}
                     </div>
                 `;
             }
             
             // クリックイベント
             optionElement.addEventListener('click', () => {
-                console.log('[DEBUG] 選択肢選択:', option.value);
-                this.selectOption(question.id, option.value);
+                this.selectOption(question.id, option.value, optionElement);
             });
             
             container.appendChild(optionElement);
-            console.log('[DEBUG] 選択肢追加完了:', index);
         });
         
-        console.log('[DEBUG] renderOptions完了、選択肢数:', question.options.length);
+        console.log('[DEBUG] renderOptions完了');
     }
 
-    selectOption(questionId, value) {
+    selectOption(questionId, value, element) {
         console.log('[DEBUG] selectOption:', questionId, '=', value);
         
         // 回答を保存
@@ -583,8 +721,7 @@ class LIFFEstimateApp {
             option.classList.remove('selected');
         });
         
-        // クリックされた選択肢をハイライト
-        event.target.closest('.option-card').classList.add('selected');
+        element.classList.add('selected');
         
         // 次へボタンを有効化
         const nextBtn = document.getElementById('next-btn');
@@ -604,7 +741,7 @@ class LIFFEstimateApp {
         }
         
         if (nextBtn) {
-            nextBtn.disabled = true; // 選択するまで無効
+            nextBtn.disabled = true;
             nextBtn.textContent = this.questionFlow.isComplete() ? '見積り結果へ' : '次へ';
         }
     }
@@ -640,37 +777,147 @@ class LIFFEstimateApp {
             amountElement.textContent = `¥${estimate.total.toLocaleString()}`;
         }
         
-        // 見積り詳細表示
-        const summaryElement = document.getElementById('estimate-summary');
-        if (summaryElement) {
-            const details = this.generateEstimateDetails();
-            summaryElement.innerHTML = details;
+        // 選択内容詳細表示
+        const detailsElement = document.getElementById('estimate-details');
+        if (detailsElement) {
+            const detailsHtml = estimate.details.map(detail => `<li>${detail}</li>`).join('');
+            detailsElement.innerHTML = `
+                <h3>選択内容</h3>
+                <ul class="estimate-details-list">
+                    ${detailsHtml}
+                </ul>
+            `;
         }
         
         console.log('[DEBUG] showEstimateStep完了');
     }
 
-    generateEstimateDetails() {
-        const answers = this.questionFlow.answers;
-        const details = [];
+    initPhotoUpload() {
+        console.log('[DEBUG] 写真アップロード初期化');
         
-        if (answers.q1_floors) details.push(`階数: ${answers.q1_floors}`);
-        if (answers.q2_layout) details.push(`間取り: ${answers.q2_layout}`);
-        if (answers.q3_age) details.push(`築年数: ${answers.q3_age}`);
-        if (answers.q6_work) details.push(`工事内容: ${answers.q6_work}`);
-        if (answers.q7_wall) details.push(`外壁材: ${answers.q7_wall}`);
-        if (answers.q8_roof) details.push(`屋根材: ${answers.q8_roof}`);
-        if (answers.q11_wall_paint) details.push(`塗料: ${answers.q11_wall_paint}`);
-        if (answers.q12_timing) details.push(`希望時期: ${answers.q12_timing}`);
+        const fileInput = document.getElementById('photo-input');
+        const uploadArea = document.getElementById('upload-area');
+        const cameraBtn = document.getElementById('camera-btn');
         
-        return `
-            <div class="estimate-details">
-                <h3>見積り条件</h3>
-                <ul>
-                    ${details.map(detail => `<li>${detail}</li>`).join('')}
-                </ul>
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                this.handleFileSelect(e.target.files);
+            });
+        }
+        
+        if (uploadArea) {
+            // ドラッグ&ドロップ対応
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('drag-over');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('drag-over');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('drag-over');
+                this.handleFileSelect(e.dataTransfer.files);
+            });
+            
+            // クリックでファイル選択
+            uploadArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+        }
+        
+        if (cameraBtn) {
+            cameraBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+        }
+        
+        // 送信ボタンの初期状態を無効に
+        this.updateSubmitButton();
+    }
+
+    handleFileSelect(files) {
+        console.log('[DEBUG] ファイル選択:', files.length, '個');
+        
+        Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) {
+                this.addPhoto(file);
+            }
+        });
+        
+        this.updateSubmitButton();
+    }
+
+    addPhoto(file) {
+        if (this.uploadedPhotos.length >= 10) {
+            alert('写真は最大10枚までアップロードできます。');
+            return;
+        }
+        
+        this.uploadedPhotos.push(file);
+        
+        // プレビュー表示
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.displayPhotoPreview(e.target.result, file.name);
+        };
+        reader.readAsDataURL(file);
+        
+        console.log('[DEBUG] 写真追加:', file.name, '合計:', this.uploadedPhotos.length, '枚');
+    }
+
+    displayPhotoPreview(src, filename) {
+        const previewContainer = document.getElementById('photo-preview');
+        if (!previewContainer) return;
+        
+        const photoDiv = document.createElement('div');
+        photoDiv.className = 'photo-preview-item';
+        photoDiv.innerHTML = `
+            <img src="${src}" alt="${filename}">
+            <div class="photo-info">
+                <span class="photo-name">${filename}</span>
+                <button type="button" class="remove-photo-btn" onclick="window.liffApp.removePhoto('${filename}')">削除</button>
             </div>
         `;
+        
+        previewContainer.appendChild(photoDiv);
+    }
+
+    removePhoto(filename) {
+        this.uploadedPhotos = this.uploadedPhotos.filter(file => file.name !== filename);
+        
+        // プレビューからも削除
+        const previewContainer = document.getElementById('photo-preview');
+        if (previewContainer) {
+            const photoItems = previewContainer.querySelectorAll('.photo-preview-item');
+            photoItems.forEach(item => {
+                const nameSpan = item.querySelector('.photo-name');
+                if (nameSpan && nameSpan.textContent === filename) {
+                    item.remove();
+                }
+            });
+        }
+        
+        this.updateSubmitButton();
+        console.log('[DEBUG] 写真削除:', filename, '残り:', this.uploadedPhotos.length, '枚');
+    }
+
+    updateSubmitButton() {
+        const submitBtn = document.getElementById('submit-btn');
+        if (submitBtn) {
+            // 写真が1枚以上アップロードされている場合のみ有効
+            submitBtn.disabled = this.uploadedPhotos.length === 0;
+            
+            if (this.uploadedPhotos.length === 0) {
+                submitBtn.textContent = '写真をアップロードしてください';
+                submitBtn.classList.add('disabled');
+            } else {
+                submitBtn.textContent = 'この内容で送信する';
+                submitBtn.classList.remove('disabled');
+            }
+        }
     }
 
     updateProgress() {
@@ -690,6 +937,11 @@ class LIFFEstimateApp {
 
     async submitForm() {
         console.log('[DEBUG] submitForm開始');
+        
+        if (this.uploadedPhotos.length === 0) {
+            this.showError('写真を1枚以上アップロードしてください。');
+            return;
+        }
         
         try {
             // 顧客情報取得
