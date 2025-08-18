@@ -860,3 +860,33 @@ body {
   color: rgba(255,255,255,.9);
 }
 
+
+/* === 画像オプションのはみ出し防止 & ボタン間隔調整 === */
+
+/* デフォの下マージンを殺して、gridのgapで管理 */
+.question-options .question-option { margin: 0; }
+
+/* 画像付きラベルの基本形 */
+.option-label { display: block; width: 100%; }
+.image-option .option-image { width: 100%; }
+.image-option .option-image img{
+  display: block;
+  width: 100%;
+  height: auto;          /* これで横幅に合わせる */
+  aspect-ratio: 4 / 3;   /* 任意：見栄え用の比率 */
+  object-fit: cover;     /* 収まり良くトリミング */
+  border-radius: 10px;
+}
+.image-option .option-content{ margin-top: 8px; }
+
+/* 階数(1〜4階建て)だけ“さらに詰める”用 */
+.question-options.compact { gap: 8px; }
+.question-options.compact .option-label { padding: 12px; }
+
+/* 既定の間隔を少し詰める（全体） */
+.question-options { gap: 12px; }
+
+/* モバイルでの横はみ出し予防（単一カラム前提） */
+@media (max-width: 480px){
+  .question-options { grid-template-columns: 1fr; }
+}
