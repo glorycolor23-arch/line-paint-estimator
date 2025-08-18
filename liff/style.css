@@ -890,3 +890,47 @@ body {
 @media (max-width: 480px){
   .question-options { grid-template-columns: 1fr; }
 }
+
+
+/* === 画像質問をモバイルでも2カラムにする === */
+.question-options.two-col{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* 2カラム時はカードを少し詰める */
+.question-options.two-col .option-label{
+  padding: 10px;
+}
+
+/* 高さを抑えてスクロール量を減らす（正方形で見やすく） */
+.question-options.two-col .image-option .option-image img{
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;   /* ← 1:1 で省スペース */
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+/* タイトルはやや小さめ、説明は2行で省略 */
+.question-options.two-col .option-title{
+  font-size: .9rem;
+  line-height: 1.2;
+}
+.question-options.two-col .option-description{
+  font-size: .75rem;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 既存の「モバイルは1カラム」ルールよりも強く2カラムを維持 */
+@media (max-width: 480px){
+  .question-options.two-col{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
