@@ -826,3 +826,37 @@ body {
 .btn.disabled:hover {
     background: #ccc;
 }
+
+
+
+/* ====== 画像付きオプション用 & 余白調整 ====== */
+
+/* 全ステップのボタン間隔を少し詰める */
+.question-options{ gap: 10px; }                /* 既存より小さく */
+.option-button, .option-label{ padding: 14px; } /* 既存よりやや詰める */
+
+/* 「1〜4階建て」など“さらに詰めたい”場合に使う */
+.question-options.compact{ gap: 8px; }
+.question-options.compact .option-button,
+.question-options.compact .option-label{ padding: 12px; }
+
+/* 画像付きボタンの見た目 */
+.option-card{
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 12px; border-radius: 12px; text-align: center;
+}
+.option-card .option-img{
+  width: 100%; aspect-ratio: 4/3; object-fit: cover;
+  border-radius: 8px; border: 1px solid #eee; background: #fafafa;
+}
+.option-card .option-title{ font-weight: 600; font-size: .95rem; }
+.option-card .option-caption{ font-size:.8rem; color:#666; }
+
+/* ラジオ＋ラベル構造のとき、checkedで画像カードも反転 */
+.question-option input[type="radio"]:checked + .option-label.option-card{
+  background-color: #00B900; border-color:#00B900; color:#fff;
+}
+.question-option input[type="radio"]:checked + .option-label.option-card .option-caption{
+  color: rgba(255,255,255,.9);
+}
+
