@@ -8,6 +8,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+app.get('/healthz', (req, res) => res.status(200).send('ok'));
+
+
 // LINE Bot設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || 'dummy_token',
