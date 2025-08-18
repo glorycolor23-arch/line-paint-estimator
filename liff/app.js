@@ -435,12 +435,13 @@ class LIFFEstimateApp {
 
     wrap.innerHTML = '';
 
-    // 1〜4階建ては“詰める”
-    if (question.id === 'q1_floors') {
-      wrap.style.gap = '8px';
-    } else {
-      wrap.style.gap = ''; // 既定に戻す（CSSに従う）
-    }
+// 1〜4階建ては“詰める”（CSSの .question-options.compact を適用）
+if (question.id === 'q1_floors') {
+  wrap.classList.add('compact');
+} else {
+  wrap.classList.remove('compact');
+}
+
 
     const useImage =
       question.hasImage ||
@@ -472,10 +473,7 @@ class LIFFEstimateApp {
       label.className = 'option-label';
       label.setAttribute('for', id);
 
-      // 1〜4階建てのときはラベルのパディングも詰める
-      if (question.id === 'q1_floors') {
-        label.style.padding = '12px';
-      }
+
 
       if (useImage) {
         label.classList.add('image-option');
