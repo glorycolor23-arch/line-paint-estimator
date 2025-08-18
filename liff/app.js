@@ -560,7 +560,6 @@ class LIFFEstimateApp {
       }
       html += `<div class="breakdown-item total"><span>合計</span><span>¥${estimate.total.toLocaleString()}</span></div>`;
       html += '</div>';
-      html += '<div class="estimate-note">※上記は概算金額です。正確な見積りには現地調査が必要です。</div>';
       details.innerHTML = html;
     }
   }
