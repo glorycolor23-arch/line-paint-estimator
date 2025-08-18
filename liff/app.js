@@ -435,12 +435,20 @@ class LIFFEstimateApp {
 
     wrap.innerHTML = '';
 
-// 1〜4階建ては“詰める”（CSSの .question-options.compact を適用）
-if (question.id === 'q1_floors') {
-  wrap.classList.add('compact');
-} else {
-  wrap.classList.remove('compact');
-}
+
+  // 1〜4階建ては“詰める”
+- if (question.id === 'q1_floors') {
+-   wrap.classList.add('compact');
+- } else {
+-   wrap.classList.remove('compact');
+- }
++ if (question.id === 'q1_floors') wrap.classList.add('compact');
++ else wrap.classList.remove('compact');
+
++ // 画像付きの3セクションは“2カラム”にする
++ const twoColIds = new Set(['q4_work_type','q7_wall_material','q8_roof_material']);
++ if (twoColIds.has(question.id)) wrap.classList.add('two-col');
++ else wrap.classList.remove('two-col');
 
 
     const useImage =
