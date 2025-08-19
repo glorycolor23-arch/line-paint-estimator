@@ -602,67 +602,63 @@ async function sendEmail(data) {
 
 
 // LIFF フォーム送信処理
+// LIFF フォーム送信処理
 app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (req, res) => {
   try {
-    console.log('[INFO] LIFF フォーム送信受信:', req.body);
-    console.log('[INFO] 受信ファイル数:', req.files?.length || 0);
-    
-    const { userId, name, phone, zipcode, address1, address2 } = req.body;
+    console.log('[INFO] LIFFフォーム送信受信');
+    // FormDataからすべてのテキストフィールドとファイルを取得
+    const { userId, name, phone, zipcode, address1, address2, answers, estimate } = req.body;
     const photos = req.files || [];
+
+    // 必須項目チェック
+    if (!userId || !name || !phone || !zipcode || !address1 || !answers || !estimate) {
+      console.error('[ERROR] 必須項目が不足しています:', req.body);
+      return res.status(400).json({ error: '必須項目が不足しています。' });
+    }
+
+    // 文字列で送られてきたanswersとestimateをJSONオブジェクトに変換
+    const parsedAnswers = JSON.parse(answers);
+    const parsedEstimate = JSON.parse(estimate);
+
+    // 画像をBase64エンコード
+    const images = photos.map(photo => ({
+      filename: photo.originalname,
+      size: photo.size,
+      base64: `data:${photo.mimetype};base64,${photo.buffer.toString('base64')}`
+    }));
+
+    // スプレッドシートとメールに渡すためのデータオブジェクトを生成
+    const submissionData = {
+      userId, name, phone, zipcode, address1, address2,
+      answers: parsedAnswers,
+      estimate: parsedEstimate,
+      photoCount: images.length,
+      images: images
+    };
+
+    // スプレッドシートへの書き込みとメール送信を並行して実行
+    await Promise.all([
+      writeToSpreadsheet(submissionData),
+      sendEmail(submissionData)
+    ]);
+
+    // ユーザーにLINEで完了通知を送信
+    await safePush(userId, {
+      type: 'text',
+      text: 'お見積りのご依頼ありがとうございます。\n内容を確認し、1〜3営業日以内に担当者よりご連絡いたします。'
+    });
     
-    // 入力値検証
-    if (!userId) {
-      console.error('[ERROR] ユーザーIDが未設定');
-      return res.status(400).json({ error: 'ユーザーIDが必要です' });
-    }
+    // セッションをクリア（Webhookからの起動時に作られたセッションを削除）
+    sessions.delete(userId);
 
-    if (!name || !phone || !zipcode || !address1) {
-      console.error('[ERROR] 必須項目が未入力:', { name, phone, zipcode, address1 });
-      return res.status(400).json({ error: '必須項目が入力されていません' });
-    }
+    // フロントエンドに成功応答を返す
+    res.json({ success: true, message: '送信が完了しました' });
 
-    // セッションから質問回答データを取得
-    const sess = sessions.get(userId);
-    console.log('[DEBUG] セッション確認:', sess ? 'あり' : 'なし');
-    
-    if (!sess || !sess.answers) {
-      console.error('[ERROR] セッションデータが見つかりません:', userId);
-      console.log('[DEBUG] 現在のセッション一覧:', Array.from(sessions.keys()));
-      return res.status(400).json({ error: '質問回答データが見つかりません。先に質問にお答えください。' });
-    }
-
-    // 画像をBase64エンコード（メール埋め込み用）
-    const images = [];
-    for (let i = 0; i < photos.length; i++) {
-      const photo = photos[i];
-      try {
-        if (!photo.buffer) {
-          console.error(`[ERROR] 画像バッファが空: ${photo.originalname}`);
-          continue;
-        }
-        
-        // ファイルサイズチェック（15MB制限）
-        if (photo.size > 15 * 1024 * 1024) {
-          console.error(`[ERROR] ファイルサイズ超過: ${photo.originalname}, サイズ: ${photo.size}bytes`);
-          continue;
-        }
-        
-        console.log(`[INFO] 画像処理開始: ${photo.originalname}, サイズ: ${(photo.size / 1024 / 1024).toFixed(2)}MB`);
-        
-        // Base64エンコード
-        const base64Image = encodeImageToBase64(photo.buffer, photo.mimetype);
-        images.push({
-          filename: photo.originalname,
-          size: photo.size,
-          base64: base64Image
-        });
-        
-        console.log(`[INFO] 画像処理完了: ${photo.originalname}`);
-      } catch (error) {
-        console.error(`[ERROR] 画像処理エラー: ${photo.originalname}`, error);
-        // 画像処理エラーは継続（他の画像は処理する）
-      }
-    }
+  } catch (error) {
+    console.error('[ERROR] LIFFフォーム送信処理エラー:', error);
+    res.status(500).json({ error: 'サーバーでエラーが発生しました。' });
+  }
+});
 
     console.log(`[INFO] 処理完了画像数: ${images.length}/${photos.length}`);
 
