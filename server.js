@@ -281,11 +281,14 @@ function calcRoughPrice(a) {
 }
 
 // 回答サマリー生成
-function summarize(a){
+function summarize(a) {
+  // a (answers) オブジェクトが未定義の場合のフォールバック
+  if (!a) return '';
+  
   const items = [];
   if (a.q1_floors) items.push(`階数: ${a.q1_floors}`);
-  if (a.q2_layout) items.push(`間取り: ${a.q2_layout}`);
-  if (a.q6_work) items.push(`工事: ${a.q6_work}`);
+  if (a.q2_rooms) items.push(`間取り: ${a.q2_rooms}`);
+  if (a.q4_work_type) items.push(`工事: ${a.q4_work_type}`);
   return items.join(', ');
 }
 
@@ -596,39 +599,7 @@ async function sendEmail(data) {
  * ======================================================================== */
 
 // 質問回答保存API（LIFF用）
-app.post('/api/answers', express.json(), async (req, res) => {
-  try {
-    const { userId, answers } = req.body;
-    
-    if (!userId || !answers) {
-      return res.status(400).json({ error: 'ユーザーIDと回答データが必要です' });
-    }
-    
-    console.log('[DEBUG] 質問回答保存:', userId, answers);
-    
-    // 概算価格を計算
-    const estimatedPrice = calcRoughPrice(answers);
-    
-    // セッションに保存
-    sessions.set(userId, {
-      answers: answers,
-      estimatedPrice: estimatedPrice,
-      timestamp: Date.now()
-    });
-    
-    console.log('[DEBUG] セッション保存完了:', { userId, estimatedPrice });
-    
-    res.json({ 
-      success: true, 
-      estimatedPrice: estimatedPrice,
-      summary: summarize(answers)
-    });
-    
-  } catch (error) {
-    console.error('[ERROR] 質問回答保存エラー:', error);
-    res.status(500).json({ error: '回答の保存に失敗しました' });
-  }
-});
+
 
 // LIFF フォーム送信処理
 app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (req, res) => {
@@ -759,34 +730,7 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
 });
 
 // セッション情報取得API（LIFF用）
-app.get('/api/session/:userId', (req, res) => {
-  const userId = req.params.userId;
-  console.log('[DEBUG] セッション取得要求:', userId);
-  
-  const sess = sessions.get(userId);
-  if (!sess) {
-    console.log('[DEBUG] セッションが見つかりません:', userId);
-    console.log('[DEBUG] 現在のセッション一覧:', Array.from(sessions.keys()));
-    return res.status(404).json({ error: 'セッションが見つかりません' });
-  }
 
-  // 概算価格の計算（セッションに保存されていない場合）
-  const estimatedPrice = sess.estimatedPrice || calcRoughPrice(sess.answers || {});
-  
-  // 回答サマリー作成
-  const summary = summarize(sess.answers || {});
-  
-  const response = {
-    userId: userId,
-    answers: sess.answers || {},
-    estimate: estimatedPrice,  // LIFFのapp.jsで期待されているフィールド名
-    summary: summary,
-    timestamp: sess.timestamp || Date.now()
-  };
-  
-  console.log('[DEBUG] セッションデータ返却:', response);
-  res.json(response);
-});
 
 // デバッグ用：現在のセッション一覧
 app.get('/api/debug/sessions', (req, res) => {
