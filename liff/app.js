@@ -769,7 +769,10 @@ class LIFFEstimateApp {
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
         const blob = new Blob([new Uint8Array(byteNumbers)], { type: p.type });
-        formData.append('photos', blob, p.name);
+        
+        // ファイル名に写真の種類を付与する
+        const newFilename = `${p.photoType}__${p.name}`;
+        formData.append('photos', blob, newFilename);
       });
 
       const resp = await fetch('/api/submit', { method: 'POST', body: formData });
