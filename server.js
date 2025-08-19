@@ -121,15 +121,14 @@ app.get('/health', (req, res) => {
 
 // LIFF環境変数注入
 app.get('/liff/env.js', (req, res) => {
+  // Render環境変数からLIFF_IDを取得する
   const liffId = process.env.LIFF_ID;
-  const addUrl = process.env.LINE_ADD_FRIEND_URL || '';
-  const mailUrl = process.env.EMAIL_WEBAPP_URL || '';
   
   res.setHeader('Content-Type', 'application/javascript');
-  res.send(
-    `window.ENV={LIFF_ID:${JSON.stringify(liffId)},FRIEND_ADD_URL:${JSON.stringify(addUrl)},EMAIL_WEBAPP_URL:${JSON.stringify(mailUrl)}};`
-  );
+  // サーバーの環境変数を最優先でwindow.ENVに設定する
+  res.send(`window.ENV = { LIFF_ID: ${JSON.stringify(liffId)} };`);
 });
+
 
 // ファイルアップロード設定（スマートフォン対応）
 const upload = multer({
