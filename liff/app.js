@@ -283,29 +283,27 @@ class LIFFEstimateApp {
   }
 
   async initLIFF() {
-    console.log('[DEBUG] LIFF初期化開始');
-    try {
-      // LIFF SDKを初期化
-      await liff.init({ liffId: this.liffId });
-      
-      // ログインしているかチェック
-      if (!liff.isLoggedIn()) {
-        console.log('[DEBUG] ユーザーはログインしていません。ログインページにリダイレクトします。');
-        // ログインしていなければ、ログインページにリダイレクト
-        // オプションで、ログイン後のリダイレクト先を指定できます
-        liff.login(); 
-      } else {
-        console.log('[DEBUG] ユーザーはログイン済みです。');
-        // 必要であれば、ここでユーザープロファイルを取得するなどの処理を追加できます
-        // const profile = await liff.getProfile();
-        // console.log('[DEBUG] プロフィール:', profile);
-      }
-    } catch (error) {
-      console.error('[ERROR] LIFFの初期化またはログインチェックに失敗しました:', error);
-      // エラーメッセージを画面に表示
-      this.showError(`LIFFの初期化に失敗しました: ${error.message}`);
+    if (!this.liffId || this.liffId === 'dummy_liff_id') {
+      console.log('[DEBUG] ローカルテストモード：LIFF初期化をスキップ');
+      return;
     }
+    if (!window.liff) throw new Error('LIFF SDKが読み込まれていません');
+
+    console.log('[DEBUG] LIFF初期化開始');
+    const initPromise = liff.init({ liffId: this.liffId });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('LIFF初期化がタイムアウトしました')), 10000);
+    });
+    await Promise.race([initPromise, timeoutPromise]);
+
+    if (!liff.isLoggedIn()) {
+      console.log('[DEBUG] ログインが必要です');
+      liff.login();
+      return;
+    }
+    console.log('[DEBUG] ログイン済み');
   }
+
   initUI() {
     this.setupEventListeners();
     this.updateProgress();
@@ -769,10 +767,7 @@ class LIFFEstimateApp {
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
         const blob = new Blob([new Uint8Array(byteNumbers)], { type: p.type });
-        
-        // ファイル名に写真の種類を付与する
-        const newFilename = `${p.photoType}__${p.name}`;
-        formData.append('photos', blob, newFilename);
+        formData.append('photos', blob, p.name);
       });
 
       const resp = await fetch('/api/submit', { method: 'POST', body: formData });
