@@ -608,67 +608,74 @@ async function sendEmail(data) {
       return;
     }
 
-    // 概算金額の計算
-    const estimatedPrice = data.estimatedPrice || calcRoughPrice(data.answers);
-    
-    // 画像をBase64エンコードしてHTML埋め込み
+    const estimate = data.estimate || { total: 0 }; // estimateオブジェクトを取得
+
+    // 画像セクションの生成
     let imageSection = '';
     if (data.images && data.images.length > 0) {
+      const labels = { facade: '外観正面', side: '外観側面', back: '外観背面', roof: '屋根全体', wall_detail: '外壁詳細', damage: '損傷箇所', floor_plan: '平面図', elevation: '立面図', other: 'その他' };
+      
       imageSection = `
-        <h3>添付画像・図面</h3>
-        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-          ${data.images.map((image, index) => `
-            <div style="border: 1px solid #ddd; padding: 10px; border-radius: 8px; max-width: 300px;">
-              <img src="${image.base64}" alt="画像${index + 1}" style="max-width: 100%; height: auto; border-radius: 4px;">
-              <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">
-                ${image.filename} (${(image.size / 1024 / 1024).toFixed(2)}MB)
-              </p>
-            </div>
-          `).join('')}
-        </div>
-      `;
+        <h3>添付写真 (${data.images.length}枚)</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+          ${data.images.map((image, index) => {
+            const [type, ...nameParts] = image.filename.split('__');
+            const originalName = nameParts.join('__');
+            const typeLabel = labels[type] || 'その他';
+            
+            return `
+            <div style="border: 1px solid #ddd; padding: 10px; border-radius: 8px; width: 200px; text-align: center;">
+              <p style="margin: 0 0 10px 0; font-weight: bold; font-size: 14px;">${typeLabel}</p>
+              <img src="${image.base64}" alt="${originalName}" style="max-width: 100%; height: auto; border-radius: 4px; margin-bottom: 5px;">
+              <p style="margin: 0; font-size: 12px; color: #666; word-wrap: break-word;">${originalName}</p>
+            </div>`;
+          }).join('')}
+        </div>`;
     }
 
-    const htmlContent = `
-      <h2>見積り依頼フォーム送信</h2>
-      
-      <h3>お客様情報</h3>
-      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
-        <tr><td style="background-color: #f5f5f5;"><strong>お名前</strong></td><td>${data.name}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>電話番号</strong></td><td>${data.phone}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>郵便番号</strong></td><td>${data.zipcode}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>住所</strong></td><td>${data.address1} ${data.address2}</td></tr>
-      </table>
-      
-      <h3>質問回答</h3>
-      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse;">
-        <tr><td style="background-color: #f5f5f5;"><strong>階数</strong></td><td>${data.answers.q1_floors || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>間取り</strong></td><td>${data.answers.q2_layout || '—'}</td></tr>
+    // 回答サマリーの生成
+    const answerSummary = `
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+        <tr><td style="background-color: #f5f5f5; width: 120px;"><strong>階数</strong></td><td>${data.answers.q1_floors || '—'}</td></tr>
+        <tr><td style="background-color: #f5f5f5;"><strong>間取り</strong></td><td>${data.answers.q2_rooms || '—'}</td></tr>
         <tr><td style="background-color: #f5f5f5;"><strong>築年数</strong></td><td>${data.answers.q3_age || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>過去塗装</strong></td><td>${data.answers.q4_painted || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>前回塗装</strong></td><td>${data.answers.q5_last || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>工事内容</strong></td><td>${data.answers.q6_work || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>外壁種類</strong></td><td>${data.answers.q7_wall || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>外壁塗料</strong></td><td>${data.answers.q7_wall_paint || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>屋根種類</strong></td><td>${data.answers.q8_roof || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>屋根塗料</strong></td><td>${data.answers.q8_roof_paint || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>雨漏り</strong></td><td>${data.answers.q9_leak || '—'}</td></tr>
-        <tr><td style="background-color: #f5f5f5;"><strong>隣家距離</strong></td><td>${data.answers.q10_dist || '—'}</td></tr>
-      </table>
-      
-      <h3>概算見積り</h3>
-      <p style="font-size: 24px; color: #00B900; font-weight: bold;">¥${estimatedPrice.toLocaleString()}</p>
-      
-      ${imageSection}
-      
-      <hr>
-      <p><small>送信日時: ${new Date().toLocaleString('ja-JP')}</small></p>
+        <tr><td style="background-color: #f5f5f5;"><strong>工事内容</strong></td><td>${data.answers.q4_work_type || '—'}</td></tr>
+        <tr><td style="background-color: #f5f5f5;"><strong>外壁材</strong></td><td>${data.answers.q7_wall_material || '—'}</td></tr>
+        <tr><td style="background-color: #f5f5f5;"><strong>屋根材</strong></td><td>${data.answers.q8_roof_material || '—'}</td></tr>
+        <tr><td style="background-color: #f5f5f5;"><strong>塗料グレード</strong></td><td>${data.answers.q11_paint_grade || '—'}</td></tr>
+        <tr><td style="background-color: #f5f5f5;"><strong>希望時期</strong></td><td>${data.answers.q12_urgency || '—'}</td></tr>
+      </table>`;
+
+    const htmlContent = `
+      <div style="font-family: sans-serif; line-height: 1.6;">
+        <h2>【LIFFフォーム】新規お見積り依頼</h2>
+        
+        <h3>お客様情報</h3>
+        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+          <tr><td style="background-color: #f5f5f5; width: 120px;"><strong>お名前</strong></td><td>${data.name} 様</td></tr>
+          <tr><td style="background-color: #f5f5f5;"><strong>電話番号</strong></td><td>${data.phone}</td></tr>
+          <tr><td style="background-color: #f5f5f5;"><strong>郵便番号</strong></td><td>〒${data.zipcode}</td></tr>
+          <tr><td style="background-color: #f5f5f5;"><strong>住所</strong></td><td>${data.address1} ${data.address2}</td></tr>
+        </table>
+        
+        <h3>ご回答内容</h3>
+        ${answerSummary}
+        
+        <h3>概算見積り金額</h3>
+        <p style="font-size: 24px; color: #00B900; font-weight: bold; margin: 10px 0;">¥${(estimate.total || 0).toLocaleString()}</p>
+        
+        ${imageSection}
+        
+        <hr style="margin-top: 20px;">
+        <p><small>LINE User ID: ${data.userId}</small></p>
+        <p><small>送信日時: ${new Date().toLocaleString('ja-JP')}</small></p>
+      </div>
     `;
 
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: `"LIFF見積りフォーム" <${process.env.EMAIL_USER}>`,
       to: toEmail,
-      subject: `【見積り依頼】${data.name}様より`,
+      subject: `【新規見積り依頼】${data.name}様より`,
       html: htmlContent
     };
 
@@ -676,8 +683,9 @@ async function sendEmail(data) {
     console.log('[INFO] メール送信成功');
   } catch (error) {
     console.error('[ERROR] メール送信エラー:', error);
-    throw error;
+    // エラーを投げずに処理を継続させる
   }
+}
 }
 
 /* ===========================================================================
