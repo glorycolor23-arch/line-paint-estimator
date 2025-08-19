@@ -598,10 +598,6 @@ async function sendEmail(data) {
  * LIFF API エンドポイント
  * ======================================================================== */
 
-// 質問回答保存API（LIFF用）
-
-
-// LIFF フォーム送信処理
 // LIFF フォーム送信処理
 app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (req, res) => {
   try {
@@ -660,73 +656,6 @@ app.post('/api/submit', upload.array('photos', 10), handleMulterError, async (re
   }
 });
 
-    console.log(`[INFO] 処理完了画像数: ${images.length}/${photos.length}`);
-
-    // スプレッドシートに記録
-    try {
-      await writeToSpreadsheet({
-        userId,
-        name,
-        phone,
-        zipcode,
-        address1,
-        address2,
-        answers: sess.answers,
-        photoCount: images.length,
-        estimatedPrice: sess.estimatedPrice || calcRoughPrice(sess.answers)
-      });
-      console.log('[INFO] スプレッドシート書き込み成功');
-    } catch (error) {
-      console.error('[ERROR] スプレッドシート書き込みエラー:', error);
-      // スプレッドシートエラーは継続（メール送信は実行）
-    }
-
-    // メール送信（画像Base64埋め込み）
-    try {
-      await sendEmail({
-        userId,
-        name,
-        phone,
-        zipcode,
-        address1,
-        address2,
-        answers: sess.answers,
-        images: images,
-        estimatedPrice: sess.estimatedPrice || calcRoughPrice(sess.answers)
-      });
-      console.log('[INFO] メール送信成功');
-    } catch (error) {
-      console.error('[ERROR] メール送信エラー:', error);
-      // メール送信エラーは継続（LINE通知は実行）
-    }
-
-    // LINEに完了通知を送信
-    try {
-      await safePush(userId, {
-        type: 'text',
-        text: 'お見積りのご依頼ありがとうございます。\n1〜3営業日程度でLINEにお送りいたします。'
-      });
-      console.log('[INFO] LINE通知送信成功');
-    } catch (error) {
-      console.error('[ERROR] LINE通知送信エラー:', error);
-      // LINE通知エラーでも成功扱い
-    }
-
-    // セッションをクリア
-    sessions.delete(userId);
-    console.log('[INFO] セッションクリア完了');
-
-    res.json({ success: true, message: '送信が完了しました' });
-
-  } catch (error) {
-    console.error('[ERROR] LIFF フォーム送信エラー:', error);
-    console.error('[ERROR] エラースタック:', error.stack);
-    res.status(500).json({ error: '送信処理中にエラーが発生しました。もう一度お試しください。' });
-  }
-});
-
-// セッション情報取得API（LIFF用）
-
 
 // デバッグ用：現在のセッション一覧
 app.get('/api/debug/sessions', (req, res) => {
@@ -751,7 +680,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[INFO] サーバーが起動しました`);
   console.log(`[INFO] ポート: ${PORT}`);
   console.log(`[INFO] 環境: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`[INFO] ヘルスチェック: http://localhost:${PORT}/health`);
+  console.log(`[INFO] ヘルスチェック: http://localhost:${PORT}/health` );
   console.log(`listening on ${PORT}`);
 });
-
