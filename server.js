@@ -236,145 +236,48 @@ const TRIGGER_START = ['カンタン見積りを依頼', 'カンタン見積も�
 const CMD_RESET     = ['リセット','はじめからやり直す'];
 
 // 概算計算（柔軟な計算式）
-function calcRoughPrice(a){
-  // 基本料金設定
-  const BASE_PRICE = 1000000; // 基本料金：100万円
-  
-  // 係数設定（後で調整しやすいように分離）
-  const COEFFICIENTS = {
-    // 階数による係数
-    floors: {
-      '1階建て': 1.0,
-      '2階建て': 1.15,  // +15%
-      '3階建て': 1.30   // +30%
-    },
-    
-    // 間取りによる係数
-    layout: {
-      '1K': 0.8, '1DK': 0.85, '1LDK': 0.9,
-      '2K': 1.0, '2DK': 1.05, '2LDK': 1.1,
-      '3K': 1.15, '3DK': 1.2, '4K': 1.25, '4DK': 1.3, '4LDK': 1.35
-    },
-    
-    // 工事内容による追加料金
-    work: {
-      '外壁塗装': 220000,
-      '屋根塗装': 180000,
-      '外壁塗装+屋根塗装': 380000  // セット割引
-    },
-    
-    // 外壁材による係数
-    wallMaterial: {
-      'モルタル': 1.0,
-      'サイディング': 1.05,
-      'タイル': 1.2,
-      'ALC': 1.1
-    },
-    
-    // 外壁塗料による係数
-    wallPaint: {
-      'コストが安い塗料（耐久性 低い）': 0.8,
-      '一般的な塗料（コスト 一般的）': 1.0,
-      '耐久性が高い塗料（コスト 高い）': 1.3,
-      '遮熱性が高い（コスト 高い）': 1.4
-    },
-    
-    // 屋根材による係数
-    roofMaterial: {
-      '瓦': 1.1,
-      'スレート': 1.0,
-      'ガルバリウム': 1.15,
-      'トタン': 0.9
-    },
-    
-    // 屋根塗料による係数
-    roofPaint: {
-      'コストが安い塗料（耐久性 低い）': 0.8,
-      '一般的な塗料（コスト 一般的）': 1.0,
-      '耐久性が高い塗料（コスト 高い）': 1.3,
-      '遮熱性が高い（コスト 高い）': 1.4
-    },
-    
-    // 築年数による係数
-    age: {
-      '新築': 0.8,
-      '〜10年': 0.9,
-      '〜20年': 1.0,
-      '〜30年': 1.1,
-      '〜40年': 1.2,
-      '〜50年': 1.3,
-      '51年以上': 1.4
-    },
-    
-    // 雨漏りによる追加料金
-    leak: {
-      '雨の日に水滴が落ちる': 150000,
-      '天井にシミがある': 100000,
-      'ない': 0
-    },
-    
-    // 隣家距離による係数（作業難易度）
-    distance: {
-      '30cm以下': 1.3,  // 作業困難
-      '50cm以下': 1.2,
-      '70cm以下': 1.1,
-      '70cm以上': 1.0   // 標準
-    }
-  };
+function calcRoughPrice(a) {
+  // a (answers) オブジェクトが未定義の場合のフォールバック
+  if (!a) return 0;
 
-  let price = BASE_PRICE;
-  
-  // 階数による調整
-  if (a.q1_floors && COEFFICIENTS.floors[a.q1_floors]) {
-    price *= COEFFICIENTS.floors[a.q1_floors];
-  }
-  
-  // 間取りによる調整
-  if (a.q2_layout && COEFFICIENTS.layout[a.q2_layout]) {
-    price *= COEFFICIENTS.layout[a.q2_layout];
-  }
-  
-  // 築年数による調整
-  if (a.q3_age && COEFFICIENTS.age[a.q3_age]) {
-    price *= COEFFICIENTS.age[a.q3_age];
-  }
-  
-  // 工事内容による追加
-  if (a.q6_work && COEFFICIENTS.work[a.q6_work]) {
-    price += COEFFICIENTS.work[a.q6_work];
-  }
-  
-  // 外壁材による調整
-  if (a.q7_wall && COEFFICIENTS.wallMaterial[a.q7_wall]) {
-    price *= COEFFICIENTS.wallMaterial[a.q7_wall];
-  }
-  
-  // 外壁塗料による調整
-  if (a.q7_wall_paint && COEFFICIENTS.wallPaint[a.q7_wall_paint]) {
-    price *= COEFFICIENTS.wallPaint[a.q7_wall_paint];
-  }
-  
-  // 屋根材による調整
-  if (a.q8_roof && COEFFICIENTS.roofMaterial[a.q8_roof]) {
-    price *= COEFFICIENTS.roofMaterial[a.q8_roof];
-  }
-  
-  // 屋根塗料による調整
-  if (a.q8_roof_paint && COEFFICIENTS.roofPaint[a.q8_roof_paint]) {
-    price *= COEFFICIENTS.roofPaint[a.q8_roof_paint];
-  }
-  
-  // 雨漏りによる追加
-  if (a.q9_leak && COEFFICIENTS.leak[a.q9_leak]) {
-    price += COEFFICIENTS.leak[a.q9_leak];
-  }
-  
-  // 隣家距離による調整
-  if (a.q10_dist && COEFFICIENTS.distance[a.q10_dist]) {
-    price *= COEFFICIENTS.distance[a.q10_dist];
+  let total = 0;
+  const breakdown = {};
+
+  const BASE_WALL = 600000;
+  const BASE_ROOF = 300000;
+
+  const wallMaterialMul = { 'モルタル': 1.0, 'サイディング': 1.1, 'タイル': 1.3, 'ALC': 1.2 };
+  const roofMaterialMul = { '瓦': 1.2, 'スレート': 1.0, 'ガルバリウム': 1.1, 'トタン': 0.9 };
+  const floorsMul = { '1階建て': 1.0, '2階建て': 1.15, '3階建て': 1.30, '4階建て以上': 1.45 };
+  const roomsMul = { '1K・1DK': 1.0, '1LDK・2K・2DK': 1.2, '2LDK・3K・3DK': 1.4, '3LDK・4K・4DK': 1.6, '4LDK以上': 1.8 };
+  const ageMul = { '5年未満': 1.0, '5-10年': 1.1, '11-15年': 1.2, '16-20年': 1.3, '21年以上': 1.4 };
+  const paintMul = { 'スタンダード': 1.0, 'ハイグレード': 1.3, 'プレミアム': 1.6 };
+
+  if (['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(a.q4_work_type)) {
+    let wall = BASE_WALL;
+    wall *= wallMaterialMul[a.q7_wall_material] || 1.0;
+    breakdown.wall = Math.round(wall);
+    total += breakdown.wall;
   }
 
-  return Math.round(price / 10000) * 10000; // 万円単位で丸める
+  if (['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(a.q4_work_type)) {
+    let roof = BASE_ROOF;
+    roof *= roofMaterialMul[a.q8_roof_material] || 1.0;
+    breakdown.roof = Math.round(roof);
+    total += breakdown.roof;
+  }
+
+  if (a.q4_work_type === '外壁・屋根・付帯部塗装') {
+    breakdown.additional = 150000;
+    total += breakdown.additional;
+  }
+
+  total *= paintMul[a.q11_paint_grade] || 1.0;
+  total *= floorsMul[a.q1_floors] || 1.0;
+  total *= roomsMul[a.q2_rooms] || 1.0;
+  total *= ageMul[a.q3_age] || 1.0;
+
+  return Math.round(total);
 }
 
 // 回答サマリー生成
