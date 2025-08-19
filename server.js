@@ -547,6 +547,8 @@ function encodeImageToBase64(buffer, mimeType) {
  * スプレッドシート書き込み関数
  * ======================================================================== */
 
+// 差し替え対象: writeToSpreadsheet 関数
+
 async function writeToSpreadsheet(data) {
   try {
     const spreadsheetId = process.env.GSHEET_SPREADSHEET_ID;
@@ -556,38 +558,33 @@ async function writeToSpreadsheet(data) {
     }
 
     const authClient = await auth.getClient();
-    
-    // 現在時刻（ISO形式）
     const timestamp = new Date().toISOString();
-    
-    // 概算金額の計算
-    const estimatedPrice = data.estimatedPrice || calcRoughPrice(data.answers);
-    
-    // スプレッドシートに書き込むデータ
+    const estimate = data.estimate || { total: 0 }; // estimateオブジェクトを取得
+
+    // スプレッドシートに書き込むデータ配列
     const values = [[
-      timestamp,                           // Timestamp (ISO)
-      data.userId,                         // LINE_USER_ID
-      data.name,                           // 氏名
-      data.zipcode,                        // 郵便番号
-      data.address1,                       // 住所1
-      data.address2,                       // 住所2
-      data.answers.q1_floors || '',        // Q1 階数
-      data.answers.q2_layout || '',        // Q2 間取り
-      data.answers.q6_work || '',          // Q3 工事
-      data.answers.q4_painted || '',       // Q4 過去塗装
-      data.answers.q5_last || '',          // Q5 前回から
-      data.answers.q7_wall || '',          // Q6 外壁
-      data.answers.q8_roof || '',          // Q7 屋根
-      data.answers.q9_leak || '',          // Q8 雨漏り
-      data.answers.q10_dist || '',         // Q9 距離
-      data.photoCount || 0,                // 受領写真枚数
-      estimatedPrice                       // 概算金額
+      timestamp,                         // A: Timestamp
+      data.userId,                         // B: LINE_USER_ID
+      data.name,                           // C: 氏名
+      data.phone,                          // D: 電話番号
+      data.zipcode,                        // E: 郵便番号
+      `${data.address1} ${data.address2}`, // F: 住所（結合）
+      data.answers.q1_floors || '',        // G: 階数
+      data.answers.q2_rooms || '',         // H: 間取り
+      data.answers.q3_age || '',           // I: 築年数
+      data.answers.q4_work_type || '',     // J: 工事内容
+      data.answers.q7_wall_material || '', // K: 外壁材
+      data.answers.q8_roof_material || '', // L: 屋根材
+      data.answers.q11_paint_grade || '',  // M: 塗料グレード
+      data.answers.q12_urgency || '',      // N: 希望時期
+      data.photoCount || 0,                // O: 受領写真枚数
+      estimate.total || 0                  // P: 概算金額
     ]];
 
     await sheets.spreadsheets.values.append({
       auth: authClient,
       spreadsheetId: spreadsheetId,
-      range: `${process.env.GSHEET_SHEET_NAME || 'Entries'}!A:Q`, // A列からQ列まで（17列）
+      range: `${process.env.GSHEET_SHEET_NAME || 'Entries'}!A:P`, // A列からP列まで
       valueInputOption: 'USER_ENTERED',
       resource: { values }
     });
@@ -595,7 +592,7 @@ async function writeToSpreadsheet(data) {
     console.log('[INFO] スプレッドシート書き込み成功');
   } catch (error) {
     console.error('[ERROR] スプレッドシート書き込みエラー:', error);
-    throw error;
+    // エラーを投げずに処理を継続させる
   }
 }
 
