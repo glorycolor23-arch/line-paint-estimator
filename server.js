@@ -86,7 +86,7 @@ const nodemailer = require('nodemailer');
 let transporter = null;
 
 if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  transporter = nodemailer.createTransporter({
+  transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
@@ -801,4 +801,3 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[INFO] ヘルスチェック: http://localhost:${PORT}/health`);
   console.log(`listening on ${PORT}`);
 });
-
