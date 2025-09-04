@@ -1,44 +1,26 @@
-// LIFF環境変数設定（安全版）
+// LIFF環境変数設定
 window.ENV = {
-    // 環境に応じたLIFF ID設定
-    LIFF_ID: (() => {
-        const hostname = window.location.hostname;
-        
-        // ローカル環境
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'dummy_liff_id';
-        }
-        
-        // 本番環境（実際のLIFF IDを設定）
-        return '2007914959-XP5Rpoay';
-    })(),
+    // 本番環境用のLIFF ID（.env.exampleのLIFF_IDと同じ値を設定してください）
+    LIFF_ID: 'your_liff_id_here',
     
     // 環境判定
-    IS_LOCAL: (() => {
-        const hostname = window.location.hostname;
-        return hostname === 'localhost' || hostname === '127.0.0.1';
-    })(),
+    IS_LOCAL: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
     
     // API エンドポイント設定
     API_BASE_URL: window.location.origin,
     
-    // デバッグモード（ローカル環境でのみ有効）
-    DEBUG: (() => {
-        const hostname = window.location.hostname;
-        return hostname === 'localhost' || hostname === '127.0.0.1';
-    })()
+    // デバッグモード（本番環境では false に設定）
+    DEBUG: true
 };
 
-// ローカルテスト設定
-window.ENV.LOCAL_TEST = window.ENV.IS_LOCAL;
-
-// 開発環境でのみログ出力
-if (window.ENV.DEBUG) {
-    console.log('ENV設定:', window.ENV);
+// ローカル環境の場合はテストモードを有効化
+if (window.ENV.IS_LOCAL) {
+    window.ENV.LIFF_ID = 'dummy_liff_id';  // ローカルテスト用ダミーID
+    console.log('ローカルテストモード: LIFF初期化をスキップします');
 }
 
-// 本番環境では機密情報をコンソールに出力しない
-if (!window.ENV.IS_LOCAL) {
-    console.log('本番環境で動作中');
+// 設定確認用ログ
+if (window.ENV.DEBUG) {
+    console.log('ENV設定:', window.ENV);
 }
 

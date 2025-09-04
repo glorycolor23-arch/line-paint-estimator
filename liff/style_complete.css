@@ -192,6 +192,54 @@ body {
     color: rgba(255, 255, 255, 0.9);
 }
 
+/* 質問選択肢（ラジオボタン形式） */
+.question-option {
+    margin-bottom: 15px;
+}
+
+.question-option input[type="radio"] {
+    display: none;
+}
+
+.option-label {
+    display: block;
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.option-label:hover {
+    border-color: #00B900;
+    background-color: #f8fff8;
+}
+
+.question-option input[type="radio"]:checked + .option-label {
+    border-color: #00B900;
+    background-color: #00B900;
+    color: white;
+}
+
+.option-title {
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.option-description {
+    font-size: 0.85rem;
+    color: #666;
+    line-height: 1.4;
+}
+
+.question-option input[type="radio"]:checked + .option-label .option-description {
+    color: rgba(255, 255, 255, 0.9);
+}
+
 /* 概算見積りカード */
 .estimate-card {
     background: linear-gradient(135deg, #f8fff8, #e8f5e8);
@@ -239,6 +287,54 @@ body {
 
 .estimate-note p {
     margin-bottom: 5px;
+}
+
+/* 概算見積り詳細 */
+.estimate-details {
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.estimate-breakdown {
+    margin-bottom: 15px;
+}
+
+.breakdown-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.9rem;
+}
+
+.breakdown-item:last-child {
+    border-bottom: none;
+    font-weight: 600;
+    color: #00B900;
+}
+
+.estimate-note {
+    font-size: 0.8rem;
+    color: #666;
+    line-height: 1.4;
+    text-align: center;
+    margin-top: 10px;
+}
+
+/* サマリー項目 */
+.summary-item {
+    padding: 5px 0;
+    font-size: 0.9rem;
+    color: #333;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.summary-item:last-child {
+    border-bottom: none;
 }
 
 /* フォーム */
@@ -407,6 +503,46 @@ body {
     word-break: break-all;
 }
 
+/* 写真アイテム改善 */
+.photo-info {
+    padding: 8px;
+    background-color: white;
+}
+
+.photo-name {
+    font-size: 0.7rem;
+    color: #333;
+    margin-bottom: 2px;
+    word-break: break-all;
+}
+
+.photo-size {
+    font-size: 0.6rem;
+    color: #666;
+}
+
+.remove-photo {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background-color: rgba(231, 76, 60, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.remove-photo:hover {
+    background-color: rgba(231, 76, 60, 1);
+}
+
 /* ナビゲーション */
 .navigation {
     display: flex;
@@ -506,8 +642,8 @@ body {
 
 /* アニメーション */
 .step {
-    opacity: 1;
-    transform: translateX(0);
+    opacity: 0;
+    transform: translateX(20px);
     transition: all 0.3s ease;
 }
 
@@ -531,142 +667,5 @@ body {
 
 .hidden {
     display: none !important;
-}
-
-
-/* 質問選択肢（ラジオボタン形式） */
-.question-option {
-    margin-bottom: 15px;
-}
-
-.question-option input[type="radio"] {
-    display: none;
-}
-
-.option-label {
-    display: block;
-    background: white;
-    border: 2px solid #e0e0e0;
-    border-radius: 12px;
-    padding: 20px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-size: 1rem;
-    font-weight: 500;
-    color: #333;
-}
-
-.option-label:hover {
-    border-color: #00B900;
-    background-color: #f8fff8;
-}
-
-.question-option input[type="radio"]:checked + .option-label {
-    border-color: #00B900;
-    background-color: #00B900;
-    color: white;
-}
-
-.option-title {
-    font-weight: 600;
-    margin-bottom: 5px;
-}
-
-.option-description {
-    font-size: 0.85rem;
-    color: #666;
-    line-height: 1.4;
-}
-
-.question-option input[type="radio"]:checked + .option-label .option-description {
-    color: rgba(255, 255, 255, 0.9);
-}
-
-/* 概算見積り詳細 */
-.estimate-details {
-    background-color: white;
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 15px;
-    text-align: left;
-}
-
-.estimate-breakdown {
-    margin-bottom: 15px;
-}
-
-.breakdown-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 0.9rem;
-}
-
-.breakdown-item:last-child {
-    border-bottom: none;
-    font-weight: 600;
-    color: #00B900;
-}
-
-.estimate-note {
-    font-size: 0.8rem;
-    color: #666;
-    line-height: 1.4;
-    text-align: center;
-    margin-top: 10px;
-}
-
-/* サマリー項目 */
-.summary-item {
-    padding: 5px 0;
-    font-size: 0.9rem;
-    color: #333;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.summary-item:last-child {
-    border-bottom: none;
-}
-
-/* 写真アイテム改善 */
-.photo-info {
-    padding: 8px;
-    background-color: white;
-}
-
-.photo-name {
-    font-size: 0.7rem;
-    color: #333;
-    margin-bottom: 2px;
-    word-break: break-all;
-}
-
-.photo-size {
-    font-size: 0.6rem;
-    color: #666;
-}
-
-.remove-photo {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    background-color: rgba(231, 76, 60, 0.9);
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-}
-
-.remove-photo:hover {
-    background-color: rgba(231, 76, 60, 1);
 }
 

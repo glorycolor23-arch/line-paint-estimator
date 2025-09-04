@@ -1,8 +1,9 @@
+// 質問データ定義
 const QUESTIONS = [
     {
         id: 'q1_floors',
-        title: '建物の階数は？',
-        description: '工事対象建物の階数を選択してください',
+        title: '工事物件の階数は？',
+        description: '建物の階数を選択してください',
         options: ['1階建て', '2階建て', '3階建て', '4階建て以上'],
         hasImage: false
     },
@@ -22,8 +23,8 @@ const QUESTIONS = [
     },
     {
         id: 'q4_work_type',
-        title: '希望する工事内容は？',
-        description: '実施したい工事内容を選択してください',
+        title: '工事内容は？',
+        description: '希望する工事内容を選択してください',
         options: ['外壁塗装のみ', '屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'],
         hasImage: false
     },
@@ -48,32 +49,29 @@ const QUESTIONS = [
         title: '外壁の種類は？',
         description: '現在の外壁材を選択してください',
         options: [
-            { 
-                value: 'モルタル', 
-                label: 'モルタル', 
-                description: 'セメントと砂を混ぜた塗り壁',
-                image: '/images/mortar.jpg'
+            {
+                value: 'モルタル',
+                label: 'モルタル',
+                description: 'セメント・砂・水を混ぜた材料で仕上げた外壁'
             },
-            { 
-                value: 'サイディング', 
-                label: 'サイディング', 
-                description: 'パネル状の外壁材',
-                image: '/images/siding.jpg'
+            {
+                value: 'サイディング',
+                label: 'サイディング',
+                description: 'パネル状の外壁材を張り合わせた外壁'
             },
-            { 
-                value: 'タイル', 
-                label: 'タイル', 
-                description: '焼き物の外壁材',
-                image: '/images/tile.jpg'
+            {
+                value: 'タイル',
+                label: 'タイル',
+                description: '陶磁器製のタイルを貼った外壁'
             },
-            { 
-                value: 'ALC', 
-                label: 'ALC', 
-                description: '軽量気泡コンクリート',
-                image: '/images/alc.jpg'
+            {
+                value: 'ALC',
+                label: 'ALC',
+                description: '軽量気泡コンクリートの外壁材'
             }
         ],
         hasImage: true,
+        imageUrl: '/liff/images/wall_materials.png',
         condition: (answers) => ['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
     },
     {
@@ -81,32 +79,29 @@ const QUESTIONS = [
         title: '屋根の種類は？',
         description: '現在の屋根材を選択してください',
         options: [
-            { 
-                value: '瓦', 
-                label: '瓦', 
-                description: '粘土を焼いた伝統的な屋根材',
-                image: '/images/kawara.jpg'
+            {
+                value: '瓦',
+                label: '瓦',
+                description: '粘土を焼いて作った伝統的な屋根材'
             },
-            { 
-                value: 'スレート', 
-                label: 'スレート', 
-                description: 'セメント系の薄い板状屋根材',
-                image: '/images/slate.jpg'
+            {
+                value: 'スレート',
+                label: 'スレート',
+                description: '薄い板状のセメント系屋根材'
             },
-            { 
-                value: 'ガルバリウム', 
-                label: 'ガルバリウム', 
-                description: '金属系の軽量屋根材',
-                image: '/images/galvalume.jpg'
+            {
+                value: 'ガルバリウム',
+                label: 'ガルバリウム',
+                description: '亜鉛アルミ合金でメッキした金属屋根材'
             },
-            { 
-                value: 'トタン', 
-                label: 'トタン', 
-                description: '亜鉛メッキ鋼板の屋根材',
-                image: '/images/totan.jpg'
+            {
+                value: 'トタン',
+                label: 'トタン',
+                description: '亜鉛でメッキした薄い鉄板の屋根材'
             }
         ],
         hasImage: true,
+        imageUrl: '/liff/images/roof_materials.png',
         condition: (answers) => ['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
     },
     {
@@ -130,15 +125,27 @@ const QUESTIONS = [
         title: '塗料のグレードは？',
         description: '希望する塗料のグレードを選択してください',
         options: [
-            { value: 'スタンダード', label: 'スタンダード', description: 'アクリル・ウレタン系（耐用年数5-8年）' },
-            { value: 'ハイグレード', label: 'ハイグレード', description: 'シリコン系（耐用年数10-12年）' },
-            { value: 'プレミアム', label: 'プレミアム', description: 'フッ素・無機系（耐用年数15-20年）' }
+            {
+                value: 'スタンダード',
+                label: 'スタンダード',
+                description: 'アクリル・ウレタン系塗料（耐用年数5-8年）'
+            },
+            {
+                value: 'ハイグレード',
+                label: 'ハイグレード',
+                description: 'シリコン系塗料（耐用年数10-12年）'
+            },
+            {
+                value: 'プレミアム',
+                label: 'プレミアム',
+                description: 'フッ素・無機系塗料（耐用年数15-20年）'
+            }
         ],
         hasImage: false
     },
     {
         id: 'q12_urgency',
-        title: '工事希望時期は？',
+        title: '工事の希望時期は？',
         description: '工事を希望する時期を選択してください',
         options: ['1ヶ月以内', '2-3ヶ月以内', '半年以内', '1年以内', '未定'],
         hasImage: false
@@ -190,12 +197,6 @@ class QuestionFlow {
             return this.getCurrentQuestion();
         }
         return null;
-    }
-    
-    // 質問完了チェック
-    isComplete() {
-        const visibleQuestions = this.getVisibleQuestions();
-        return this.currentQuestionIndex >= visibleQuestions.length - 1;
     }
     
     // 概算見積り計算
@@ -311,21 +312,39 @@ class QuestionFlow {
         totalPrice *= basePrices.rooms[answers.q2_rooms] || 1.0;
         totalPrice *= basePrices.age[answers.q3_age] || 1.0;
         
+        // 緊急度調整
+        const urgencyMultiplier = {
+            '1ヶ月以内': 1.1,
+            '2-3ヶ月以内': 1.0,
+            '半年以内': 0.95,
+            '1年以内': 0.9,
+            '未定': 0.9
+        };
+        
+        totalPrice *= urgencyMultiplier[answers.q12_urgency] || 1.0;
+        
         return {
-            total: Math.round(totalPrice),
-            breakdown: breakdown
+            totalPrice: Math.round(totalPrice),
+            breakdown: breakdown,
+            details: {
+                workType: answers.q4_work_type,
+                paintGrade: answers.q11_paint_grade,
+                urgency: answers.q12_urgency
+            }
         };
     }
     
-    // 回答サマリー生成
+    // 条件サマリー生成
     generateSummary() {
         const answers = this.answers;
         const summary = [];
         
         // 基本情報
-        if (answers.q1_floors) summary.push(`階数: ${answers.q1_floors}`);
+        if (answers.q1_floors) summary.push(`建物: ${answers.q1_floors}`);
         if (answers.q2_rooms) summary.push(`間取り: ${answers.q2_rooms}`);
         if (answers.q3_age) summary.push(`築年数: ${answers.q3_age}`);
+        
+        // 工事内容
         if (answers.q4_work_type) summary.push(`工事内容: ${answers.q4_work_type}`);
         
         // 外壁情報
@@ -461,10 +480,6 @@ class LIFFEstimateApp {
                 dropZone.classList.remove('drag-over');
                 this.handlePhotoSelect({ target: { files: e.dataTransfer.files } });
             });
-            
-            dropZone.addEventListener('click', () => {
-                photoInput.click();
-            });
         }
     }
     
@@ -495,11 +510,8 @@ class LIFFEstimateApp {
         this.hideLoading();
         this.hideAllSteps();
         
-        const errorMessage = document.getElementById('error-message');
-        const errorElement = document.getElementById('error');
-        
-        if (errorMessage) errorMessage.textContent = message;
-        if (errorElement) errorElement.style.display = 'block';
+        document.getElementById('error-message').textContent = message;
+        document.getElementById('error').style.display = 'block';
     }
     
     hideAllSteps() {
@@ -589,6 +601,23 @@ class LIFFEstimateApp {
             console.error('[ERROR] question-description要素が見つかりません');
         }
         
+        // 画像表示
+        const imageContainer = document.getElementById('question-image');
+        if (imageContainer) {
+            if (question.hasImage && question.imageUrl) {
+                const img = document.getElementById('question-img');
+                img.src = question.imageUrl;
+                img.alt = question.title;
+                imageContainer.style.display = 'block';
+                console.log('[DEBUG] 質問画像表示:', question.imageUrl);
+            } else {
+                imageContainer.style.display = 'none';
+                console.log('[DEBUG] 質問画像非表示');
+            }
+        } else {
+            console.error('[ERROR] question-image要素が見つかりません');
+        }
+        
         // 選択肢表示
         console.log('[DEBUG] 選択肢レンダリング開始');
         this.renderOptions(question);
@@ -597,10 +626,7 @@ class LIFFEstimateApp {
         console.log('[DEBUG] ナビゲーションボタン更新開始');
         this.updateNavigationButtons();
         
-        console.log('[DEBUG] renderQuestion完了');
-    }
-    
-    renderOptions(question) {
+        console.log('[DEBUG] renderQuestion完了');    renderOptions(question) {
         console.log('[DEBUG] renderOptions開始:', question.options);
         
         const optionsContainer = document.getElementById('question-options');
@@ -618,43 +644,24 @@ class LIFFEstimateApp {
             const optionElement = document.createElement('div');
             optionElement.className = 'question-option';
             
-            let optionValue, optionLabel, optionDescription, optionImage;
+            let optionValue, optionLabel, optionDescription;
             
             if (typeof option === 'string') {
                 optionValue = optionLabel = option;
                 optionDescription = '';
-                optionImage = null;
             } else {
                 optionValue = option.value;
                 optionLabel = option.label;
                 optionDescription = option.description || '';
-                optionImage = option.image || null;
             }
             
-            // 画像付きボタンの場合
-            if (optionImage) {
-                optionElement.innerHTML = `
-                    <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
-                    <label for="option_${index}" class="option-label image-option">
-                        <div class="option-image">
-                            <img src="${optionImage}" alt="${optionLabel}" onerror="this.style.display='none'">
-                        </div>
-                        <div class="option-content">
-                            <div class="option-title">${optionLabel}</div>
-                            <div class="option-description">${optionDescription}</div>
-                        </div>
-                    </label>
-                `;
-            } else {
-                // 通常のボタン
-                optionElement.innerHTML = `
-                    <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
-                    <label for="option_${index}" class="option-label">
-                        <div class="option-title">${optionLabel}</div>
-                        ${optionDescription ? `<div class="option-description">${optionDescription}</div>` : ''}
-                    </label>
-                `;
-            }
+            optionElement.innerHTML = `
+                <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
+                <label for="option_${index}" class="option-label">
+                    <div class="option-title">${optionLabel}</div>
+                    ${optionDescription ? `<div class="option-description">${optionDescription}</div>` : ''}
+                </label>
+            `;
             
             optionsContainer.appendChild(optionElement);
             console.log('[DEBUG] 選択肢追加完了:', index);
@@ -669,77 +676,99 @@ class LIFFEstimateApp {
         });
         
         console.log('[DEBUG] renderOptions完了、選択肢数:', question.options.length);
+    }this.enableNextButton();
+            }
+        }
+        
+        // 選択時のイベントリスナー
+        optionsContainer.addEventListener('change', (e) => {
+            if (e.target.type === 'radio') {
+                this.questionFlow.setAnswer(question.id, e.target.value);
+                this.enableNextButton();
+            }
+        });
     }
     
     updateNavigationButtons() {
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         
-        if (prevBtn) {
-            prevBtn.style.display = this.questionFlow.currentQuestionIndex > 0 ? 'block' : 'none';
+        // 前へボタン
+        if (this.questionFlow.currentQuestionIndex > 0) {
+            prevBtn.style.display = 'inline-block';
+        } else {
+            prevBtn.style.display = 'none';
         }
         
-        if (nextBtn) {
-            const currentQuestion = this.questionFlow.getCurrentQuestion();
-            const hasAnswer = currentQuestion && this.questionFlow.answers[currentQuestion.id];
-            
-            nextBtn.disabled = !hasAnswer;
-            nextBtn.textContent = this.questionFlow.isComplete() ? '見積り結果へ' : '次へ';
+        // 次へボタン
+        const currentQuestion = this.questionFlow.getCurrentQuestion();
+        const hasAnswer = currentQuestion && this.questionFlow.answers[currentQuestion.id];
+        
+        if (hasAnswer) {
+            this.enableNextButton();
+        } else {
+            this.disableNextButton();
         }
     }
     
+    enableNextButton() {
+        const nextBtn = document.getElementById('next-btn');
+        nextBtn.disabled = false;
+        nextBtn.textContent = this.questionFlow.currentQuestionIndex >= this.questionFlow.getVisibleQuestions().length - 1 ? '見積り結果へ' : '次へ';
+    }
+    
+    disableNextButton() {
+        const nextBtn = document.getElementById('next-btn');
+        nextBtn.disabled = true;
+        nextBtn.textContent = '次へ';
+    }
+    
     nextQuestion() {
-        const currentQuestion = this.questionFlow.getCurrentQuestion();
-        if (!currentQuestion || !this.questionFlow.answers[currentQuestion.id]) {
-            return;
-        }
-        
-        if (this.questionFlow.isComplete()) {
-            // 全質問完了、見積り画面へ
-            this.showStep(2);
+        const nextQuestion = this.questionFlow.nextQuestion();
+        if (nextQuestion) {
+            this.renderQuestion(nextQuestion);
         } else {
-            // 次の質問へ
-            this.questionFlow.nextQuestion();
-            this.renderQuestion(this.questionFlow.getCurrentQuestion());
+            // 全質問完了
+            this.showStep(2);
         }
     }
     
     previousQuestion() {
-        this.questionFlow.previousQuestion();
-        this.renderQuestion(this.questionFlow.getCurrentQuestion());
+        const prevQuestion = this.questionFlow.previousQuestion();
+        if (prevQuestion) {
+            this.renderQuestion(prevQuestion);
+        }
     }
     
     showEstimateStep() {
-        const step2Element = document.getElementById('step2');
-        if (step2Element) {
-            step2Element.style.display = 'block';
-        }
+        document.getElementById('step2').style.display = 'block';
         
         // 概算見積り計算
         const estimate = this.questionFlow.calculateEstimate();
+        const summary = this.questionFlow.generateSummary();
         
         // 見積り金額表示
-        const priceElement = document.getElementById('estimate-price');
-        if (priceElement) {
-            priceElement.textContent = `¥${estimate.total.toLocaleString()}`;
-        }
+        document.getElementById('estimate-amount').textContent = `¥${estimate.totalPrice.toLocaleString()}`;
         
-        // 詳細表示
+        // 条件サマリー表示
+        const summaryContainer = document.getElementById('estimate-summary');
+        summaryContainer.innerHTML = summary.map(item => `<div class="summary-item">• ${item}</div>`).join('');
+        
+        // 詳細情報表示
         const detailsContainer = document.getElementById('estimate-details');
         if (detailsContainer) {
             let detailsHtml = '<div class="estimate-breakdown">';
             
             if (estimate.breakdown.wall) {
-                detailsHtml += `<div class="breakdown-item"><span>外壁塗装</span><span>¥${estimate.breakdown.wall.toLocaleString()}</span></div>`;
+                detailsHtml += `<div class="breakdown-item">外壁塗装: ¥${estimate.breakdown.wall.toLocaleString()}</div>`;
             }
             if (estimate.breakdown.roof) {
-                detailsHtml += `<div class="breakdown-item"><span>屋根塗装</span><span>¥${estimate.breakdown.roof.toLocaleString()}</span></div>`;
+                detailsHtml += `<div class="breakdown-item">屋根塗装: ¥${estimate.breakdown.roof.toLocaleString()}</div>`;
             }
             if (estimate.breakdown.additional) {
-                detailsHtml += `<div class="breakdown-item"><span>付帯部塗装</span><span>¥${estimate.breakdown.additional.toLocaleString()}</span></div>`;
+                detailsHtml += `<div class="breakdown-item">付帯部塗装: ¥${estimate.breakdown.additional.toLocaleString()}</div>`;
             }
             
-            detailsHtml += `<div class="breakdown-item total"><span>合計</span><span>¥${estimate.total.toLocaleString()}</span></div>`;
             detailsHtml += '</div>';
             detailsHtml += '<div class="estimate-note">※上記は概算金額です。正確な見積りには現地調査が必要です。</div>';
             
@@ -748,10 +777,7 @@ class LIFFEstimateApp {
     }
     
     showCustomerInfoStep() {
-        const step3Element = document.getElementById('step3');
-        if (step3Element) {
-            step3Element.style.display = 'block';
-        }
+        document.getElementById('step3').style.display = 'block';
         
         // 既存データがあれば復元
         Object.keys(this.customerData).forEach(key => {
@@ -760,23 +786,27 @@ class LIFFEstimateApp {
                 input.value = this.customerData[key];
             }
         });
+        
+        // 入力検証イベントリスナー
+        const requiredFields = ['name', 'phone', 'zipcode', 'address1'];
+        requiredFields.forEach(fieldId => {
+            const input = document.getElementById(fieldId);
+            if (input) {
+                input.addEventListener('input', () => this.updateSubmitButton());
+                input.addEventListener('blur', () => this.updateSubmitButton());
+            }
+        });
     }
     
     showPhotoUploadStep() {
-        const step4Element = document.getElementById('step4');
-        if (step4Element) {
-            step4Element.style.display = 'block';
-        }
+        document.getElementById('step4').style.display = 'block';
         
         // アップロード済み写真を表示
         this.renderPhotoPreview();
     }
     
     showCompleteStep() {
-        const completeElement = document.getElementById('complete');
-        if (completeElement) {
-            completeElement.style.display = 'block';
-        }
+        document.getElementById('complete').style.display = 'block';
     }
     
     async autoFillAddress() {
@@ -790,11 +820,11 @@ class LIFFEstimateApp {
             if (data.results && data.results.length > 0) {
                 const result = data.results[0];
                 const address = `${result.address1}${result.address2}${result.address3}`;
-                const address1Input = document.getElementById('address1');
-                if (address1Input) {
-                    address1Input.value = address;
-                    this.customerData.address1 = address;
-                }
+                document.getElementById('address1').value = address;
+                
+                // 顧客データを更新
+                this.customerData.address1 = address;
+                this.updateSubmitButton();
             }
         } catch (error) {
             console.error('住所自動入力エラー:', error);
@@ -848,18 +878,19 @@ class LIFFEstimateApp {
         this.uploadedPhotos.forEach((photo, index) => {
             const photoElement = document.createElement('div');
             photoElement.className = 'photo-item';
-            
             photoElement.innerHTML = `
                 <img src="${photo.data}" alt="${photo.name}">
                 <div class="photo-info">
                     <div class="photo-name">${photo.name}</div>
                     <div class="photo-size">${(photo.size / 1024 / 1024).toFixed(1)}MB</div>
                 </div>
-                <button class="remove-photo" onclick="window.app.removePhoto(${index})">×</button>
+                <button class="remove-photo" onclick="app.removePhoto(${index})">×</button>
             `;
-            
             previewContainer.appendChild(photoElement);
         });
+        
+        // 送信ボタンの状態更新
+        this.updateSubmitButton();
     }
     
     removePhoto(index) {
@@ -867,48 +898,78 @@ class LIFFEstimateApp {
         this.renderPhotoPreview();
     }
     
+    updateSubmitButton() {
+        const submitBtn = document.getElementById('submit-btn');
+        if (!submitBtn) return;
+        
+        const hasRequiredInfo = this.validateCustomerInfo();
+        
+        submitBtn.disabled = !hasRequiredInfo;
+        submitBtn.textContent = hasRequiredInfo ? '送信' : '必須項目を入力してください';
+    }
+    
+    validateCustomerInfo() {
+        const requiredFields = ['name', 'phone', 'zipcode', 'address1'];
+        
+        // フォームデータを収集
+        this.customerData = {};
+        requiredFields.forEach(field => {
+            const input = document.getElementById(field);
+            if (input) {
+                this.customerData[field] = input.value.trim();
+            }
+        });
+        
+        // 住所2も収集（必須ではない）
+        const address2Input = document.getElementById('address2');
+        if (address2Input) {
+            this.customerData.address2 = address2Input.value.trim();
+        }
+        
+        // 必須項目チェック
+        return requiredFields.every(field => this.customerData[field]);
+    }
+    
     async submitForm() {
+        if (!this.validateCustomerInfo()) {
+            alert('必須項目をすべて入力してください');
+            return;
+        }
+        
         try {
-            // 顧客データ収集
-            ['name', 'phone', 'zipcode', 'address1', 'address2'].forEach(fieldId => {
-                const input = document.getElementById(fieldId);
-                if (input) {
-                    this.customerData[fieldId] = input.value;
-                }
-            });
+            // ローディング表示
+            this.showLoading();
             
-            // 必須項目チェック
-            const requiredFields = ['name', 'phone', 'zipcode', 'address1'];
-            const missingFields = requiredFields.filter(field => !this.customerData[field]);
+            // 送信データ準備
+            const submitData = {
+                answers: this.questionFlow.answers,
+                estimate: this.questionFlow.calculateEstimate(),
+                summary: this.questionFlow.generateSummary(),
+                customer: this.customerData,
+                photos: this.uploadedPhotos,
+                timestamp: new Date().toISOString()
+            };
             
-            if (missingFields.length > 0) {
-                alert('必須項目が入力されていません: ' + missingFields.join(', '));
-                return;
+            // ユーザー情報取得
+            if (liff.isLoggedIn()) {
+                const profile = await liff.getProfile();
+                submitData.lineUser = {
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                    pictureUrl: profile.pictureUrl
+                };
             }
             
-            // LINEユーザー情報取得
-            let lineUserId = 'local_test_user';
-            if (window.liff && liff.isLoggedIn()) {
-                try {
-                    const profile = await liff.getProfile();
-                    lineUserId = profile.userId;
-                } catch (error) {
-                    console.warn('LINEプロフィール取得エラー:', error);
-                }
-            }
-            
-            // FormData作成
+            // FormDataを作成（写真アップロード対応）
             const formData = new FormData();
-            formData.append('userId', lineUserId);
+            
+            // 基本データを追加
+            formData.append('userId', submitData.lineUser?.userId || 'unknown');
             formData.append('name', this.customerData.name);
             formData.append('phone', this.customerData.phone);
             formData.append('zipcode', this.customerData.zipcode);
             formData.append('address1', this.customerData.address1);
             formData.append('address2', this.customerData.address2 || '');
-            
-            // 質問回答データを追加
-            formData.append('answers', JSON.stringify(this.questionFlow.answers));
-            formData.append('estimate', JSON.stringify(this.questionFlow.calculateEstimate()));
             
             // 写真を追加
             this.uploadedPhotos.forEach((photo, index) => {
@@ -923,6 +984,18 @@ class LIFFEstimateApp {
                 formData.append('photos', blob, photo.name);
             });
             
+            // 質問回答を先に保存
+            await fetch('/api/answers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: submitData.lineUser?.userId || 'unknown',
+                    answers: this.questionFlow.answers
+                })
+            });
+            
             // サーバーに送信
             const response = await fetch('/api/submit', {
                 method: 'POST',
@@ -930,8 +1003,7 @@ class LIFFEstimateApp {
             });
             
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`送信エラー: ${response.status} - ${errorText}`);
+                throw new Error(`送信エラー: ${response.status}`);
             }
             
             const result = await response.json();
@@ -985,7 +1057,6 @@ function submitForm() {
 
 // アプリ初期化
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM読み込み完了、アプリ初期化開始');
     window.app = new LIFFEstimateApp();
 });
 

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>詳細見積もり依頼 - 外壁塗装見積もり</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/detail-form.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta name="description" content="外壁塗装の詳細見積もりを依頼するためのフォームです。お客様情報と建物の写真をご提供いただくことで、より正確な見積もりを作成します。">
+</head>
+<body>
+  <header class="header">
+    <div class="header-container">
+      <h1 class="logo">
+        <a href="/">外壁塗装見積もり</a>
+      </h1>
+      <button id="backToTop" class="back-button">← トップに戻る</button>
+    </div>
+  </header>
+
+  <main class="detail-form-main">
+    <div class="container">
+      <div class="detail-form-container">
+        <h2 class="section-title">詳細見積もり依頼</h2>
+        
+        <div class="form-introduction">
+          <p>
+            より正確な見積もりを作成するために、お客様情報と建物の写真をご提供ください。<br>
+            現地調査の日程調整や詳細なご要望などもお伺いします。
+          </p>
+        </div>
+        
+        <form id="detailForm" class="detail-form">
+          <!-- お客様情報セクション -->
+          <section class="form-section">
+            <h3 class="section-subtitle">お客様情報</h3>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="name">お名前 <span class="required">必須</span></label>
+                <input type="text" id="name" name="name" required>
+              </div>
+              <div class="form-group">
+                <label for="furigana">フリガナ <span class="required">必須</span></label>
+                <input type="text" id="furigana" name="furigana" required>
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="phone">電話番号 <span class="required">必須</span></label>
+                <input type="tel" id="phone" name="phone" placeholder="例: 090-1234-5678" required>
+              </div>
+              <div class="form-group">
+                <label for="email">メールアドレス <span class="required">必須</span></label>
+                <input type="email" id="email" name="email" placeholder="例: example@mail.com" required>
+              </div>
+            </div>
+          </section>
+          
+          <!-- 住所セクション -->
+          <section class="form-section">
+            <h3 class="section-subtitle">住所</h3>
+            
+            <div class="form-row">
+              <div class="form-group postal-code-group">
+                <label for="postalCode">郵便番号 <span class="required">必須</span></label>
+                <div class="postal-code-input">
+                  <input type="text" id="postalCode" name="postalCode" placeholder="例: 123-4567" required>
+                  <button type="button" id="searchAddress" class="search-button">住所検索</button>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="address">住所 <span class="required">必須</span></label>
+                <input type="text" id="address" name="address" placeholder="例: 東京都新宿区西新宿1-1-1" required>
+              </div>
+            </div>
+          </section>
+          
+          <!-- 現地調査希望日セクション -->
+          <section class="form-section">
+            <h3 class="section-subtitle">現地調査希望日</h3>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="preferredDate1">第1希望日 <span class="required">必須</span></label>
+                <input type="date" id="preferredDate1" name="preferredDate1" required>
+              </div>
+              <div class="form-group">
+                <label for="preferredTime1">時間帯</label>
+                <select id="preferredTime1" name="preferredTime1">
+                  <option value="">選択してください</option>
+                  <option value="午前">午前（9:00〜12:00）</option>
+                  <option value="午後">午後（13:00〜17:00）</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="preferredDate2">第2希望日</label>
+                <input type="date" id="preferredDate2" name="preferredDate2">
+              </div>
+              <div class="form-group">
+                <label for="preferredTime2">時間帯</label>
+                <select id="preferredTime2" name="preferredTime2">
+                  <option value="">選択してください</option>
+                  <option value="午前">午前（9:00〜12:00）</option>
+                  <option value="午後">午後（13:00〜17:00）</option>
+                </select>
+              </div>
+            </div>
+          </section>
+          
+          <!-- 写真アップロードセクション -->
+          <section class="form-section">
+            <h3 class="section-subtitle">建物の写真</h3>
+            <p class="section-description">
+              より正確な見積もりのために、建物の写真をアップロードしてください。<br>
+              スマートフォンで撮影した写真でも構いません。
+            </p>
+            
+            <div class="photo-upload-grid">
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>外観（正面）</span>
+                  <span class="recommended">推奨</span>
+                </div>
+                <div class="photo-upload-container" data-type="front">
+                  <input type="file" id="photoFront" name="photoFront" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+              
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>外観（背面）</span>
+                </div>
+                <div class="photo-upload-container" data-type="back">
+                  <input type="file" id="photoBack" name="photoBack" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+              
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>外観（左側面）</span>
+                </div>
+                <div class="photo-upload-container" data-type="left">
+                  <input type="file" id="photoLeft" name="photoLeft" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+              
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>外観（右側面）</span>
+                </div>
+                <div class="photo-upload-container" data-type="right">
+                  <input type="file" id="photoRight" name="photoRight" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+              
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>屋根</span>
+                  <span class="recommended">推奨</span>
+                </div>
+                <div class="photo-upload-container" data-type="roof">
+                  <input type="file" id="photoRoof" name="photoRoof" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+              
+              <div class="photo-upload-item">
+                <div class="photo-upload-label">
+                  <span>気になる箇所</span>
+                </div>
+                <div class="photo-upload-container" data-type="damage">
+                  <input type="file" id="photoDamage" name="photoDamage" accept="image/*" class="photo-input">
+                  <div class="photo-upload-placeholder">
+                    <img src="images/icon-camera.svg" alt="カメラアイコン" class="upload-icon">
+                    <span>タップして写真を選択</span>
+                  </div>
+                  <div class="photo-preview"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+          
+          <!-- 追加情報セクション -->
+          <section class="form-section">
+            <h3 class="section-subtitle">追加情報・ご要望</h3>
+            
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="message">ご要望・ご質問など</label>
+                <textarea id="message" name="message" rows="5" placeholder="ご要望や気になる点、ご質問などがありましたらご記入ください。"></textarea>
+              </div>
+            </div>
+          </section>
+          
+          <!-- プライバシーポリシー -->
+          <section class="form-section privacy-section">
+            <div class="privacy-agreement">
+              <input type="checkbox" id="privacyAgreement" name="privacyAgreement" required>
+              <label for="privacyAgreement">
+                <a href="/privacy.html" target="_blank">プライバシーポリシー</a>に同意します
+              </label>
+            </div>
+          </section>
+          
+          <!-- 送信ボタン -->
+          <div class="form-submit">
+            <button type="submit" id="submitButton" class="submit-button">詳細見積もりを依頼する</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-bottom">
+        <p class="copyright">&copy; 2025 外壁塗装見積もり All Rights Reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/detail-form.js"></script>
+</body>
+</html>
+

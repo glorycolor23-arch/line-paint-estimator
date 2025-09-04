@@ -1,8 +1,8 @@
 const QUESTIONS = [
     {
         id: 'q1_floors',
-        title: '建物の階数は？',
-        description: '工事対象建物の階数を選択してください',
+        title: '工事物件の階数は？',
+        description: '建物の階数を選択してください',
         options: ['1階建て', '2階建て', '3階建て', '4階建て以上'],
         hasImage: false
     },
@@ -22,8 +22,8 @@ const QUESTIONS = [
     },
     {
         id: 'q4_work_type',
-        title: '希望する工事内容は？',
-        description: '実施したい工事内容を選択してください',
+        title: '工事内容は？',
+        description: '希望する工事内容を選択してください',
         options: ['外壁塗装のみ', '屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'],
         hasImage: false
     },
@@ -48,32 +48,13 @@ const QUESTIONS = [
         title: '外壁の種類は？',
         description: '現在の外壁材を選択してください',
         options: [
-            { 
-                value: 'モルタル', 
-                label: 'モルタル', 
-                description: 'セメントと砂を混ぜた塗り壁',
-                image: '/images/mortar.jpg'
-            },
-            { 
-                value: 'サイディング', 
-                label: 'サイディング', 
-                description: 'パネル状の外壁材',
-                image: '/images/siding.jpg'
-            },
-            { 
-                value: 'タイル', 
-                label: 'タイル', 
-                description: '焼き物の外壁材',
-                image: '/images/tile.jpg'
-            },
-            { 
-                value: 'ALC', 
-                label: 'ALC', 
-                description: '軽量気泡コンクリート',
-                image: '/images/alc.jpg'
-            }
+            { value: 'モルタル', label: 'モルタル', description: 'セメントと砂を混ぜた塗り壁' },
+            { value: 'サイディング', label: 'サイディング', description: 'パネル状の外壁材' },
+            { value: 'タイル', label: 'タイル', description: '焼き物の外壁材' },
+            { value: 'ALC', label: 'ALC', description: '軽量気泡コンクリート' }
         ],
         hasImage: true,
+        imageUrl: '/images/wall_materials.jpg',
         condition: (answers) => ['外壁塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
     },
     {
@@ -81,32 +62,13 @@ const QUESTIONS = [
         title: '屋根の種類は？',
         description: '現在の屋根材を選択してください',
         options: [
-            { 
-                value: '瓦', 
-                label: '瓦', 
-                description: '粘土を焼いた伝統的な屋根材',
-                image: '/images/kawara.jpg'
-            },
-            { 
-                value: 'スレート', 
-                label: 'スレート', 
-                description: 'セメント系の薄い板状屋根材',
-                image: '/images/slate.jpg'
-            },
-            { 
-                value: 'ガルバリウム', 
-                label: 'ガルバリウム', 
-                description: '金属系の軽量屋根材',
-                image: '/images/galvalume.jpg'
-            },
-            { 
-                value: 'トタン', 
-                label: 'トタン', 
-                description: '亜鉛メッキ鋼板の屋根材',
-                image: '/images/totan.jpg'
-            }
+            { value: '瓦', label: '瓦', description: '粘土を焼いた伝統的な屋根材' },
+            { value: 'スレート', label: 'スレート', description: 'セメント系の薄い板状屋根材' },
+            { value: 'ガルバリウム', label: 'ガルバリウム', description: '金属系の軽量屋根材' },
+            { value: 'トタン', label: 'トタン', description: '亜鉛メッキ鋼板の屋根材' }
         ],
         hasImage: true,
+        imageUrl: '/images/roof_materials.jpg',
         condition: (answers) => ['屋根塗装のみ', '外壁・屋根塗装', '外壁・屋根・付帯部塗装'].includes(answers.q4_work_type)
     },
     {
@@ -589,6 +551,25 @@ class LIFFEstimateApp {
             console.error('[ERROR] question-description要素が見つかりません');
         }
         
+        // 画像表示
+        const imageContainer = document.getElementById('question-image');
+        if (imageContainer) {
+            if (question.hasImage && question.imageUrl) {
+                const img = document.getElementById('question-img');
+                if (img) {
+                    img.src = question.imageUrl;
+                    img.alt = question.title;
+                }
+                imageContainer.style.display = 'block';
+                console.log('[DEBUG] 質問画像表示:', question.imageUrl);
+            } else {
+                imageContainer.style.display = 'none';
+                console.log('[DEBUG] 質問画像非表示');
+            }
+        } else {
+            console.error('[ERROR] question-image要素が見つかりません');
+        }
+        
         // 選択肢表示
         console.log('[DEBUG] 選択肢レンダリング開始');
         this.renderOptions(question);
@@ -618,43 +599,24 @@ class LIFFEstimateApp {
             const optionElement = document.createElement('div');
             optionElement.className = 'question-option';
             
-            let optionValue, optionLabel, optionDescription, optionImage;
+            let optionValue, optionLabel, optionDescription;
             
             if (typeof option === 'string') {
                 optionValue = optionLabel = option;
                 optionDescription = '';
-                optionImage = null;
             } else {
                 optionValue = option.value;
                 optionLabel = option.label;
                 optionDescription = option.description || '';
-                optionImage = option.image || null;
             }
             
-            // 画像付きボタンの場合
-            if (optionImage) {
-                optionElement.innerHTML = `
-                    <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
-                    <label for="option_${index}" class="option-label image-option">
-                        <div class="option-image">
-                            <img src="${optionImage}" alt="${optionLabel}" onerror="this.style.display='none'">
-                        </div>
-                        <div class="option-content">
-                            <div class="option-title">${optionLabel}</div>
-                            <div class="option-description">${optionDescription}</div>
-                        </div>
-                    </label>
-                `;
-            } else {
-                // 通常のボタン
-                optionElement.innerHTML = `
-                    <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
-                    <label for="option_${index}" class="option-label">
-                        <div class="option-title">${optionLabel}</div>
-                        ${optionDescription ? `<div class="option-description">${optionDescription}</div>` : ''}
-                    </label>
-                `;
-            }
+            optionElement.innerHTML = `
+                <input type="radio" id="option_${index}" name="question_option" value="${optionValue}">
+                <label for="option_${index}" class="option-label">
+                    <div class="option-title">${optionLabel}</div>
+                    ${optionDescription ? `<div class="option-description">${optionDescription}</div>` : ''}
+                </label>
+            `;
             
             optionsContainer.appendChild(optionElement);
             console.log('[DEBUG] 選択肢追加完了:', index);
@@ -739,7 +701,7 @@ class LIFFEstimateApp {
                 detailsHtml += `<div class="breakdown-item"><span>付帯部塗装</span><span>¥${estimate.breakdown.additional.toLocaleString()}</span></div>`;
             }
             
-            detailsHtml += `<div class="breakdown-item total"><span>合計</span><span>¥${estimate.total.toLocaleString()}</span></div>`;
+            detailsHtml += `<div class="breakdown-item"><span>合計</span><span>¥${estimate.total.toLocaleString()}</span></div>`;
             detailsHtml += '</div>';
             detailsHtml += '<div class="estimate-note">※上記は概算金額です。正確な見積りには現地調査が必要です。</div>';
             
@@ -886,12 +848,24 @@ class LIFFEstimateApp {
                 return;
             }
             
+            // 送信データ準備
+            const submitData = {
+                answers: this.questionFlow.answers,
+                estimate: this.questionFlow.calculateEstimate(),
+                customer: this.customerData,
+                photos: this.uploadedPhotos,
+                timestamp: new Date().toISOString()
+            };
+            
             // LINEユーザー情報取得
-            let lineUserId = 'local_test_user';
             if (window.liff && liff.isLoggedIn()) {
                 try {
                     const profile = await liff.getProfile();
-                    lineUserId = profile.userId;
+                    submitData.lineUser = {
+                        userId: profile.userId,
+                        displayName: profile.displayName,
+                        pictureUrl: profile.pictureUrl
+                    };
                 } catch (error) {
                     console.warn('LINEプロフィール取得エラー:', error);
                 }
@@ -899,16 +873,12 @@ class LIFFEstimateApp {
             
             // FormData作成
             const formData = new FormData();
-            formData.append('userId', lineUserId);
+            formData.append('data', JSON.stringify(submitData));
             formData.append('name', this.customerData.name);
             formData.append('phone', this.customerData.phone);
             formData.append('zipcode', this.customerData.zipcode);
             formData.append('address1', this.customerData.address1);
             formData.append('address2', this.customerData.address2 || '');
-            
-            // 質問回答データを追加
-            formData.append('answers', JSON.stringify(this.questionFlow.answers));
-            formData.append('estimate', JSON.stringify(this.questionFlow.calculateEstimate()));
             
             // 写真を追加
             this.uploadedPhotos.forEach((photo, index) => {
@@ -930,8 +900,7 @@ class LIFFEstimateApp {
             });
             
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`送信エラー: ${response.status} - ${errorText}`);
+                throw new Error(`送信エラー: ${response.status}`);
             }
             
             const result = await response.json();

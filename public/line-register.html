@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINE友達登録 - 外壁塗装見積もり</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/line-register.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <meta name="description" content="LINE友達登録で外壁塗装の概算見積もり結果を確認できます。簡単な登録で詳細な見積もり内容をLINEで受け取れます。">
+</head>
+<body>
+  <header class="header">
+    <div class="header-container">
+      <h1 class="logo">
+        <a href="/">外壁塗装見積もり</a>
+      </h1>
+      <button id="backToForm" class="back-button">← フォームに戻る</button>
+    </div>
+  </header>
+
+  <main class="line-register-main">
+    <div class="container">
+      <div class="line-register-container">
+        <h2 class="section-title">概算見積もり結果</h2>
+        
+        <!-- 見積もり結果プレビュー -->
+        <div class="estimate-preview">
+          <div class="estimate-amount-container">
+            <p class="estimate-label">概算見積もり金額</p>
+            <div class="estimate-amount">
+              <span id="estimateAmount">---,---</span>円
+            </div>
+            <p class="estimate-note">※正確な金額は現地調査後にご案内いたします</p>
+          </div>
+          
+          <div class="estimate-summary">
+            <h3>選択内容</h3>
+            <div id="estimateSummary" class="summary-items">
+              <!-- JavaScriptで動的に生成 -->
+            </div>
+          </div>
+        </div>
+        
+        <!-- LINE友達登録セクション -->
+        <div class="line-register-section">
+          <h3 class="line-register-title">LINE友達登録で詳細な見積もり結果を確認</h3>
+          <p class="line-register-description">
+            LINE友達登録をすると、詳細な見積もり内容や内訳をLINEで確認できます。<br>
+            また、質問や相談もLINEから気軽にできます。
+          </p>
+          
+          <div class="line-register-methods">
+            <!-- モバイル用 -->
+            <div id="mobileRegister" class="register-method">
+              <button id="addFriendButton" class="line-button">
+                <img src="images/line-icon.svg" alt="LINEアイコン" class="line-icon">
+                <span>友だち追加</span>
+              </button>
+              <p class="register-note">タップするとLINEアプリが起動します</p>
+            </div>
+            
+            <!-- PC用 -->
+            <div id="pcRegister" class="register-method">
+              <div class="qr-container">
+                <div id="qrCode" class="qr-code">
+                  <!-- QRコード画像 -->
+                  <img src="images/line-qr.png" alt="LINE QRコード" class="qr-image">
+                </div>
+              </div>
+              <p class="register-note">スマートフォンでQRコードを読み取ってください</p>
+            </div>
+          </div>
+          
+          <div class="register-benefits">
+            <div class="benefit-item">
+              <div class="benefit-icon">
+                <img src="images/icon-detail.svg" alt="詳細アイコン" class="icon">
+              </div>
+              <div class="benefit-content">
+                <h4>詳細な見積もり内容</h4>
+                <p>工事内容ごとの詳細な内訳を確認できます</p>
+              </div>
+            </div>
+            <div class="benefit-item">
+              <div class="benefit-icon">
+                <img src="images/icon-chat.svg" alt="チャットアイコン" class="icon">
+              </div>
+              <div class="benefit-content">
+                <h4>簡単に質問・相談</h4>
+                <p>LINEで気軽に質問や相談ができます</p>
+              </div>
+            </div>
+            <div class="benefit-item">
+              <div class="benefit-icon">
+                <img src="images/icon-document.svg" alt="資料アイコン" class="icon">
+              </div>
+              <div class="benefit-content">
+                <h4>資料請求も簡単</h4>
+                <p>塗料や施工事例の資料をLINEで請求できます</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 注意事項 -->
+        <div class="notice-section">
+          <h3 class="notice-title">注意事項</h3>
+          <ul class="notice-list">
+            <li>概算見積もりは、入力いただいた情報に基づく参考価格です。</li>
+            <li>正確な見積もりは、現地調査後にご提供いたします。</li>
+            <li>LINE登録後、自動的に見積もり結果が送信されます。</li>
+            <li>個人情報は厳重に管理し、営業目的での連絡はいたしません。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-bottom">
+        <p class="copyright">&copy; 2025 外壁塗装見積もり All Rights Reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/line-register.js"></script>
+</body>
+</html>
+
