@@ -3,7 +3,10 @@ const express = require('express');
 const multer = require('multer');
 const axios = require('axios');
 const { google } = require('googleapis');
+const nodemailer = require('nodemailer');
 const path = require('path');
+const fs = require('fs');
+const ftp = require('basic-ftp');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -56,7 +59,98 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB制限
 });
 
-// セッション管理（新システム用）
+// ===== FTP画像アップロード機能 =====
+
+// FTPサーバーにファイルをアップロードする関数
+async function uploadToFtp(localFilePath, remoteFileName) {
+  const client = new ftp.Client();
+  client.ftp.verbose = false; // デバッグ出力を無効化
+  
+  try {
+    await client.access({
+      host: process.env.FTP_HOST,
+      user: process.env.FTP_USER,
+      password: process.env.FTP_PASS,
+      secure: process.env.FTP_SECURE === 'true' // FTPSを使用する場合はtrue
+    });
+    
+    console.log('[INFO] FTPサーバーに接続しました');
+    
+    // リモートディレクトリが存在することを確認
+    try {
+      await client.ensureDir(process.env.FTP_PATH);
+    } catch (err) {
+      console.log('[WARN] ディレクトリの作成に失敗しました:', err.message);
+      // ディレクトリが存在しない場合は作成を試みる
+      try {
+        await client.makeDir(process.env.FTP_PATH);
+      } catch (createErr) {
+        console.log('[WARN] ディレクトリの作成もできませんでした:', createErr.message);
+      }
+    }
+    
+    // ファイルをアップロード
+    await client.uploadFrom(localFilePath, process.env.FTP_PATH + remoteFileName);
+    console.log(`[INFO] ファイルをアップロードしました: ${remoteFileName}`);
+    
+    // 画像のURLを返す
+    return `${process.env.FTP_URL}${remoteFileName}`;
+  } catch(err) {
+    console.error('[ERROR] FTPアップロードエラー:', err);
+    throw err;
+  } finally {
+    client.close();
+  }
+}
+
+// 複数の画像をアップロードする関数
+async function uploadMultipleImages(files) {
+  const uploadPromises = [];
+  const uploadedUrls = {};
+  
+  for (const fieldName in files) {
+    const file = files[fieldName][0]; // multerは配列で返すため
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}_${path.basename(file.originalname)}`;
+    
+    uploadPromises.push(
+      uploadToFtp(file.path, fileName)
+        .then(url => {
+          uploadedUrls[fieldName] = url;
+          // アップロード後に一時ファイルを削除
+          cleanupTempFile(file.path);
+        })
+        .catch(err => {
+          console.error(`[ERROR] ${fieldName}のアップロードに失敗:`, err);
+          uploadedUrls[fieldName] = null;
+          // エラーでも一時ファイルは削除
+          cleanupTempFile(file.path);
+        })
+    );
+  }
+  
+  await Promise.all(uploadPromises);
+  return uploadedUrls;
+}
+
+// 一時ファイルを削除する関数
+function cleanupTempFile(filePath) {
+  fs.unlink(filePath, (err) => {
+    if (err) {
+      console.error(`[ERROR] 一時ファイルの削除に失敗: ${filePath}`, err);
+    } else {
+      console.log(`[INFO] 一時ファイルを削除しました: ${filePath}`);
+    }
+  });
+}
+
+// FTP設定のチェック
+if (process.env.FTP_HOST && process.env.FTP_USER && process.env.FTP_PASS) {
+  console.log('[INFO] FTP設定完了');
+} else {
+  console.warn('[WARN] FTP環境変数が未設定です。画像アップロード機能は無効化されます。');
+}
+
+// ===== セッション管理（新システム用） =====
 const sessions = {};
 
 // セッションIDの生成関数
@@ -241,34 +335,161 @@ app.post('/api/submit-detail-request', upload.fields([
     const parsedCustomerData = JSON.parse(customerData);
     const sessionId = parsedCustomerData.sessionId || req.body.sessionId;
     
-    // ファイルの保存処理
+    // ファイルのアップロード処理
     const uploadedFiles = req.files;
-    const fileUrls = {};
+    let photoUrls = {};
     
-    // ファイルパスの記録
-    for (const [fieldName, files] of Object.entries(uploadedFiles)) {
-      if (files && files.length > 0) {
-        fileUrls[fieldName] = files[0].path;
+    // FTPサーバーに画像をアップロード
+    if (uploadedFiles && Object.keys(uploadedFiles).length > 0) {
+      try {
+        console.log('[INFO] 写真のアップロードを開始します');
+        photoUrls = await uploadMultipleImages(uploadedFiles);
+        console.log('[INFO] 写真のアップロードに成功しました:', photoUrls);
+      } catch (err) {
+        console.error('[ERROR] 写真のアップロードに失敗しました:', err);
+        // FTPアップロードに失敗した場合はローカルパスを使用
+        for (const [fieldName, files] of Object.entries(uploadedFiles)) {
+          if (files && files.length > 0) {
+            photoUrls[fieldName] = `/uploads/${path.basename(files[0].path)}`;
+          }
+        }
       }
     }
     
     // セッションデータの取得
     const sessionData = sessionId && sessions[sessionId] ? sessions[sessionId] : null;
     
-    // Google Sheetsにデータを保存（既存コードを活用）
-    // ...
-    
-    // LINE通知を送信（既存コードを活用）
-    if (parsedCustomerData.lineId) {
-      await client.pushMessage(parsedCustomerData.lineId, {
-        type: 'text',
-        text: `詳細見積もり依頼を受け付けました。担当者より2営業日以内にご連絡いたします。`
-      });
+    // Google Sheetsにデータを保存
+    try {
+      const sheetsData = {
+        timestamp: new Date().toISOString(),
+        name: parsedCustomerData.name,
+        phone: parsedCustomerData.phone,
+        email: parsedCustomerData.email || '',
+        address: parsedCustomerData.address,
+        sessionId: sessionId,
+        photoUrls: JSON.stringify(photoUrls),
+        formData: sessionData ? JSON.stringify(sessionData.formData) : '',
+        estimateResult: sessionData ? JSON.stringify(sessionData.estimateResult) : ''
+      };
+      
+      console.log('[INFO] Google Sheetsにデータを保存します');
+      
+      // Google Sheets API設定
+      if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+        const auth = new google.auth.GoogleAuth({
+          credentials: {
+            client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+            private_key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          },
+          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+        
+        const sheets = google.sheets({ version: 'v4', auth });
+        
+        // スプレッドシートに行を追加
+        const values = [
+          [
+            sheetsData.timestamp,
+            sheetsData.name,
+            sheetsData.phone,
+            sheetsData.email,
+            sheetsData.address,
+            sheetsData.sessionId,
+            sheetsData.photoUrls,
+            sheetsData.formData,
+            sheetsData.estimateResult
+          ]
+        ];
+        
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GSHEET_SPREADSHEET_ID,
+          range: `${process.env.GSHEET_SHEET_NAME || 'Sheet1'}!A:I`,
+          valueInputOption: 'RAW',
+          resource: { values },
+        });
+        
+        console.log('[INFO] Google Sheetsへの保存に成功しました');
+      } else {
+        console.warn('[WARN] Google Sheets環境変数が未設定です');
+      }
+      
+    } catch (sheetsError) {
+      console.error('[ERROR] Google Sheetsへの保存に失敗:', sheetsError);
     }
     
-    res.json({ success: true });
+    // LINE通知を送信
+    if (parsedCustomerData.lineId) {
+      try {
+        await client.pushMessage(parsedCustomerData.lineId, {
+          type: 'text',
+          text: `詳細見積もり依頼を受け付けました。\n\nお名前: ${parsedCustomerData.name}\n電話番号: ${parsedCustomerData.phone}\n住所: ${parsedCustomerData.address}\n\n担当者より2営業日以内にご連絡いたします。`
+        });
+        console.log('[INFO] LINE通知を送信しました');
+      } catch (lineError) {
+        console.error('[ERROR] LINE通知の送信に失敗:', lineError);
+      }
+    }
+    
+    // メール送信
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.EMAIL_TO) {
+      try {
+        const transporter = nodemailer.createTransporter({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+          }
+        });
+        
+        const mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: process.env.EMAIL_TO,
+          subject: '【外壁塗装見積もり】新しい詳細見積もり依頼',
+          html: `
+            <h2>新しい詳細見積もり依頼が届きました</h2>
+            <h3>お客様情報</h3>
+            <ul>
+              <li><strong>お名前:</strong> ${parsedCustomerData.name}</li>
+              <li><strong>電話番号:</strong> ${parsedCustomerData.phone}</li>
+              <li><strong>メールアドレス:</strong> ${parsedCustomerData.email || '未入力'}</li>
+              <li><strong>住所:</strong> ${parsedCustomerData.address}</li>
+              <li><strong>セッションID:</strong> ${sessionId}</li>
+            </ul>
+            
+            <h3>アップロードされた写真</h3>
+            <ul>
+              ${Object.entries(photoUrls).map(([key, url]) => 
+                `<li><strong>${key}:</strong> <a href="${url}" target="_blank">${url}</a></li>`
+              ).join('')}
+            </ul>
+            
+            <h3>フォームデータ</h3>
+            <pre>${sessionData ? JSON.stringify(sessionData.formData, null, 2) : '未取得'}</pre>
+            
+            <h3>概算見積もり結果</h3>
+            <pre>${sessionData ? JSON.stringify(sessionData.estimateResult, null, 2) : '未取得'}</pre>
+            
+            <p><strong>対応期限:</strong> 2営業日以内</p>
+          `
+        };
+        
+        await transporter.sendMail(mailOptions);
+        console.log('[INFO] メール送信に成功しました');
+      } catch (emailError) {
+        console.error('[ERROR] メール送信に失敗:', emailError);
+      }
+    } else {
+      console.warn('[WARN] メール設定が未完了です');
+    }
+    
+    res.json({ 
+      success: true, 
+      message: '詳細見積もり依頼を受け付けました',
+      photoUrls: photoUrls
+    });
   } catch (error) {
-    console.error('詳細見積もり依頼エラー:', error);
+    console.error('[ERROR] 詳細見積もり依頼エラー:', error);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
