@@ -1,197 +1,239 @@
-/* 汎用アンケート進行スクリプト（name に依存しない） */
+// アンケートの最小ロジック。DOM 初期化失敗を避け、確実に描画する。
+const $app = document.getElementById('app');
 
-(() => {
-  const steps = Array.from(document.querySelectorAll(".step"));
-  const progressBar = document.getElementById("progressBar");
+const state = {
+  step: 0,
+  answers: {
+    kind: null,        // 外壁 / 屋根 / 外壁と屋根
+    age: null,         // 築年数
+    floors: null,      // 階数
+    material: null     // 外壁材
+  }
+};
 
-  // 収集データ（ラジオは name をキーに自動保存）
-  const answers = {};
+// 質問定義
+const QUESTIONS = [
+  {
+    key: 'kind',
+    title: 'お見積もり希望の内容は何ですか？',
+    type: 'list',
+    options: [
+      { value: '外壁', label: '外壁' },
+      { value: '屋根', label: '屋根' },
+      { value: '外壁と屋根', label: '外壁と屋根' },
+    ],
+    vertical: true  // 縦並び
+  },
+  {
+    key: 'age',
+    title: '築年数をお選びください',
+    type: 'list',
+    options: [
+      '1〜5年','6〜10年','11〜15年','16〜20年','21〜25年','26〜30年','31年以上'
+    ].map(v => ({ value: v, label: v }))
+  },
+  {
+    key: 'floors',
+    title: '何階建てですか？',
+    type: 'list',
+    options: [
+      { value: '1階建て', label: '1階建て' },
+      { value: '2階建て', label: '2階建て' },
+      { value: '3階建て以上', label: '3階建て以上' }
+    ]
+  },
+  {
+    key: 'material',
+    title: '外壁材を以下からお選びください',
+    type: 'cards',
+    options: [
+      { value: 'サイディング',  title: 'サイディング',  sub: '板状外装材', img: '/public/img/siding.jpg' },
+      { value: 'モルタル',      title: 'モルタル',      sub: '塗り壁',     img: '/public/img/mortar.jpg' },
+      { value: 'ALC',          title: 'ALC',          sub: '軽量気泡コンクリート', img: '/public/img/alc.jpg' },
+      { value: 'ガルバリウム',  title: 'ガルバリウム',  sub: '金属外装',   img: '/public/img/galva.jpg' },
+      { value: '木',            title: '木',            sub: '木質系',     img: '/public/img/wood.jpg' },
+      { value: 'RC',           title: 'RC',           sub: '鉄筋コンクリート', img: '/public/img/rc.jpg' },
+      { value: 'その他',        title: 'その他',        sub: '該当なし',   img: '/public/img/other.jpg' },
+      { value: 'わからない',    title: 'わからない',    sub: '不明',       img: '/public/img/unknown.jpg' }
+    ]
+  },
+  {
+    key: 'confirm',
+    title: '入力内容のご確認',
+    type: 'confirm'
+  }
+];
 
-  let current = 0;
+// 画像が無い場合でも必ず表示されるようにエラーハンドリング
+function safeImg(src) {
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = '';
+  img.onerror = () => { img.style.display = 'none'; };
+  return img;
+}
 
-  // -------------------------------
-  // 表示・UI更新
-  // -------------------------------
-  function showStep(index) {
-    current = Math.max(0, Math.min(index, steps.length - 1));
-    steps.forEach((s, i) => {
-      s.hidden = i !== current;
+function render() {
+  if (!$app) return;
+  $app.innerHTML = ''; // クリア
+
+  const step = state.step;
+  const q = QUESTIONS[step];
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const h2 = document.createElement('h2');
+  h2.className = 'qtitle';
+  h2.textContent = q.title;
+  card.appendChild(h2);
+
+  // 選択肢描画
+  if (q.type === 'list') {
+    const wrap = document.createElement('div');
+    wrap.className = 'choices';
+    wrap.style.gridTemplateColumns = q.vertical ? '1fr' : '1fr 1fr';
+
+    q.options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn';
+      btn.textContent = opt.label;
+      if (state.answers[q.key] === opt.value) btn.classList.add('selected');
+      btn.addEventListener('click', () => {
+        state.answers[q.key] = opt.value;
+        render(); // 再描画で選択状態に
+      });
+      wrap.appendChild(btn);
     });
-    updateProgress();
-    updateNextButtonState();
-    if (steps[current].dataset.step === "5") {
-      renderSummary();
-    }
+
+    card.appendChild(wrap);
   }
 
-  function updateProgress() {
-    if (!progressBar) return;
-    const ratio = ((current + 1) / steps.length) * 100;
-    progressBar.style.width = `${ratio}%`;
+  if (q.type === 'cards') {
+    const wrap = document.createElement('div');
+    wrap.className = 'choices';
+    wrap.style.gridTemplateColumns = '1fr'; // スマホは縦並び
+
+    q.options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'choice-btn';
+      if (state.answers.material === opt.value) btn.classList.add('selected');
+
+      const row = document.createElement('div');
+      row.className = 'choice-card';
+
+      // 画像（失敗時は非表示）
+      row.appendChild(safeImg(opt.img));
+
+      const text = document.createElement('div');
+      const t = document.createElement('div');
+      t.className = 'choice-title';
+      t.textContent = opt.title;
+      const s = document.createElement('div');
+      s.className = 'choice-sub';
+      s.textContent = opt.sub || '';
+      text.appendChild(t);
+      text.appendChild(s);
+
+      row.appendChild(text);
+      btn.appendChild(row);
+
+      btn.addEventListener('click', () => {
+        state.answers.material = opt.value;
+        render();
+      });
+
+      wrap.appendChild(btn);
+    });
+
+    card.appendChild(wrap);
   }
 
-  function updateNextButtonState() {
-    const stepEl = steps[current];
-    const nextBtn = stepEl.querySelector("[data-next]");
-    if (!nextBtn) return;
-
-    nextBtn.disabled = !isStepValid(stepEl);
+  if (q.type === 'confirm') {
+    const pre = document.createElement('div');
+    pre.className = 'helper';
+    pre.innerHTML = [
+      `■見積もり希望内容　${state.answers.kind || '-'}`,
+      `■築年数　　　　　${state.answers.age || '-'}`,
+      `■階数　　　　　　${state.answers.floors || '-'}`,
+      `■外壁材　　　　　${state.answers.material || '-'}`,
+    ].join('<br/>');
+    card.appendChild(pre);
   }
 
-  function isStepValid(stepEl) {
-    // 1) ラジオがある場合は 1 つ以上 checked でOK
-    const radios = stepEl.querySelectorAll('input[type="radio"]');
-    if (radios.length > 0) {
-      return !!stepEl.querySelector('input[type="radio"]:checked');
-    }
+  // ナビゲーション
+  const nav = document.createElement('div');
+  nav.className = 'nav-row';
 
-    // 2) 必須入力がある場合は全て埋まっているか
-    const requiredInputs = stepEl.querySelectorAll("[required]");
-    for (const el of requiredInputs) {
-      if (!String(el.value || "").trim()) return false;
-    }
-
-    // 3) 何もなければ通す
-    return true;
-  }
-
-  // -------------------------------
-  // 回答収集（次へを押したタイミング）
-  // -------------------------------
-  function collectAnswersFrom(stepEl) {
-    // ラジオ：checked のものを name をキーに保存
-    const radios = stepEl.querySelectorAll('input[type="radio"]');
-    if (radios.length > 0) {
-      const checked = stepEl.querySelector('input[type="radio"]:checked');
-      if (checked) {
-        const { name, value } = checked;
-        if (name) answers[name] = value;
-      }
-    }
-    // 必須テキストなどがあれば保存（name があるもののみ）
-    const namedInputs = stepEl.querySelectorAll("input[name], textarea[name], select[name]");
-    for (const el of namedInputs) {
-      if (el.type === "radio") continue; // ラジオは上で処理済み
-      if (el.required && !String(el.value || "").trim()) continue;
-      if (el.name) answers[el.name] = el.value;
-    }
-  }
-
-  function renderSummary() {
-    const box = document.getElementById("summary");
-    if (!box) return;
-    const rows = Object.entries(answers).map(
-      ([k, v]) =>
-        `<div class="summary__row"><div class="summary__key">${escapeHtml(
-          k
-        )}</div><div class="summary__val">${escapeHtml(v)}</div></div>`
-    );
-    box.innerHTML = rows.join("") || `<p>選択内容がありません。</p>`;
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-  }
-
-  // -------------------------------
-  // イベント
-  // -------------------------------
-  // ステップ内の選択が変わったら「次へ」活性化を再評価
-  document.addEventListener("change", (e) => {
-    const stepEl = e.target.closest(".step");
-    if (!stepEl) return;
-    // ラベルクリック → ラジオ change は発火するためこのままでOK
-    if (stepEl === steps[current]) {
-      updateNextButtonState();
-    }
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'btn btn-outline';
+  back.textContent = '戻る';
+  back.disabled = step === 0;
+  back.addEventListener('click', () => {
+    state.step = Math.max(0, state.step - 1);
+    render();
   });
 
-  // 次へ
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-next]");
-    if (!btn) return;
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn btn-primary';
+  next.textContent = (q.key === 'confirm') ? 'この内容で送信' : '次へ';
 
-    const stepEl = steps[current];
-    if (!isStepValid(stepEl)) return;
+  // 「次へ」の活性制御
+  next.disabled = (() => {
+    if (q.key === 'confirm') return false;
+    const v = state.answers[q.key];
+    return !v; // 未選択なら無効
+  })();
 
-    collectAnswersFrom(stepEl);
-    showStep(current + 1);
-  });
-
-  // 戻る
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-prev]");
-    if (!btn) return;
-    showStep(current - 1);
-  });
-
-  // 送信（あなたの既存のサーバAPIに合わせて必要に応じて変更）
-  const submitBtn = document.getElementById("submitBtn");
-  if (submitBtn) {
-    submitBtn.addEventListener("click", async () => {
-      submitBtn.disabled = true;
-
+  next.addEventListener('click', async () => {
+    if (q.key === 'confirm') {
+      // 送信 → サーバ（/api/estimate）にPOST
       try {
-        // ここはあなたの既存APIに合わせてください
-        // 例: /estimate へ POST（body: answers）
-        const res = await fetch("/estimate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(answers),
+        const res = await fetch('/api/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(state.answers)
         });
-
-        const data = await res.json().catch(() => ({}));
-
-        // 完了画面へ
-        const resultText = document.getElementById("resultText");
-        const resultActions = document.getElementById("resultActions");
-
-        if (res.ok) {
-          resultText.textContent =
-            data.message ||
-            "送信が完了しました。LINEのトークに結果を送信しました。アプリをご確認ください。";
-          // 必要があれば LINE 起動ボタンなどを追加
-          resultActions.innerHTML =
-            `<a class="btn btn-line" href="https://lin.ee/XxmuVXt" target="_blank" rel="noopener">LINEを開く</a>`;
-        } else {
-          resultText.textContent =
-            data.error || "送信に失敗しました。時間をおいて再度お試しください。";
-          resultActions.innerHTML = "";
-        }
-
-        showStep(current + 1); // 完了セクションへ
-      } catch (err) {
-        const resultText = document.getElementById("resultText");
-        if (resultText) {
-          resultText.textContent = "ネットワークエラーが発生しました。再度お試しください。";
-        }
-        showStep(current + 1);
-      } finally {
-        submitBtn.disabled = false;
+        const json = await res.json().catch(() => ({}));
+        // 送信完了メッセージ
+        alert(json?.message || '送信しました。LINEをご確認ください。');
+        // 完了後は最初に戻す
+        state.step = 0;
+        state.answers = { kind: null, age: null, floors: null, material: null };
+        render();
+      } catch (e) {
+        alert('送信に失敗しました。通信状況をご確認の上、時間を置いて再度お試しください。');
       }
-    });
+      return;
+    }
+    state.step = Math.min(QUESTIONS.length - 1, step + 1);
+    render();
+  });
+
+  nav.appendChild(back);
+  nav.appendChild(next);
+
+  const helper = document.createElement('div');
+  helper.className = 'helper';
+  if (q.key !== 'confirm') {
+    helper.textContent = '選択すると「次へ」ボタンが有効になります。';
+  } else {
+    helper.textContent = '内容に誤りがある場合は「戻る」で修正してください。';
   }
 
-  // やり直し
-  const restartBtn = document.getElementById("restartBtn");
-  if (restartBtn) {
-    restartBtn.addEventListener("click", () => {
-      // 初期化
-      for (const s of steps) {
-        const inputs = s.querySelectorAll("input, textarea, select");
-        for (const el of inputs) {
-          if (el.type === "radio" || el.type === "checkbox") el.checked = false;
-          else el.value = "";
-        }
-      }
-      Object.keys(answers).forEach((k) => delete answers[k]);
-      showStep(0);
-    });
-  }
+  card.appendChild(nav);
+  card.appendChild(helper);
 
-  // 初期表示
-  showStep(0);
-})();
+  $app.appendChild(card);
+}
+
+// 初期化（JSが確実に走るよう DOMContentLoaded を使う）
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', render);
+} else {
+  render();
+}
