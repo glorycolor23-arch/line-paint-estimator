@@ -1,25 +1,17 @@
 /**
- * line-paint-estimator server
- * 完全置き換え版
+ * 完全置き換え版（Push失敗対策・Webhook返信方式）
  *
- * 必要な環境変数（Render → Environment に設定）
- *  - PORT                                 （Render が自動注入）
- *  - NODE_ENV                             （任意）
- *  - FRIEND_ADD_URL                       例: https://lin.ee/XxmuVXt （※あなたのURL）
- *  - LINE_CHANNEL_ACCESS_TOKEN            （Messaging API アクセストークン）
- *  - LINE_CHANNEL_SECRET                  （Messaging API チャネルシークレット）
- *  - LINE_LOGIN_CHANNEL_ID                （LINEログイン チャネルID）
- *  - LINE_LOGIN_CHANNEL_SECRET            （LINEログイン チャネルシークレット）
- *  - LINE_LOGIN_REDIRECT_URI              例: https://line-paint.onrender.com/auth/line/callback
- *  - LINE_BOT_BASIC_ID                    例: @004szogc   ※無くても自動取得を試みます
- *  - LIFF_ID                              詳細見積もり LIFF（任意）
- *
- *  フォルダ:
- *   public/
- *     ├─ index.html  … 最初のアンケート
- *     ├─ liff.html   … 詳細見積もり LIFF
- *     ├─ after-login.html … ログイン完了後に自動でトークを開く
- *     └─ img/materials/*.jpg … 外壁材カード画像（任意）
+ * 必須環境変数（Render > Environment）
+ *  - PORT
+ *  - LINE_CHANNEL_ACCESS_TOKEN
+ *  - LINE_CHANNEL_SECRET
+ *  - LINE_LOGIN_CHANNEL_ID
+ *  - LINE_LOGIN_CHANNEL_SECRET
+ *  - LINE_LOGIN_REDIRECT_URI  例: https://line-paint.onrender.com/auth/line/callback
+ * 任意
+ *  - FRIEND_ADD_URL           例: https://lin.ee/XxmuVXt
+ *  - LINE_BOT_BASIC_ID        例: @004szogc（無い場合は起動時に自動取得を試行）
+ *  - LIFF_ID                  例: 2007914959-XXXXXXXX
  */
 import express from 'express';
 import crypto from 'crypto';
@@ -28,7 +20,6 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import * as line from '@line/bot-sdk';
 
-// ======================= 基本設定 =======================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -37,47 +28,37 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: false }));
 
-// CORS（必要なら緩める）
-app.use((req, res, next) => {
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  next();
-});
-
 // 静的配信
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true, maxAge: '1h', extensions: ['html']
 }));
 
-// 環境変数
 const ENV = {
   PORT: process.env.PORT || 3000,
-  NODE_ENV: process.env.NODE_ENV || 'production',
-  FRIEND_ADD_URL: process.env.FRIEND_ADD_URL || 'https://lin.ee/XxmuVXt', // ★あなたのURLを既定値に
+  FRIEND_ADD_URL: process.env.FRIEND_ADD_URL || 'https://lin.ee/XxmuVXt',
   LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
   LINE_CHANNEL_SECRET: process.env.LINE_CHANNEL_SECRET || '',
   LINE_LOGIN_CHANNEL_ID: process.env.LINE_LOGIN_CHANNEL_ID || '',
   LINE_LOGIN_CHANNEL_SECRET: process.env.LINE_LOGIN_CHANNEL_SECRET || '',
   LINE_LOGIN_REDIRECT_URI: process.env.LINE_LOGIN_REDIRECT_URI || '',
-  LINE_BOT_BASIC_ID: process.env.LINE_BOT_BASIC_ID || '', // '@xxxx' 形式を推奨
-  LIFF_ID: process.env.LIFF_ID || '' // 任意
+  LINE_BOT_BASIC_ID: process.env.LINE_BOT_BASIC_ID || '',
+  LIFF_ID: process.env.LIFF_ID || ''
 };
 
-// ログ
-const log = (...a) => console.log('[INFO]', ...a);
-const warn = (...a) => console.warn('[WARN]', ...a);
-const err = (...a) => console.error('[ERROR]', ...a);
+const log  = (...a)=>console.log('[INFO]', ...a);
+const warn = (...a)=>console.warn('[WARN]', ...a);
+const err  = (...a)=>console.error('[ERROR]', ...a);
 
-// LINE SDK クライアント（Messaging API）
+// LINE Messaging API
 const lineConfig = {
   channelAccessToken: ENV.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: ENV.LINE_CHANNEL_SECRET
 };
 const lineClient = new line.Client(lineConfig);
 
-// メモリ上の簡易ストア（本番は DB を推奨）
-const leads = new Map(); // key: leadId -> {answers, estimate, createdAt}
+// メモリストア（本番はDBへ）
+const leads = new Map(); // leadId -> {answers, estimate, createdAt}
 
-// Bot Basic ID（@付き）を必要に応じて取得
 let CACHED_BASIC_ID = ENV.LINE_BOT_BASIC_ID;
 async function ensureBasicId() {
   if (CACHED_BASIC_ID && CACHED_BASIC_ID.startsWith('@')) return CACHED_BASIC_ID;
@@ -85,250 +66,188 @@ async function ensureBasicId() {
     const r = await fetch('https://api.line.me/v2/bot/info', {
       headers: { Authorization: `Bearer ${ENV.LINE_CHANNEL_ACCESS_TOKEN}` }
     });
-    if (!r.ok) throw new Error(`bot/info ${r.status}`);
-    const j = await r.json();
-    if (j.basicId) {
-      CACHED_BASIC_ID = '@' + j.basicId;
-      return CACHED_BASIC_ID;
+    if (r.ok) {
+      const j = await r.json();
+      if (j.basicId) CACHED_BASIC_ID = '@' + j.basicId;
     }
-  } catch (e) {
-    warn('Basic ID 自動取得に失敗しました。環境変数 LINE_BOT_BASIC_ID を設定してください。', e.message);
+  } catch(e) {
+    warn('Basic ID 自動取得失敗:', e.message);
   }
-  return ENV.LINE_BOT_BASIC_ID; // そのまま返す（空でも可）
+  return CACHED_BASIC_ID;
 }
 
-// ======================= ヘルスチェック =======================
-app.get('/healthz', (_req, res) => res.status(200).type('text/plain').send('ok'));
+app.get('/healthz', (_req,res)=>res.type('text/plain').send('ok'));
 
-// ======================= 概算ロジック（仮） =======================
-/**
- * ★この計算式は「後で指示される最終版」に差し替えてください。
- *   差し替え場所はこの関数のみ。
- */
+// ===== 概算式（後で差し替えOK） =====
 function calcEstimate({ desire, age, floors, material }) {
-  let base = 300_000; // 30万円 基礎
+  let base = 300000;
+  if (desire === '外壁') base += 300000;
+  else if (desire === '屋根') base += 200000;
+  else if (desire === '外壁と屋根') base += 480000;
 
-  // 施工内容
-  if (desire === '外壁') base += 300_000;
-  else if (desire === '屋根') base += 200_000;
-  else if (desire === '外壁と屋根') base += 480_000;
+  const ages = {'1〜5年':0,'6〜10年':80000,'11〜15年':120000,'16〜20年':180000,
+    '21〜25年':220000,'26〜30年':260000,'31年以上':300000};
+  base += ages[age] ?? 120000;
 
-  // 築年数
-  const ageMap = {
-    '1〜5年': 0, '6〜10年': 80_000, '11〜15年': 120_000, '16〜20年': 180_000,
-    '21〜25年': 220_000, '26〜30年': 260_000, '31年以上': 300_000
-  };
-  base += ageMap[age] ?? 120_000;
+  const floorsMap = {'1階建て':0,'2階建て':150000,'3階建て以上':300000};
+  base += floorsMap[floors] ?? 150000;
 
-  // 階数
-  const floorMap = { '1階建て': 0, '2階建て': 150_000, '3階建て以上': 300_000 };
-  base += floorMap[floors] ?? 150_000;
+  const mats = {'サイディング':100000,'モルタル':120000,'ALC':150000,'ガルバリウム':140000,
+    '木':130000,'RC':180000,'その他':100000,'わからない':80000};
+  base += mats[material] ?? 100000;
 
-  // 外壁材
-  const matMap = {
-    'サイディング': 100_000, 'モルタル': 120_000, 'ALC': 150_000,
-    'ガルバリウム': 140_000, '木': 130_000, 'RC': 180_000, 'その他': 100_000, 'わからない': 80_000
-  };
-  base += matMap[material] ?? 100_000;
-
-  // 端数整理
-  const est = Math.round(base / 10000) * 10000; // 1万円単位
-  return est < 100_000 ? 100_000 : est;
+  const est = Math.round(base/10000)*10000;
+  return Math.max(est, 100000);
 }
 
-// ======================= API: 初回アンケート =======================
-app.post('/api/estimate', async (req, res) => {
-  try {
-    const { desire, age, floors, material } = req.body || {};
-    if (!desire || !age || !floors || !material) {
-      return res.status(400).json({ ok: false, error: '入力が不足しています。' });
-    }
-    const estimate = calcEstimate({ desire, age, floors, material });
-    const leadId = uuidv4();
-
-    leads.set(leadId, {
-      answers: { desire, age, floors, material },
-      estimate,
-      createdAt: Date.now()
-    });
-
-    // 次のアクション（ログイン開始 URL）
-    const loginUrl = `/auth/line/start?lead=${encodeURIComponent(leadId)}`;
-
-    log('LEAD CREATED', leadId, { desire, age, floors, material, estimate });
-    res.json({ ok: true, leadId, estimate, loginUrl });
-  } catch (e) {
-    err('POST /api/estimate failed', e);
-    res.status(500).json({ ok: false, error: 'サーバーエラーが発生しました。' });
+// ===== アンケート受領 → lead発行 =====
+app.post('/api/estimate', (req, res)=>{
+  const { desire, age, floors, material } = req.body || {};
+  if (!desire || !age || !floors || !material) {
+    return res.status(400).json({ ok:false, error:'入力が不足しています' });
   }
+  const estimate = calcEstimate({ desire, age, floors, material });
+  const leadId = uuidv4();
+
+  leads.set(leadId, {
+    answers: { desire, age, floors, material },
+    estimate,
+    createdAt: Date.now()
+  });
+
+  const loginUrl = `/auth/line/start?lead=${encodeURIComponent(leadId)}`;
+  log('LEAD', leadId, { desire, age, floors, material, estimate });
+  res.json({ ok:true, leadId, estimate, loginUrl });
 });
 
-// ======================= LINEログイン開始 =======================
-app.get('/auth/line/start', async (req, res) => {
-  try {
-    const { lead } = req.query;
-    if (!lead || !leads.has(lead)) {
-      return res.status(400).type('text/plain').send('Invalid lead');
-    }
+// ===== LINEログイン開始 =====
+app.get('/auth/line/start', async (req, res)=>{
+  const { lead } = req.query;
+  if (!lead || !leads.has(lead)) return res.status(400).send('Invalid lead');
 
-    const state = Buffer.from(JSON.stringify({ lead })).toString('base64url');
-
-    const scope = ['openid', 'profile'].join(' ');
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: ENV.LINE_LOGIN_CHANNEL_ID,
-      redirect_uri: ENV.LINE_LOGIN_REDIRECT_URI,
-      state,
-      scope,
-      bot_prompt: 'aggressive' // 可能なら友だち追加を促す
-    });
-
-    const authUrl = `https://access.line.me/oauth2/v2.1/authorize?${params.toString()}`;
-    log('[LINE LOGIN AUTH URL]', authUrl);
-    return res.redirect(authUrl);
-  } catch (e) {
-    err('GET /auth/line/start failed', e);
-    res.status(500).type('text/plain').send('Login start error');
-  }
+  const state = Buffer.from(JSON.stringify({ lead })).toString('base64url');
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: ENV.LINE_LOGIN_CHANNEL_ID,
+    redirect_uri: ENV.LINE_LOGIN_REDIRECT_URI,
+    scope: 'openid profile',
+    state,
+    bot_prompt: 'aggressive'
+  });
+  const url = `https://access.line.me/oauth2/v2.1/authorize?${params.toString()}`;
+  return res.redirect(url);
 });
 
-// ======================= LINEログインコールバック =======================
-app.get('/auth/line/callback', async (req, res) => {
+// ===== LINEログイン完了 → after-login へ遷移（Pushしない） =====
+app.get('/auth/line/callback', async (req, res)=>{
   try {
-    const { code, state, error, error_description } = req.query;
-
-    if (error) {
-      warn('LINE Login error', error, error_description);
-      return res.status(400).type('text/plain').send(`Login error: ${error}`);
-    }
+    const { code, state, error } = req.query;
+    if (error) return res.status(400).send('Login error');
 
     let leadId = null;
     try {
-      const st = JSON.parse(Buffer.from(String(state || ''), 'base64url').toString());
-      leadId = st.lead;
-    } catch {
-      /* ignore */
-    }
-    if (!leadId || !leads.has(leadId)) {
-      return res.status(400).type('text/plain').send('Invalid state/lead');
-    }
-    const lead = leads.get(leadId);
+      const obj = JSON.parse(Buffer.from(String(state||''), 'base64url').toString());
+      leadId = obj.lead;
+    } catch {}
 
-    // --- トークン交換 ---
-    const tokenParams = new URLSearchParams({
+    if (!leadId || !leads.has(leadId)) return res.status(400).send('Invalid state');
+
+    // ログイン完了の妥当性チェック（トークン交換だけ実施）
+    const body = new URLSearchParams({
       grant_type: 'authorization_code',
-      code: String(code || ''),
+      code: String(code||''),
       redirect_uri: ENV.LINE_LOGIN_REDIRECT_URI,
       client_id: ENV.LINE_LOGIN_CHANNEL_ID,
       client_secret: ENV.LINE_LOGIN_CHANNEL_SECRET
     });
-    const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: tokenParams
+    const tk = await fetch('https://api.line.me/oauth2/v2.1/token', {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body
     });
-    if (!tokenRes.ok) {
-      const t = await tokenRes.text();
-      throw new Error(`token error ${tokenRes.status}: ${t}`);
-    }
-    const tokenJson = await tokenRes.json();
-    const accessToken = tokenJson.access_token;
+    if (!tk.ok) return res.status(400).send('Token error');
 
-    // --- プロフィール取得 ---
-    const profRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    if (!profRes.ok) {
-      const t = await profRes.text();
-      throw new Error(`profile error ${profRes.status}: ${t}`);
-    }
-    const prof = await profRes.json(); // { userId, displayName, ... }
-    const userId = prof.userId;
-
-    // --- 概算を Push 送信 ---
-    const liffUrl = ENV.LIFF_ID ? `https://liff.line.me/${ENV.LIFF_ID}` : null;
-
-    const messages = [
-      {
-        type: 'text',
-        text:
-          'お見積もりのご依頼ありがとうございます。\n' +
-          `ご希望の工事内容のお見積額は「${lead.estimate.toLocaleString()}円」です。\n\n` +
-          '※本金額はアンケート回答を元にした概算です。'
-      }
-    ];
-
-    if (liffUrl) {
-      messages.push({
-        type: 'text',
-        text: `より詳しいお見積もりが必要な方は、こちらから詳細情報をご入力ください。\n${liffUrl}`
-      });
-    } else {
-      messages.push({
-        type: 'text',
-        text: 'より詳しいお見積もりが必要な方は、詳細アンケート（LIFF）が有効になり次第、改めてご案内します。'
-      });
-    }
-
-    await lineClient.pushMessage(userId, messages);
-    log('PUSH sent to', userId, 'lead', leadId);
-
-    // --- ここからトークを自動で開くため、after-login.html に遷移 ---
-    const basicId = await ensureBasicId(); // 例: @004szogc
-    const prefill = '見積結果を確認したいです';
+    // after-login でトーク自動起動（プレフィルに lead を入れる）
+    const basicId = await ensureBasicId();
+    const prefill = `#lead:${leadId} の見積もりをお願いします`;
     const afterUrl = `/after-login.html?oa=${encodeURIComponent(basicId)}&msg=${encodeURIComponent(prefill)}&add=${encodeURIComponent(ENV.FRIEND_ADD_URL)}`;
-
     return res.redirect(afterUrl);
-  } catch (e) {
-    err('GET /auth/line/callback failed', e);
-    return res.status(500).type('text/plain').send('Callback error');
+  } catch(e) {
+    err('callback failed', e);
+    return res.status(500).send('Callback error');
   }
 });
 
-// ======================= LINE Webhook（Messaging API） =======================
-// 検証（X-Line-Signature）
-function validateSignature(req) {
+// ===== Webhook（#lead:XXXX を受け取ったら結果を返信） =====
+function validSignature(req) {
   try {
-    const signature = req.get('X-Line-Signature') || '';
+    const sig = req.get('X-Line-Signature') || '';
     const body = JSON.stringify(req.body);
-    const hash = crypto
-      .createHmac('sha256', ENV.LINE_CHANNEL_SECRET)
-      .update(body).digest('base64');
-    return signature === hash;
-  } catch {
-    return false;
-  }
+    const hash = crypto.createHmac('sha256', ENV.LINE_CHANNEL_SECRET).update(body).digest('base64');
+    return sig === hash;
+  } catch { return false; }
 }
 
-app.post('/line/webhook', async (req, res) => {
-  try {
-    // 署名が設定されている場合は検証（本番推奨）
-    if (ENV.LINE_CHANNEL_SECRET && !validateSignature(req)) {
-      warn('Invalid webhook signature');
-      return res.status(403).end();
-    }
-
-    // ここではイベントは特に処理せず 200 即応
-    // 必要であればメッセージ応答などを実装
-    res.status(200).end();
-  } catch (e) {
-    err('POST /line/webhook failed', e);
-    res.status(200).end(); // 失敗しても 200 返す（再送を防ぐ）
+app.post('/line/webhook', async (req, res)=>{
+  if (ENV.LINE_CHANNEL_SECRET && !validSignature(req)) {
+    warn('Invalid signature'); return res.status(403).end();
   }
+
+  const events = req.body?.events || [];
+  for (const ev of events) {
+    try {
+      if (ev.type === 'follow') {
+        // 友だち追加時の挨拶
+        await lineClient.replyMessage(ev.replyToken, [{
+          type:'text',
+          text:'友だち追加ありがとうございます！\nアンケート送信後に開いたトークに、\n自動入力のメッセージ（#lead:…）をそのまま送信してください。\n概算見積を返信します。'
+        }]);
+      }
+      if (ev.type === 'message' && ev.message.type === 'text') {
+        const txt = ev.message.text || '';
+        const m = txt.match(/#\s*lead\s*:\s*([0-9a-f-]{8,})/i);
+        if (m) {
+          const leadId = m[1];
+          const lead = leads.get(leadId);
+          if (lead) {
+            const liffUrl = ENV.LIFF_ID ? `https://liff.line.me/${ENV.LIFF_ID}` : null;
+            const msgs = [
+              {
+                type:'text',
+                text:
+                  'お見積もりのご依頼ありがとうございます。\n' +
+                  `ご希望の工事内容のお見積額は「${lead.estimate.toLocaleString()}円」です。\n\n` +
+                  '※こちらはアンケートを元にした概算です。'
+              }
+            ];
+            if (liffUrl) {
+              msgs.push({
+                type: 'template',
+                altText: '詳しい見積もりを依頼する',
+                template: {
+                  type: 'buttons',
+                  text: 'より詳しいお見積もりが必要な方は、こちらから詳細情報をご入力ください。',
+                  actions: [{ type:'uri', label:'詳しい見積もりを依頼する', uri: liffUrl }]
+                }
+              });
+            }
+            await lineClient.replyMessage(ev.replyToken, msgs);
+          } else {
+            await lineClient.replyMessage(ev.replyToken, [{ type:'text', text:'有効期限切れ、または無効なコードです。もう一度お試しください。'}]);
+          }
+        }
+      }
+    } catch(e) {
+      err('webhook event error', e);
+      // 返信失敗時も次のイベント処理へ
+    }
+  }
+  res.status(200).end();
 });
 
-// ======================= Fallback（フロントルーティング等） =======================
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// ルート
+app.get('/', (_req, res)=>res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ======================= 起動 =======================
-app.listen(ENV.PORT, async () => {
-  const basicId = await ensureBasicId();
-  log('サーバーが起動しました');
-  log('ポート:', ENV.PORT);
-  log('環境:', ENV.NODE_ENV);
-  log('ヘルスチェック:', `http://localhost:${ENV.PORT}/healthz`);
-  log('友だち追加URL:', ENV.FRIEND_ADD_URL);
-  if (basicId) log('Bot Basic ID:', basicId);
+app.listen(ENV.PORT, async ()=>{
+  log('Server started', ENV.PORT);
+  const bid = await ensureBasicId();
+  if (bid) log('Bot Basic ID:', bid);
 });
