@@ -1,167 +1,62 @@
-// server.js  — LINE SDK(named export) / 静的配信 / 概算API / Webhook
-
+// server.js
 import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import bodyParser from 'body-parser';
-import { v4 as uuidv4 } from 'uuid';
-import { Client, middleware } from '@line/bot-sdk'; // ★ default ではなく named export を使用
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as line from '@line/bot-sdk'; // ← ESM では * as で取り込む
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-/* ===== 環境変数 ===== */
 const {
   PORT = 10000,
   NODE_ENV = 'production',
 
-  // LINE Messaging API（必須）
+  // Messaging API
   LINE_CHANNEL_ACCESS_TOKEN,
   LINE_CHANNEL_SECRET,
 
-  // 公式アカウントのベーシックID（@を含める）
-  LINE_BASIC_ID = '@004szogc',
-
-  // 友だち追加URL
-  FRIEND_ADD_URL = 'https://lin.ee/XxmuVXt',
-
-  // 公開URL（LIFFリンクなどで使用）
-  PUBLIC_BASE_URL = 'https://line-paint.onrender.com',
+  // LINEログイン
+  LINE_LOGIN_CHANNEL_ID,
+  LINE_LOGIN_CHANNEL_SECRET,
+  LINE_LOGIN_REDIRECT_URI,
 } = process.env;
 
-/* ===== LINE SDK ===== */
-const lineConfig = {
+const app = express();
+app.use(express.json());
+
+// 静的ファイル（/public）
+app.use(express.static(path.join(__dirname)));
+
+// LINE Bot SDK クライアント（webhook等で使う想定。ここで作っておく）
+const lineClient = new line.Client({
   channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: LINE_CHANNEL_SECRET,
-};
-const lineEnabled = !!(LINE_CHANNEL_ACCESS_TOKEN && LINE_CHANNEL_SECRET);
-const lineClient = lineEnabled ? new Client(lineConfig) : null;
-
-/* ===== Express 基本設定 ===== */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-app.use(cors());
-app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
-
-/* ===== 監視用 ===== */
-app.get('/healthz', (_req, res) => res.type('text').send('ok'));
-
-/* ===== ページ ===== */
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/liff', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'liff.html')));
-
-/* ===== 概算見積 API ===== */
-const pending = new Map(); // {id: {answers, amount, createdAt}}
-
-app.post('/api/estimate', (req, res) => {
-  try {
-    const answers = req.body || {};
-    const amount = calcAmount(answers);
-    const pendingId = uuidv4().slice(0, 8);
-
-    pending.set(pendingId, { answers, amount, createdAt: Date.now() });
-
-    // OAトークを開いて入力欄に文言をセットするURL
-    const talkUrl = `https://line.me/R/oaMessage/${encodeURIComponent(
-      LINE_BASIC_ID
-    )}/?${encodeURIComponent(`見積受け取り ${pendingId}`)}`;
-
-    res.json({
-      ok: true,
-      amount,
-      pendingId,
-      addFriendUrl: FRIEND_ADD_URL,
-      talkUrl,
-    });
-  } catch (e) {
-    console.error('[API] /api/estimate error', e);
-    res.status(500).json({ ok: false, error: 'internal_error' });
-  }
 });
 
-/* ===== Webhook ===== */
-if (lineEnabled) {
-  app.post('/line/webhook', middleware(lineConfig), async (req, res) => {
-    try {
-      await Promise.all((req.body.events || []).map(handleEvent));
-      res.sendStatus(200);
-    } catch (e) {
-      console.error('[Webhook] handler error', e);
-      res.sendStatus(200);
-    }
-  });
-} else {
-  console.warn('[WARN] LINE credentials not set — /line/webhook is disabled.');
-}
+// ルート間で共有する一時ストア（アンケート回答 → ログイン完了まで）
+app.locals.pendingEstimates = new Map();
+app.locals.lineClient = lineClient;
 
-/* ===== イベント処理 ===== */
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message?.type !== 'text') return;
+// 健康チェック
+app.get('/healthz', (_req, res) => res.type('text/plain').send('ok'));
 
-  const text = (event.message.text || '').trim();
-  const m = text.match(/^見積受け取り\s+([A-Za-z0-9-]+)/);
+// ルーティング
+import estimateRouter from './routes/estimate.js';
+import lineLoginRouter from './routes/lineLogin.js';
+import webhookRouter from './routes/webhook.js'; // 既存のまま利用
 
-  if (m) {
-    const id = m[1];
-    const data = pending.get(id);
+app.use('/', estimateRouter);    // /estimate を提供
+app.use('/', lineLoginRouter);   // /auth/line/callback を提供
+app.use('/', webhookRouter);     // /line/webhook など既存のまま
 
-    if (!data) {
-      return lineClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '申し訳ありません。IDが見つかりませんでした。もう一度フォームからお試しください。',
-      });
-    }
+// トップ（既存の index.html を配信）
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
-    pending.delete(id); // 1度使ったIDは破棄
-
-    const detailUrl = `${PUBLIC_BASE_URL}/liff`;
-    const messages = [
-      { type: 'text', text: `概算見積額は ${formatYen(data.amount)} です。` },
-      {
-        type: 'text',
-        text:
-          `より詳しいお見積もりをご希望の方は、こちらから詳細情報をご入力ください。\n` +
-          `${detailUrl}`,
-      },
-    ];
-    return lineClient.replyMessage(event.replyToken, messages);
-  }
-
-  // ガイダンス
-  return lineClient.replyMessage(event.replyToken, {
-    type: 'text',
-    text: 'フォーム送信後に届くIDを「見積受け取り ＊＊＊＊」の形式で送ってください。',
-  });
-}
-
-/* ===== 見積計算（簡易ロジック） ===== */
-function calcAmount(a) {
-  let base = 180000;
-  if (a.floors?.includes('2')) base += 120000;
-  if (a.floors?.includes('3')) base += 260000;
-  if (a.scope === '屋根') base += 90000;
-  if (a.scope === '外壁と屋根') base += 190000;
-  if (a.material?.includes('ALC')) base += 80000;
-  if (a.material?.includes('ガルバリウム')) base += 120000;
-  if (a.material?.includes('木')) base += 70000;
-  if (a.age?.includes('21') || a.age?.includes('31')) base += 60000;
-  return Math.max(base, 80000);
-}
-
-function formatYen(n) {
-  return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(n);
-}
-
-/* ===== 起動 ===== */
 app.listen(PORT, () => {
-  console.log('[INFO] server started', {
-    port: PORT,
-    env: NODE_ENV,
-    lineEnabled,
-    baseUrl: PUBLIC_BASE_URL,
-  });
+  console.log('[INFO] サーバーが起動しました');
+  console.log('[INFO] ポート:', PORT);
+  console.log('[INFO] 環境:', NODE_ENV);
+  console.log('[INFO] ヘルスチェック: http://localhost:' + PORT + '/healthz');
 });
