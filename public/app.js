@@ -1,17 +1,35 @@
-// アンケートの最小ロジック。DOM 初期化失敗を避け、確実に描画する。
+// 最小のアンケートロジック（他ファイルは変更しません）
 const $app = document.getElementById('app');
+
+// ここは必要に応じて差し替え可能：画像格納先（/public 下に img が無くてもOK。失敗時は画像を非表示）
+const IMAGE_BASE = '/img'; // 例) /img/siding.jpg など。無ければ画像は自動で非表示になります。
+
+// 既定の友だち追加URL（サーバから friendUrl/redirectUrl が返らない時のフォールバック）
+const DEFAULT_FRIEND_URL = 'https://lin.ee/XxmuVXt';
+
+// 外壁材ごとの画像パス（手元に画像が無い場合は読み込み失敗→自動で非表示）
+const MATERIAL_IMAGES = {
+  'サイディング':  `${IMAGE_BASE}/siding.jpg`,
+  'モルタル':      `${IMAGE_BASE}/mortar.jpg`,
+  'ALC':          `${IMAGE_BASE}/alc.jpg`,
+  'ガルバリウム':  `${IMAGE_BASE}/galva.jpg`,
+  '木':            `${IMAGE_BASE}/wood.jpg`,
+  'RC':           `${IMAGE_BASE}/rc.jpg`,
+  'その他':        `${IMAGE_BASE}/other.jpg`,
+  'わからない':    `${IMAGE_BASE}/unknown.jpg`,
+};
 
 const state = {
   step: 0,
   answers: {
-    kind: null,        // 外壁 / 屋根 / 外壁と屋根
-    age: null,         // 築年数
-    floors: null,      // 階数
-    material: null     // 外壁材
-  }
+    kind: null,
+    age: null,
+    floors: null,
+    material: null,
+  },
 };
 
-// 質問定義
+// 質問定義（既存の流れは維持）
 const QUESTIONS = [
   {
     key: 'kind',
@@ -22,15 +40,14 @@ const QUESTIONS = [
       { value: '屋根', label: '屋根' },
       { value: '外壁と屋根', label: '外壁と屋根' },
     ],
-    vertical: true  // 縦並び
+    vertical: true,
   },
   {
     key: 'age',
     title: '築年数をお選びください',
     type: 'list',
-    options: [
-      '1〜5年','6〜10年','11〜15年','16〜20年','21〜25年','26〜30年','31年以上'
-    ].map(v => ({ value: v, label: v }))
+    options: ['1〜5年','6〜10年','11〜15年','16〜20年','21〜25年','26〜30年','31年以上']
+      .map(v => ({ value: v, label: v })),
   },
   {
     key: 'floors',
@@ -39,32 +56,32 @@ const QUESTIONS = [
     options: [
       { value: '1階建て', label: '1階建て' },
       { value: '2階建て', label: '2階建て' },
-      { value: '3階建て以上', label: '3階建て以上' }
-    ]
+      { value: '3階建て以上', label: '3階建て以上' },
+    ],
   },
   {
     key: 'material',
     title: '外壁材を以下からお選びください',
     type: 'cards',
     options: [
-      { value: 'サイディング',  title: 'サイディング',  sub: '板状外装材', img: '/public/img/siding.jpg' },
-      { value: 'モルタル',      title: 'モルタル',      sub: '塗り壁',     img: '/public/img/mortar.jpg' },
-      { value: 'ALC',          title: 'ALC',          sub: '軽量気泡コンクリート', img: '/public/img/alc.jpg' },
-      { value: 'ガルバリウム',  title: 'ガルバリウム',  sub: '金属外装',   img: '/public/img/galva.jpg' },
-      { value: '木',            title: '木',            sub: '木質系',     img: '/public/img/wood.jpg' },
-      { value: 'RC',           title: 'RC',           sub: '鉄筋コンクリート', img: '/public/img/rc.jpg' },
-      { value: 'その他',        title: 'その他',        sub: '該当なし',   img: '/public/img/other.jpg' },
-      { value: 'わからない',    title: 'わからない',    sub: '不明',       img: '/public/img/unknown.jpg' }
-    ]
+      { value: 'サイディング', title: 'サイディング', sub: '板状外装材' },
+      { value: 'モルタル',     title: 'モルタル',     sub: '塗り壁' },
+      { value: 'ALC',         title: 'ALC',         sub: '軽量気泡コンクリート' },
+      { value: 'ガルバリウム', title: 'ガルバリウム', sub: '金属外装' },
+      { value: '木',           title: '木',           sub: '木質系' },
+      { value: 'RC',          title: 'RC',          sub: '鉄筋コンクリート' },
+      { value: 'その他',       title: 'その他',       sub: '該当なし' },
+      { value: 'わからない',   title: 'わからない',   sub: '不明' },
+    ],
   },
   {
     key: 'confirm',
     title: '入力内容のご確認',
-    type: 'confirm'
-  }
+    type: 'confirm',
+  },
 ];
 
-// 画像が無い場合でも必ず表示されるようにエラーハンドリング
+// 画像の安全読み込み（失敗したら非表示）
 function safeImg(src) {
   const img = document.createElement('img');
   img.src = src;
@@ -73,9 +90,17 @@ function safeImg(src) {
   return img;
 }
 
+// 指定ステップ以降の回答をリセット（←「戻る」で直前の選択をクリアしてほしい要件）
+function clearAnswersFrom(stepIndexInclusive) {
+  const keys = QUESTIONS.slice(stepIndexInclusive).map(q => q.key);
+  keys.forEach(k => {
+    if (k in state.answers) state.answers[k] = null;
+  });
+}
+
 function render() {
   if (!$app) return;
-  $app.innerHTML = ''; // クリア
+  $app.innerHTML = '';
 
   const step = state.step;
   const q = QUESTIONS[step];
@@ -88,7 +113,6 @@ function render() {
   h2.textContent = q.title;
   card.appendChild(h2);
 
-  // 選択肢描画
   if (q.type === 'list') {
     const wrap = document.createElement('div');
     wrap.className = 'choices';
@@ -102,7 +126,7 @@ function render() {
       if (state.answers[q.key] === opt.value) btn.classList.add('selected');
       btn.addEventListener('click', () => {
         state.answers[q.key] = opt.value;
-        render(); // 再描画で選択状態に
+        render();
       });
       wrap.appendChild(btn);
     });
@@ -113,7 +137,7 @@ function render() {
   if (q.type === 'cards') {
     const wrap = document.createElement('div');
     wrap.className = 'choices';
-    wrap.style.gridTemplateColumns = '1fr'; // スマホは縦並び
+    wrap.style.gridTemplateColumns = '1fr'; // スマホ縦並び
 
     q.options.forEach(opt => {
       const btn = document.createElement('button');
@@ -124,8 +148,9 @@ function render() {
       const row = document.createElement('div');
       row.className = 'choice-card';
 
-      // 画像（失敗時は非表示）
-      row.appendChild(safeImg(opt.img));
+      // 画像（存在しない/読み込み失敗でもテキストは必ず見える）
+      const imgSrc = MATERIAL_IMAGES[opt.value];
+      if (imgSrc) row.appendChild(safeImg(imgSrc));
 
       const text = document.createElement('div');
       const t = document.createElement('div');
@@ -163,7 +188,7 @@ function render() {
     card.appendChild(pre);
   }
 
-  // ナビゲーション
+  // ナビ
   const nav = document.createElement('div');
   nav.className = 'nav-row';
 
@@ -173,7 +198,10 @@ function render() {
   back.textContent = '戻る';
   back.disabled = step === 0;
   back.addEventListener('click', () => {
-    state.step = Math.max(0, state.step - 1);
+    // 一つ戻り、そのステップ以降の回答をクリア
+    const to = Math.max(0, state.step - 1);
+    clearAnswersFrom(to);     // ← ここが「戻るでアクティブが残る」対策
+    state.step = to;
     render();
   });
 
@@ -182,34 +210,38 @@ function render() {
   next.className = 'btn btn-primary';
   next.textContent = (q.key === 'confirm') ? 'この内容で送信' : '次へ';
 
-  // 「次へ」の活性制御
+  // 次へ活性
   next.disabled = (() => {
     if (q.key === 'confirm') return false;
     const v = state.answers[q.key];
-    return !v; // 未選択なら無効
+    return !v;
   })();
 
   next.addEventListener('click', async () => {
     if (q.key === 'confirm') {
-      // 送信 → サーバ（/api/estimate）にPOST
+      // サーバに送信 → 返却に redirectUrl / friendUrl があれば優先遷移、
+      // 無ければ DEFAULT_FRIEND_URL へ（友だち追加 or 既に追加済みならトークを開く）
       try {
         const res = await fetch('/api/estimate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(state.answers)
+          body: JSON.stringify(state.answers),
         });
         const json = await res.json().catch(() => ({}));
-        // 送信完了メッセージ
-        alert(json?.message || '送信しました。LINEをご確認ください。');
-        // 完了後は最初に戻す
-        state.step = 0;
-        state.answers = { kind: null, age: null, floors: null, material: null };
-        render();
+
+        const jump =
+          json?.redirectUrl ||
+          json?.friendUrl ||
+          DEFAULT_FRIEND_URL;
+
+        // 自動で LINE 側へ遷移（「送信しました…」の中間画面は出しません）
+        window.location.href = jump;
       } catch (e) {
         alert('送信に失敗しました。通信状況をご確認の上、時間を置いて再度お試しください。');
       }
       return;
     }
+
     state.step = Math.min(QUESTIONS.length - 1, step + 1);
     render();
   });
@@ -219,11 +251,9 @@ function render() {
 
   const helper = document.createElement('div');
   helper.className = 'helper';
-  if (q.key !== 'confirm') {
-    helper.textContent = '選択すると「次へ」ボタンが有効になります。';
-  } else {
-    helper.textContent = '内容に誤りがある場合は「戻る」で修正してください。';
-  }
+  helper.textContent = (q.key !== 'confirm')
+    ? '選択すると「次へ」ボタンが有効になります。'
+    : '内容に誤りがある場合は「戻る」で修正してください。';
 
   card.appendChild(nav);
   card.appendChild(helper);
@@ -231,7 +261,7 @@ function render() {
   $app.appendChild(card);
 }
 
-// 初期化（JSが確実に走るよう DOMContentLoaded を使う）
+// 初期化
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', render);
 } else {
