@@ -1,87 +1,62 @@
-// server.js（プロジェクト直下）
+// server.js
 import express from 'express';
 import path from 'path';
-import bodyParser from 'body-parser';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
-import fs from 'fs';
-import { fileURLToPath, pathToFileURL } from 'url';
+import bodyParser from 'body-parser';
 
-const CONFIG = {
-  PORT: Number(process.env.PORT || 3000),
-  LIFF_ID: process.env.LIFF_ID || '',
-};
+// ルートのディレクトリ解決
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-app.disable('x-powered-by');
-app.set('trust proxy', 1);
+
+// -------------------------------
+// 1) Webhook を最優先で登録
+//    ※ ここでは body-parser をまだ使わない！
+// -------------------------------
+import webhookRoutes from './routes/webhook.js';
+app.use(webhookRoutes);
+
+// -------------------------------
+// 2) それ以外のミドルウェア・ルートを後段に登録
+// -------------------------------
 app.use(cors());
 app.use(bodyParser.json({ limit: '15mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// 静的ファイル（/public）
 const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
 
-app.get('/healthz', (_req, res) => res.status(200).type('text').send('ok'));
-app.get('/health',  (_req, res) => res.status(200).type('text').send('ok'));
+// ヘルスチェック
+app.get(['/healthz', '/health'], (_req, res) => res.type('text').send('ok'));
 
-app.get('/liff.html', (req, res, next) => {
-  const filePath = path.join(publicDir, 'liff.html');
-  fs.readFile(filePath, 'utf8', (err, html) => {
-    if (err) return next(err);
-    const out = html.replace('{{LIFF_ID_REPLACED_AT_RUNTIME}}', CONFIG.LIFF_ID || '');
-    res.set('Content-Type', 'text/html; charset=utf-8').send(out);
-  });
+// （必要なら他の API ルートをここで登録）
+// import estimateRoutes from './routes/estimate.js';
+// import detailsRoutes from './routes/details.js';
+// app.use(estimateRoutes);
+// app.use(detailsRoutes);
+
+// 404
+app.use((req, res, next) => {
+  if (res.headersSent) return next();
+  res.status(404).json({ error: 'Not Found', path: req.originalUrl });
 });
 
-app.get('/liff.js', (req, res) => {
-  const inPublic = path.join(publicDir, 'liff.js');
-  const inRoot   = path.join(__dirname, 'liff.js');
-  const filePath = fs.existsSync(inPublic) ? inPublic
-                 : fs.existsSync(inRoot)   ? inRoot
-                 : null;
-  if (!filePath) return res.status(404).type('text').send('Not Found');
-  res.sendFile(filePath);
-});
-
-app.use(express.static(publicDir, { index: 'index.html', maxAge: '5m' }));
-
-async function importFirstExisting(candidates) {
-  for (const rel of candidates) {
-    const abs = path.join(__dirname, rel);
-    if (fs.existsSync(abs)) return import(pathToFileURL(abs).href);
-  }
-  throw new Error(`Route module not found. Tried: ${candidates.join(', ')}`);
-}
-
-const { default: estimateRoutes } = await importFirstExisting([
-  'routes/estimate.js',  // ← あなたの構成だとここが最初にヒット
-  'src/estimate.js',
-  'estimate.js',
-]);
-const { default: detailsRoutes }  = await importFirstExisting([
-  'routes/details.js',
-  'src/details.js',
-  'details.js',
-]);
-const { default: webhookRoutes }  = await importFirstExisting([
-  'routes/webhook.js',
-  'src/webhook.js',
-  'webhook.js',
-]);
-
-app.use(estimateRoutes);
-app.use(detailsRoutes);
-app.use(webhookRoutes);
-
-app.use((req, res) => res.status(404).type('text').send('Not Found'));
+// エラーハンドラ（ログだけ出して 200 を返したい場合は調整可）
 app.use((err, _req, res, _next) => {
-  console.error('[ERROR]', err);
-  res.status(500).type('text').send('Internal Server Error');
+  console.error('[UNCAUGHT ERROR]', err);
+  res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(CONFIG.PORT, () => {
-  console.log('[INFO] Server started');
-  console.log('[INFO] Port:', CONFIG.PORT);
-  console.log('[INFO] Health:', `http://localhost:${CONFIG.PORT}/healthz`);
+// 起動
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log('[INFO] サーバーが起動しました');
+  console.log('[INFO] ポート:', PORT);
+  console.log('[INFO] 環境:', process.env.NODE_ENV || 'development');
+  console.log('[INFO] ヘルスチェック: http://localhost:' + PORT + '/healthz');
 });
+
+export default app;
