@@ -1,97 +1,54 @@
 // routes/estimate.js
-import express from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { saveEstimateForLead } from '../store/linkStore.js';
+import { Router } from 'express';
+import crypto from 'node:crypto';
 
-const router = express.Router();
+const router = Router();
+
+/** ランダム state を作る（ログイン往復で改ざん防止 & 一時保存キー） */
+function createState() {
+  return [...crypto.getRandomValues(new Uint8Array(16))]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 /**
- * 初回アンケートの保存 + 概算見積り算出
- * 期待する入力:
- * {
- *   desire: "外壁" | "屋根" | "外壁と屋根",
- *   age: "1〜5年" | "6〜10年" | ... | "31年以上",
- *   floors: "1階建て" | "2階建て" | "3階建て以上",
- *   material: "サイディング" | "モルタル" | "ALC" | "ガルバリウム" | "木" | "RC" | "その他" | "わからない"
- * }
+ * アンケート送信エンドポイント
+ * 既存フロントから JSON POST される前提（パスは /estimate のまま）
+ * ここでは回答を一時保存し、LINEログインの認可URL（bot_prompt=normal）を返す。
  */
-router.post('/api/estimate', async (req, res) => {
+router.post('/estimate', async (req, res) => {
   try {
-    const { desire, age, floors, material } = req.body || {};
+    const answers = req.body || {};
 
-    // 入力チェック
-    if (!desire || !age || !floors || !material) {
-      return res.status(400).json({ ok: false, error: 'missing fields' });
-    }
+    // 既存のスプレッドシート保存・メール送信がある場合はこの辺で実行（削除しない）
+    // 例）await saveToSheet(answers);
 
-    // ===== 概算計算（仮の計算式：後で係数を調整可能） =====
-    const BASE = 300000; // ベース金額（円）
+    // state を生成し、一時保存（server.js で app.locals に Map を用意済み）
+    const state = createState();
+    const bucket = req.app.locals?.pendingEstimates;
+    if (!bucket) throw new Error('pendingEstimates store missing');
+    bucket.set(state, { answers, createdAt: Date.now() });
 
-    const desireFactor = {
-      '外壁': 1.0,
-      '屋根': 0.6,
-      '外壁と屋根': 1.5,
-    };
+    const {
+      LINE_LOGIN_CHANNEL_ID,
+      LINE_LOGIN_REDIRECT_URI,
+    } = process.env;
 
-    const ageFactor = {
-      '1〜5年': 0.9,
-      '6〜10年': 1.0,
-      '11〜15年': 1.1,
-      '16〜20年': 1.2,
-      '21〜25年': 1.3,
-      '26〜30年': 1.4,
-      '31年以上': 1.5,
-    };
+    // LINEログイン認可URL（友だち未追加でも bot_prompt=normal で追加誘導）
+    const authorizeUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('client_id', LINE_LOGIN_CHANNEL_ID);
+    authorizeUrl.searchParams.set('redirect_uri', LINE_LOGIN_REDIRECT_URI);
+    authorizeUrl.searchParams.set('state', state);
+    authorizeUrl.searchParams.set('scope', 'openid profile');
+    authorizeUrl.searchParams.set('bot_prompt', 'normal');
 
-    const floorsFactor = {
-      '1階建て': 0.9,
-      '2階建て': 1.0,
-      '3階建て以上': 1.2,
-    };
-
-    const materialFactor = {
-      'サイディング': 1.00,
-      'モルタル': 1.05,
-      'ALC': 1.10,
-      'ガルバリウム': 1.08,
-      '木': 1.15,
-      'RC': 1.20,
-      'その他': 1.00,
-      'わからない': 1.00,
-    };
-
-    const calc =
-      (desireFactor[desire] ?? 1) *
-      (ageFactor[age] ?? 1) *
-      (floorsFactor[floors] ?? 1) *
-      (materialFactor[material] ?? 1);
-
-    // 千円単位で丸め
-    const price = Math.round((BASE * calc) / 1000) * 1000;
-
-    // ===== リードID発行・保存 =====
-    const leadId = uuidv4();
-
-    // 後続（Webhook/プッシュ時）に参照できるよう、概算を保存
-    await saveEstimateForLead(leadId, {
-      price,
-      summaryText: `■見積もり希望内容: ${desire}\n■築年数: ${age}\n■階数: ${floors}\n■外壁材: ${material}`,
-      answers: { desire, age, floors, material },
-      createdAt: new Date().toISOString(),
-    });
-
-    // （必要なら）ここでスプレッドシートやメール送信を行う実装を入れてください。
-    // 例：
-    // await appendInitialRowToSheet({ leadId, desire, age, floors, material, price });
-
-    return res.status(201).json({
+    return res.json({
       ok: true,
-      leadId,
-      price, // 画面では使わないがデバッグ用に返す
+      redirectUrl: authorizeUrl.toString(), // フロントはこのURLへ遷移する
     });
-  } catch (err) {
-    console.error('[POST /api/estimate ERROR]', err);
-    return res.status(500).json({ ok: false, error: 'internal error' });
+  } catch (e) {
+    console.error('[POST /estimate] error', e);
+    return res.status(500).json({ ok: false, message: 'ESTIMATE_FAILED' });
   }
 });
 
