@@ -1,4 +1,4 @@
-// server.js  — ESM対応・LINE連携・静的配信・概算API・Webhook
+// server.js  — LINE SDK(named export) / 静的配信 / 概算API / Webhook
 
 import express from 'express';
 import cors from 'cors';
@@ -7,8 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import bodyParser from 'body-parser';
 import { v4 as uuidv4 } from 'uuid';
-import pkg from '@line/bot-sdk';            // ★ CommonJS を ESM から利用
-const { Client, middleware } = pkg;
+import { Client, middleware } from '@line/bot-sdk'; // ★ default ではなく named export を使用
 
 dotenv.config();
 
@@ -66,7 +65,7 @@ app.post('/api/estimate', (req, res) => {
 
     pending.set(pendingId, { answers, amount, createdAt: Date.now() });
 
-    // ユーザーの入力欄が開いた状態でOAトークを開くリンク
+    // OAトークを開いて入力欄に文言をセットするURL
     const talkUrl = `https://line.me/R/oaMessage/${encodeURIComponent(
       LINE_BASIC_ID
     )}/?${encodeURIComponent(`見積受け取り ${pendingId}`)}`;
