@@ -2,44 +2,44 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
+import cors from "cors";
+import bodyParser from "body-parser";
+import webhookRouter from "./webhook.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use(cors());
+app.use(bodyParser.json());
 
 // ヘルスチェック
 app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// 静的ファイル配信（/public とプロジェクト直下）
-app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
-app.use(express.static(__dirname, { extensions: ["html"] }));
+// 静的ファイル配信（/public とプロジェクト直下の両方を見る）
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname)); // 直下に liff.html 等がある場合も拾える
 
-// LIFF 用設定を JS として配信（liff.html から読み込み）
-app.get("/liff-config.js", (_req, res) => {
-  const cfg = {
-    LIFF_ID: process.env.LIFF_ID || "",
-  };
-  res.type("application/javascript").send(`window.LIFF_ID=${JSON.stringify(cfg.LIFF_ID)};`);
+// LINE Webhook
+app.use("/line", webhookRouter);
+
+// ルート（静的配信に任せても OK）
+app.get("/", (req, res) => {
+  // /public/index.html があればそれを、なければ直下 index.html
+  const file1 = path.join(__dirname, "public", "index.html");
+  const file2 = path.join(__dirname, "index.html");
+  res.sendFile(file1, (err) => {
+    if (err) res.sendFile(file2, (err2) => err2 && res.status(404).send("Not Found"));
+  });
 });
 
-// /liff, /liff/ , /liff/index.html などは liff.html を返す
-app.get(["/liff", "/liff/", "/liff/index.html", "/liff/*"], (_req, res) => {
-  res.sendFile(path.join(__dirname, "liff.html"));
+// エラーハンドラ（落ちにくくする）
+app.use((err, _req, res, _next) => {
+  console.error("[ERROR]", err);
+  res.status(500).send("Server Error");
 });
 
-// 既存 API / Webhook を読み込み
-import webhook from "./webhook.js";
-app.use("/line", webhook);
-
-// 最後のフォールバック（存在しないパスは 404）
-app.use((req, res) => {
-  res.status(404).type("text").send(`Not Found: ${req.originalUrl}`);
-});
-
-// 起動
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log("[INFO] server running on", PORT);
-  console.log("[INFO] health:", `http://localhost:${PORT}/healthz`);
+  console.log(`[INFO] Server listening on ${PORT}`);
 });
