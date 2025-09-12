@@ -16,11 +16,12 @@ const {
   LINE_LOGIN_REDIRECT_URI,
 
   // 送信後の誘導
-  LIFF_URL_DETAIL,           // 例: https://liff.line.me/xxxx-xxxx （任意）
-  LINE_BOT_BASIC_ID,         // 例: @004szogc （推奨）
-  FRIEND_ADD_URL = 'https://lin.ee/XxmuVXt', // 友だち追加URL（フォールバック）
+  LIFF_URL_DETAIL,           // 例: https://liff.line.me/xxxxxxxx (推奨: フルURL)
+  LIFF_ID_DETAIL,            // 例: xxxxxxxx （IDしかない場合はこちらからURL生成）
+  LINE_BOT_BASIC_ID,         // 例: @004szogc
+  FRIEND_ADD_URL = 'https://lin.ee/XxmuVXt',
 
-  // 表示→自動遷移のディレイ（ミリ秒）。0 なら即時トークへ。
+  // コールバック後の自動遷移ディレイ（ms） 0 で即時
   TALK_REDIRECT_DELAY_MS = '1200',
 } = process.env;
 
@@ -30,14 +31,22 @@ const client = new line.Client({
   channelSecret: LINE_CHANNEL_SECRET || '',
 });
 
-// トーク画面（Basic ID があればそちらを優先）
 function buildTalkUrl() {
   if (LINE_BOT_BASIC_ID && LINE_BOT_BASIC_ID.trim()) {
-    // https://line.me/R/ti/p/{basic_id_without_@}
     return `https://line.me/R/ti/p/${LINE_BOT_BASIC_ID.replace(/^@/, '')}`;
   }
-  // Basic ID 未設定の場合は友だち追加URLへ
   return FRIEND_ADD_URL;
+}
+
+function buildLiffUrl() {
+  // フルURL優先、無ければ LIFF_ID から組み立て
+  if (LIFF_URL_DETAIL && /^https:\/\/liff\.line\.me\/[A-Za-z0-9_\-]+/.test(LIFF_URL_DETAIL)) {
+    return LIFF_URL_DETAIL;
+  }
+  if (LIFF_ID_DETAIL && /^[A-Za-z0-9_\-]+$/.test(LIFF_ID_DETAIL)) {
+    return `https://liff.line.me/${LIFF_ID_DETAIL}`;
+  }
+  return null;
 }
 
 // 認証後の「メッセージ表示 → 自動遷移」HTML
@@ -72,11 +81,8 @@ function renderPostMessageAndRedirect(talkUrl, justPushedText) {
   (function(){
     var url = ${JSON.stringify(talkUrl)};
     var delay = ${delay};
-    function go(){
-      try{ location.replace(url); }catch(e){ location.href = url; }
-    }
-    if (delay === 0) { go(); }
-    else { setTimeout(go, delay); }
+    function go(){ try{ location.replace(url); }catch(e){ location.href = url; } }
+    if (delay === 0) { go(); } else { setTimeout(go, delay); }
   })();
 </script>`;
 }
@@ -89,7 +95,6 @@ router.get('/auth/line/callback', async (req, res) => {
     return res.status(400).send('Login canceled.');
   }
 
-  // pending を取得（アンケート回答）
   const bucket = req.app.locals?.pendingEstimates;
   const pending = bucket?.get(state);
   if (!pending) return res.status(400).send('Session expired. Please try again.');
@@ -113,7 +118,7 @@ router.get('/auth/line/callback', async (req, res) => {
       return res.status(400).send('Login token error.');
     }
 
-    // 2) id_token 検証 → sub(userId) 取得
+    // 2) id_token 検証 → sub(userId)
     const verifyRes = await fetch('https://api.line.me/oauth2/v2.1/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -129,7 +134,7 @@ router.get('/auth/line/callback', async (req, res) => {
     }
     const userId = idInfo.sub;
 
-    // 3) 概算の算出（仮ロジック）
+    // 3) 概算算出（仮ロジック）
     const a = pending.answers || {};
     const amount = computeEstimate({
       desiredWork: a.desiredWork,
@@ -139,46 +144,58 @@ router.get('/auth/line/callback', async (req, res) => {
     });
     const amountTxt = (amount ?? 0).toLocaleString('ja-JP');
 
-    // 4) プッシュ送信
-    const summary = [
-      '【概算見積りの受付】',
-      `・希望: ${a.desiredWork ?? '-'}`,
-      `・築年数: ${a.ageRange ?? '-'}`,
-      `・階数: ${a.floors ?? '-'}`,
-      `・外壁材: ${a.wallMaterial ?? '-'}`,
-      '',
-      `概算お見積額は ${amountTxt} 円です。`,
-      '※ご回答内容をもとに算出した概算です。'
-    ].join('\n');
+    // 4) まとめてプッシュ（summary ＋ LIFFボタン ＋ テキストURLの二重化）
+    const liffUrl = buildLiffUrl(); // null なら LIFF 関連は出さない
+    const messages = [
+      {
+        type: 'text',
+        text: [
+          '【概算見積りの受付】',
+          `・希望: ${a.desiredWork ?? '-'}`,
+          `・築年数: ${a.ageRange ?? '-'}`,
+          `・階数: ${a.floors ?? '-'}`,
+          `・外壁材: ${a.wallMaterial ?? '-'}`,
+          '',
+          `概算お見積額は ${amountTxt} 円です。`,
+          '※ご回答内容をもとに算出した概算です。'
+        ].join('\n')
+      }
+    ];
 
-    await client.pushMessage(userId, { type: 'text', text: summary })
-      .catch(err => console.error('[PUSH summary] failed', err?.response?.data ?? err));
-
-    if (LIFF_URL_DETAIL) {
-      await client.pushMessage(userId, {
+    if (liffUrl) {
+      messages.push({
         type: 'template',
         altText: '詳細見積もりの入力はこちら',
         template: {
           type: 'buttons',
           text: 'より詳しい見積もりをご希望の方は、こちらから詳細情報をご入力ください。',
-          actions: [{ type: 'uri', label: '詳細見積もりを入力', uri: LIFF_URL_DETAIL }]
+          actions: [{ type: 'uri', label: '詳細見積もりを入力', uri: liffUrl }]
         }
-      }).catch(err => console.error('[PUSH LIFF] failed', err?.response?.data ?? err));
+      });
+      // テンプレートが出ない端末/状況のためにテキストでも URL を併送
+      messages.push({
+        type: 'text',
+        text: `詳細見積もりの入力はこちら：\n${liffUrl}`
+      });
     }
 
-    // 5) 使い終わった pending を破棄
+    await client.pushMessage(userId, messages)
+      .catch(err => console.error('[PUSH] failed', err?.originalError?.response?.data ?? err));
+
+    // 5) state 後始末
     bucket.delete(state);
 
-    // 6) メッセージを一瞬表示 → 自動的にトークを開く（or 即時）
+    // 6) 画面表示 → 自動でトークへ
     const talkUrl = buildTalkUrl();
     const html = renderPostMessageAndRedirect(
       talkUrl,
-      'LINEに概算見積もりを送信しました。'
+      liffUrl ? 'LINEに概算見積もりと詳細入力のリンクを送信しました。'
+              : 'LINEに概算見積もりを送信しました。'
     );
     res.status(200).send(html);
   } catch (e) {
     console.error('[GET /auth/line/callback] error', e);
-    // 失敗時もトーク/友だちURLへフォールバック表示つきで誘導
+    // 失敗時も案内ページからトークへ誘導
     const talkUrl = buildTalkUrl();
     return res.status(200).send(renderPostMessageAndRedirect(talkUrl, '処理は完了しました。LINEをご確認ください。'));
   }
