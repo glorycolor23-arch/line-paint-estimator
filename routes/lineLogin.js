@@ -1,70 +1,57 @@
 // routes/lineLogin.js
-// 目的：LINEログイン完了後に、必ず LIFF のリンク（ボタン＋テキスト）をプッシュ送信する。
-// フロント（/public）は一切変更しません。
+// 目的: LINEログインのコールバックで userId を取得し、必ず LIFF への誘導メッセージ（ボタン+テキスト）を push する。
+// フロントは一切変更しない。ログを詳細に出力してトラブルシュートを容易にする。
 
 import express from 'express';
 import { Client } from '@line/bot-sdk';
 
 const router = express.Router();
 
-/* =========================
-   環境変数（Render → Environment）
-   =========================
-   必須：
-   - LINE_CHANNEL_ACCESS_TOKEN（または CHANNEL_ACCESS_TOKEN） … Messaging API の長期トークン
-   - LINE_LOGIN_CHANNEL_ID / LINE_LOGIN_CHANNEL_SECRET           … LINEログインのチャネル
-   - LINE_LOGIN_REDIRECT_URI                                     … 例: https://line-paint.onrender.com/line/callback
-   推奨：
-   - DETAILS_LIFF_URL … https://liff.line.me/xxxxxxxx （LIFF の“URL”そのもの）
-   代替（DETAILS_LIFF_URL が無い場合の保険）：
-   - LIFF_URL_DETAIL / LIFF_ID_DETAIL / LIFF_ID / PUBLIC_BASE_URL
-*/
-
+// ==== 環境変数の取得（複数名称をフォールバック） ====
 const env = (k, d = '') => (process.env[k] ?? d).toString().trim();
 
 const CHANNEL_ACCESS_TOKEN =
-  env('LINE_CHANNEL_ACCESS_TOKEN') || env('CHANNEL_ACCESS_TOKEN'); // どちらでも可
+  env('LINE_CHANNEL_ACCESS_TOKEN') || env('CHANNEL_ACCESS_TOKEN');
 
 const LOGIN_CHANNEL_ID = env('LINE_LOGIN_CHANNEL_ID');
 const LOGIN_CHANNEL_SECRET = env('LINE_LOGIN_CHANNEL_SECRET');
 const LOGIN_REDIRECT_URI = env('LINE_LOGIN_REDIRECT_URI', 'https://line-paint.onrender.com/line/callback');
 
-// LIFF URL の解決（URL優先 → IDから組み立て → 自サイト /liff.html へフォールバック）
+// LIFF URL の解決（URL優先 → IDから生成 → /liff.html フォールバック）
 function resolveLiffUrl() {
-  const byUrl =
-    env('DETAILS_LIFF_URL') ||
-    env('LIFF_URL_DETAIL');
-
-  if (byUrl && /^https:\/\/liff\.line\.me\//.test(byUrl)) return byUrl;
+  const urlFromEnv = env('DETAILS_LIFF_URL') || env('LIFF_URL_DETAIL');
+  if (urlFromEnv && /^https:\/\/liff\.line\.me\//.test(urlFromEnv)) return urlFromEnv;
 
   const id = env('LIFF_ID_DETAIL') || env('LIFF_ID');
   if (id && /^[A-Za-z0-9_\-]+$/.test(id)) return `https://liff.line.me/${id}`;
 
   const base = env('PUBLIC_BASE_URL', 'https://line-paint.onrender.com').replace(/\/+$/, '');
-  return `${base}/liff.html`; // 最低限のフォールバック（通常URL）
+  return `${base}/liff.html`;
 }
-
 const LIFF_URL = resolveLiffUrl();
 
-// Messaging API クライアント（push 用）
+// Messaging API クライアント
 let lineClient = null;
 if (!CHANNEL_ACCESS_TOKEN) {
-  console.error('[FATAL] LINE_CHANNEL_ACCESS_TOKEN / CHANNEL_ACCESS_TOKEN が未設定です。push は失敗します。');
+  console.error('[FATAL] CHANNEL_ACCESS_TOKEN が未設定です。push は失敗します。');
 } else {
   lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
+  console.log('[INIT] LINE client ready. LIFF_URL:', LIFF_URL);
 }
 
-// ===== 共通ハンドラ（どの callback パスでも同じ処理） =====
+// 共通ハンドラ（どの callback パスでも同処理）
 async function handleCallback(req, res) {
   try {
-    const { code, error, error_description } = req.query ?? {};
+    const { code, state, error, error_description } = req.query ?? {};
+    console.log('[CALLBACK] hit', { path: req.path, hasCode: !!code, hasState: !!state });
+
     if (error) {
-      console.error('[LINE LOGIN] error:', error, error_description);
+      console.error('[CALLBACK] login error', { error, error_description });
       return res.status(400).send('Login canceled.');
     }
     if (!code) return res.status(400).send('Missing code');
 
-    // 1) 認可コード → アクセストークン（LINEログインのチャネル）
+    // 1) 認可コード → アクセストークン（ログインチャネル）
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -78,22 +65,24 @@ async function handleCallback(req, res) {
     });
     const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
-      console.error('[LINE LOGIN] token error:', tokenJson);
+      console.error('[CALLBACK] token error', tokenJson);
       return res.status(400).send('Login token error.');
     }
+    console.log('[CALLBACK] token ok');
 
-    // 2) プロフィール取得（userId 取得）
+    // 2) プロフィール取得（userId）
     const profRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${tokenJson.access_token}` },
     });
     const profile = await profRes.json();
     if (!profRes.ok || !profile?.userId) {
-      console.error('[LINE LOGIN] profile error:', profile);
+      console.error('[CALLBACK] profile error', profile);
       return res.status(400).send('Login profile error.');
     }
     const userId = profile.userId;
+    console.log('[CALLBACK] profile ok', { userId });
 
-    // 3) LIFF への誘導をプッシュ送信（テンプレ＋テキストの二重化）
+    // 3) LIFF への誘導を push（テンプレ + テキストの二重化）
     const msgs = [
       {
         type: 'text',
@@ -105,44 +94,34 @@ async function handleCallback(req, res) {
         template: {
           type: 'buttons',
           text: '詳細見積もりの入力',
-          actions: [
-            { type: 'uri', label: '詳細見積もりを入力', uri: LIFF_URL },
-          ],
+          actions: [{ type: 'uri', label: '詳細見積もりを入力', uri: LIFF_URL }],
         },
       },
-      // 端末側でテンプレが出ないケースの保険
       { type: 'text', text: `詳細見積もりの入力はこちら：\n${LIFF_URL}` },
     ];
 
     if (!lineClient) {
-      console.error('[PUSH skipped] Client not initialized (no access token).');
+      console.error('[PUSH] skipped: LINE client not initialized (no token).');
     } else {
       try {
         await lineClient.pushMessage(userId, msgs);
+        console.log('[PUSH] ok -> userId', userId);
       } catch (e) {
         const d = e?.originalError?.response?.data || e?.response?.data || e;
-        console.error('[PUSH error]', d);
-        // 失敗時もUIを止めない
+        console.error('[PUSH] error', d);
       }
     }
 
-    // 4) 完了画面へ（フロントはそのまま）
+    // 4) 完了画面へ（フロントは既存のまま）
     return res.redirect('/after-login.html?ok=1');
   } catch (e) {
-    console.error('[LOGIN CALLBACK error]', e);
+    console.error('[CALLBACK] exception', e);
     return res.status(500).send('Callback error');
   }
 }
 
-// ===== できるだけ多くのパスで拾う（マウント位置に依存しない） =====
-// 例：app.use(lineLoginRouter) でも app.use('/line/login', lineLoginRouter) でも拾えるようにする
-const paths = [
-  '/line/callback',
-  '/auth/line/callback',
-  '/line/login/callback',
-  '/callback',
-  '/login/callback',
-];
-paths.forEach(p => router.get(p, handleCallback));
+// できるだけ多くのパスで拾う（マウント位置に依存させない）
+['/line/callback', '/auth/line/callback', '/line/login/callback', '/callback', '/login/callback']
+  .forEach(p => router.get(p, handleCallback));
 
 export default router;
