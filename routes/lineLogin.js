@@ -1,35 +1,60 @@
 // routes/lineLogin.js
+// 目的：LINEログイン完了後に、必ず LIFF のリンク（ボタン＋テキスト）をプッシュ送信する。
+// フロント（/public）は一切変更しません。
+
 import express from 'express';
 import { Client } from '@line/bot-sdk';
 
 const router = express.Router();
 
-/**
- * ==== 環境変数 ====
- * Render の Environment に以下を設定してください。
- * - LINE_CHANNEL_ACCESS_TOKEN（または CHANNEL_ACCESS_TOKEN のどちらか）
- * - LINE_LOGIN_CHANNEL_ID
- * - LINE_LOGIN_CHANNEL_SECRET
- * - LINE_LOGIN_REDIRECT_URI（例: https://line-paint.onrender.com/line/callback）
- * - DETAILS_LIFF_URL（例: https://liff.line.me/xxxxxxxxxxxxxxxx）
- */
+/* =========================
+   環境変数（Render → Environment）
+   =========================
+   必須：
+   - LINE_CHANNEL_ACCESS_TOKEN（または CHANNEL_ACCESS_TOKEN） … Messaging API の長期トークン
+   - LINE_LOGIN_CHANNEL_ID / LINE_LOGIN_CHANNEL_SECRET           … LINEログインのチャネル
+   - LINE_LOGIN_REDIRECT_URI                                     … 例: https://line-paint.onrender.com/line/callback
+   推奨：
+   - DETAILS_LIFF_URL … https://liff.line.me/xxxxxxxx （LIFF の“URL”そのもの）
+   代替（DETAILS_LIFF_URL が無い場合の保険）：
+   - LIFF_URL_DETAIL / LIFF_ID_DETAIL / LIFF_ID / PUBLIC_BASE_URL
+*/
+
+const env = (k, d = '') => (process.env[k] ?? d).toString().trim();
+
 const CHANNEL_ACCESS_TOKEN =
-  process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-  process.env.CHANNEL_ACCESS_TOKEN ||
-  '';
+  env('LINE_CHANNEL_ACCESS_TOKEN') || env('CHANNEL_ACCESS_TOKEN'); // どちらでも可
 
-const LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || '';
-const LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET || '';
-const LOGIN_REDIRECT_URI =
-  process.env.LINE_LOGIN_REDIRECT_URI ||
-  'https://line-paint.onrender.com/line/callback';
+const LOGIN_CHANNEL_ID = env('LINE_LOGIN_CHANNEL_ID');
+const LOGIN_CHANNEL_SECRET = env('LINE_LOGIN_CHANNEL_SECRET');
+const LOGIN_REDIRECT_URI = env('LINE_LOGIN_REDIRECT_URI', 'https://line-paint.onrender.com/line/callback');
 
-const DETAILS_LIFF_URL = (process.env.DETAILS_LIFF_URL || '').trim();
+// LIFF URL の解決（URL優先 → IDから組み立て → 自サイト /liff.html へフォールバック）
+function resolveLiffUrl() {
+  const byUrl =
+    env('DETAILS_LIFF_URL') ||
+    env('LIFF_URL_DETAIL');
 
-// Messaging API クライアント（push 送信用）
-const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
+  if (byUrl && /^https:\/\/liff\.line\.me\//.test(byUrl)) return byUrl;
 
-// ------ 共通ハンドラ（どのコールバックパスでも同じ処理） ------
+  const id = env('LIFF_ID_DETAIL') || env('LIFF_ID');
+  if (id && /^[A-Za-z0-9_\-]+$/.test(id)) return `https://liff.line.me/${id}`;
+
+  const base = env('PUBLIC_BASE_URL', 'https://line-paint.onrender.com').replace(/\/+$/, '');
+  return `${base}/liff.html`; // 最低限のフォールバック（通常URL）
+}
+
+const LIFF_URL = resolveLiffUrl();
+
+// Messaging API クライアント（push 用）
+let lineClient = null;
+if (!CHANNEL_ACCESS_TOKEN) {
+  console.error('[FATAL] LINE_CHANNEL_ACCESS_TOKEN / CHANNEL_ACCESS_TOKEN が未設定です。push は失敗します。');
+} else {
+  lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
+}
+
+// ===== 共通ハンドラ（どの callback パスでも同じ処理） =====
 async function handleCallback(req, res) {
   try {
     const { code, error, error_description } = req.query ?? {};
@@ -39,7 +64,7 @@ async function handleCallback(req, res) {
     }
     if (!code) return res.status(400).send('Missing code');
 
-    // 1) 認可コード → アクセストークン（LINEログインチャネルで交換）
+    // 1) 認可コード → アクセストークン（LINEログインのチャネル）
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -57,7 +82,7 @@ async function handleCallback(req, res) {
       return res.status(400).send('Login token error.');
     }
 
-    // 2) プロフィール取得（userId）
+    // 2) プロフィール取得（userId 取得）
     const profRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${tokenJson.access_token}` },
     });
@@ -68,56 +93,56 @@ async function handleCallback(req, res) {
     }
     const userId = profile.userId;
 
-    // 3) 概算送信後に、必ず LIFF への誘導を push
-    let messages = [];
-    if (DETAILS_LIFF_URL) {
-      messages = [
-        {
-          type: 'text',
-          text:
-            'より詳しいお見積もりをご希望の方は、下のボタンから詳細情報をご入力ください。',
+    // 3) LIFF への誘導をプッシュ送信（テンプレ＋テキストの二重化）
+    const msgs = [
+      {
+        type: 'text',
+        text: 'より詳しいお見積もりをご希望の方は、下のボタンから詳細情報をご入力ください。',
+      },
+      {
+        type: 'template',
+        altText: '詳細見積もりの入力',
+        template: {
+          type: 'buttons',
+          text: '詳細見積もりの入力',
+          actions: [
+            { type: 'uri', label: '詳細見積もりを入力', uri: LIFF_URL },
+          ],
         },
-        {
-          type: 'template',
-          altText: '詳細見積もりの入力',
-          template: {
-            type: 'buttons',
-            text: '詳細見積もりの入力',
-            actions: [
-              { type: 'uri', label: '詳細見積もりを入力', uri: DETAILS_LIFF_URL },
-            ],
-          },
-        },
-        // 端末の事情でテンプレが表示されない場合の保険でテキストURLも併送
-        { type: 'text', text: `詳細見積もりの入力はこちら：\n${DETAILS_LIFF_URL}` },
-      ];
+      },
+      // 端末側でテンプレが出ないケースの保険
+      { type: 'text', text: `詳細見積もりの入力はこちら：\n${LIFF_URL}` },
+    ];
+
+    if (!lineClient) {
+      console.error('[PUSH skipped] Client not initialized (no access token).');
     } else {
-      messages = [
-        {
-          type: 'text',
-          text:
-            '詳細見積もりの入力リンクが未設定です。管理者にご連絡ください。（DETAILS_LIFF_URL）',
-        },
-      ];
+      try {
+        await lineClient.pushMessage(userId, msgs);
+      } catch (e) {
+        const d = e?.originalError?.response?.data || e?.response?.data || e;
+        console.error('[PUSH error]', d);
+        // 失敗時もUIを止めない
+      }
     }
 
-    try {
-      await lineClient.pushMessage(userId, messages);
-    } catch (e) {
-      console.error('[PUSH error]', e?.response?.data || e);
-    }
-
-    // 4) 完了画面へ（フロントは変更しない）
-    res.redirect('/after-login.html?ok=1');
+    // 4) 完了画面へ（フロントはそのまま）
+    return res.redirect('/after-login.html?ok=1');
   } catch (e) {
     console.error('[LOGIN CALLBACK error]', e);
-    res.status(500).send('Callback error');
+    return res.status(500).send('Callback error');
   }
 }
 
-// ------ マルチパス対応（既存のどのコールバックURLでも拾えるように） ------
-router.get('/line/callback', handleCallback);
-router.get('/auth/line/callback', handleCallback);
-router.get('/line/login/callback', handleCallback);
+// ===== できるだけ多くのパスで拾う（マウント位置に依存しない） =====
+// 例：app.use(lineLoginRouter) でも app.use('/line/login', lineLoginRouter) でも拾えるようにする
+const paths = [
+  '/line/callback',
+  '/auth/line/callback',
+  '/line/login/callback',
+  '/callback',
+  '/login/callback',
+];
+paths.forEach(p => router.get(p, handleCallback));
 
 export default router;
