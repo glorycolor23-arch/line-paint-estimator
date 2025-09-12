@@ -3,12 +3,13 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
-import fetch from "node-fetch"; // Node22 でも確実に使えるように
-import { Client } from "@line/bot-sdk";
+// Node v18+ は fetch がグローバルにあります（追加ライブラリ不要）
 
+import { Client } from "@line/bot-sdk";       // ★ named import に統一
 import { computeEstimate } from "./lib/estimate.js";
 import { linkStore } from "./store/linkStore.js";
-import cfg from "./config.js";
+// ★ config.js は named export 前提で一括読み込み
+import * as cfg from "./config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -25,23 +26,23 @@ const lineClient = new Client({
 // ---- health ----
 app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// ---- アンケートの概算計算 → LINEログインへ誘導 ----
+// ---- 概算計算 → LINEログインへ誘導 ----
 app.post("/api/estimate", (req, res) => {
   const answers = req.body?.answers || {};
   const amount  = computeEstimate(answers);
 
-  // state を発行して、結果を保存（ログイン後に取り出す）
+  // state を発行してログイン後に使うデータを保存
   const state = crypto.randomUUID();
   linkStore.put(state, { amount, answers });
 
-  // LINEログインURL作成
+  // LINEログインURL
   const authorize = new URL("https://access.line.me/oauth2/v2.1/authorize");
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", cfg.LINE_LOGIN_CHANNEL_ID);
   authorize.searchParams.set("redirect_uri", cfg.LINE_LOGIN_REDIRECT_URI);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("scope", "openid profile");
-  authorize.searchParams.set("prompt", "consent"); // 同意画面を出す
+  authorize.searchParams.set("prompt", "consent");
 
   res.json({
     ok: true,
@@ -55,16 +56,11 @@ app.get("/line/callback", async (req, res) => {
   try {
     const code  = req.query.code;
     const state = req.query.state;
+    if (!code || !state) return res.status(400).send("invalid request");
 
-    if (!code || !state) {
-      return res.status(400).send("invalid request");
-    }
-
-    // state から見積データを取得
+    // state から見積データを取り出し
     const payload = linkStore.take(state);
-    if (!payload) {
-      return res.status(400).send("state expired");
-    }
+    if (!payload) return res.status(400).send("state expired");
 
     // アクセストークン交換
     const tokenUrl = "https://api.line.me/oauth2/v2.1/token";
@@ -80,27 +76,21 @@ app.get("/line/callback", async (req, res) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    if (!tokenRes.ok) {
-      const t = await tokenRes.text();
-      throw new Error(`token error: ${t}`);
-    }
+    if (!tokenRes.ok) throw new Error(`token error: ${await tokenRes.text()}`);
     const tokenJson = await tokenRes.json();
     const accessToken = tokenJson.access_token;
 
-    // プロフィール（userId取得）
+    // プロフィール取得（userId）
     const profRes = await fetch("https://api.line.me/v2/profile", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!profRes.ok) {
-      const t = await profRes.text();
-      throw new Error(`profile error: ${t}`);
-    }
+    if (!profRes.ok) throw new Error(`profile error: ${await profRes.text()}`);
     const profile = await profRes.json();
     const userId = profile.userId;
 
-    // ユーザーに概算見積と LIFF リンクを送る
+    // 概算と LIFF リンクを送る
     const amount = payload.amount;
-    const liffUrl = cfg.DETAILS_LIFF_URL?.trim();
+    const liffUrl = (cfg.DETAILS_LIFF_URL || "").trim();
 
     const messages = [
       {
@@ -119,7 +109,6 @@ app.get("/line/callback", async (req, res) => {
             text: "詳細見積もりの入力リンクが未設定です。管理者にご連絡ください。",
           },
     ];
-
     await lineClient.pushMessage(userId, messages);
 
     if (liffUrl) {
@@ -136,7 +125,7 @@ app.get("/line/callback", async (req, res) => {
       ]);
     }
 
-    // 完了ページへ（手動でLINEに戻ってもらう運用）
+    // 完了ページへ（ここからはユーザーがLINEに戻る運用）
     res.redirect("/after-login.html?ok=1");
   } catch (e) {
     console.error("[/line/callback] error:", e);
@@ -144,9 +133,8 @@ app.get("/line/callback", async (req, res) => {
   }
 });
 
-// ---- （任意）Messaging API webhook 受け口（テスト用） ----
+// ---- Webhook（必要なら後で実装） ----
 app.post("/line/webhook", (_req, res) => {
-  // ここでは単に 200 を返すだけ。必要ならイベント処理を追加。
   res.status(200).json({ ok: true });
 });
 
