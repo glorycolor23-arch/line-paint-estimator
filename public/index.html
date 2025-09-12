@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>外壁塗装の概算見積</title>
-  <link rel="stylesheet" href="/public/styles.css" />
+  <link rel="stylesheet" href="/public/styles.css?v=20250911" />
 </head>
 <body>
   <main class="container">
@@ -13,13 +13,9 @@
       <p class="lead">数ステップの回答で概算見積を算出。LINEで結果をお届けします。</p>
     </header>
 
-    <!-- ステップ表示 -->
     <div id="stepper" class="stepper" aria-live="polite"></div>
-
-    <!-- 質問エリア -->
     <section id="q-root" class="card"></section>
 
-    <!-- ナビゲーション -->
     <nav class="nav">
       <button id="backBtn" type="button" class="btn btn-ghost" disabled>戻る</button>
       <div class="spacer"></div>
@@ -27,7 +23,6 @@
       <button id="submitBtn" type="button" class="btn" hidden>この内容で送信</button>
     </nav>
 
-    <!-- 完了メッセージ -->
     <section id="done" class="card done" hidden>
       <h2>送信が完了しました</h2>
       <p>LINEのトークにお見積りをお送りします。下のボタンから公式アカウントを追加してください。</p>
@@ -36,6 +31,6 @@
     </section>
   </main>
 
-  <script src="/public/app.js" type="module"></script>
+  <script type="module" src="/public/app.js?v=20250911"></script>
 </body>
 </html>
