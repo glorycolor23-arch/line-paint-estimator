@@ -1,60 +1,45 @@
 // server.js
-import express from 'express';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as line from '@line/bot-sdk';
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const {
-  PORT = 10000,
-  NODE_ENV = 'production',
-  LINE_CHANNEL_ACCESS_TOKEN,
-  LINE_CHANNEL_SECRET,
-} = process.env;
-
 const app = express();
-app.use(express.json());
 
-// --- 静的ファイル ---
-// /public 以下（新UI）と /img（ローカル画像）を確実に配信
-app.use('/public', express.static(path.join(__dirname, 'public')));
-app.use('/img', express.static(path.join(__dirname, 'img')));
+// ヘルスチェック
+app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// 互換: 旧直下の静的も残す（必要最小限）
-app.use(express.static(__dirname)); // ただし "/" では新UIの index を返すようにする
+// 静的ファイル配信（/public とプロジェクト直下）
+app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
+app.use(express.static(__dirname, { extensions: ["html"] }));
 
-// LINE SDK クライアント
-const lineClient = new line.Client({
-  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN || '',
-  channelSecret: LINE_CHANNEL_SECRET || '',
+// LIFF 用設定を JS として配信（liff.html から読み込み）
+app.get("/liff-config.js", (_req, res) => {
+  const cfg = {
+    LIFF_ID: process.env.LIFF_ID || "",
+  };
+  res.type("application/javascript").send(`window.LIFF_ID=${JSON.stringify(cfg.LIFF_ID)};`);
 });
 
-// 共有ストア（アンケート→ログイン完了までの一時保管）
-app.locals.pendingEstimates = new Map();
-app.locals.lineClient = lineClient;
-
-// 健康チェック
-app.get('/healthz', (_req, res) => res.type('text/plain').send('ok'));
-
-// ルーティング
-import estimateRouter from './routes/estimate.js';
-import lineLoginRouter from './routes/lineLogin.js';
-import webhookRouter from './routes/webhook.js';
-
-app.use('/', estimateRouter);
-app.use('/', lineLoginRouter);
-app.use('/', webhookRouter);
-
-// ルートは必ず「新UI」を返す（古い index.html は使わない）
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// /liff, /liff/ , /liff/index.html などは liff.html を返す
+app.get(["/liff", "/liff/", "/liff/index.html", "/liff/*"], (_req, res) => {
+  res.sendFile(path.join(__dirname, "liff.html"));
 });
 
+// 既存 API / Webhook を読み込み
+import webhook from "./webhook.js";
+app.use("/line", webhook);
+
+// 最後のフォールバック（存在しないパスは 404）
+app.use((req, res) => {
+  res.status(404).type("text").send(`Not Found: ${req.originalUrl}`);
+});
+
+// 起動
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log('[INFO] サーバー起動');
-  console.log('[INFO] ポート:', PORT);
-  console.log('[INFO] 環境:', NODE_ENV);
-  console.log('[INFO] Health:', `http://localhost:${PORT}/healthz`);
+  console.log("[INFO] server running on", PORT);
+  console.log("[INFO] health:", `http://localhost:${PORT}/healthz`);
 });
