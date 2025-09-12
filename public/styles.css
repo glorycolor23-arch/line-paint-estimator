@@ -47,8 +47,7 @@ body{
 }
 .option:hover{border-color:rgba(255,255,255,.18)}
 .option[aria-checked="true"]{
-  outline: none;border-color: var(--accent);
-  box-shadow: var(--ring);
+  outline:none;border-color:var(--accent);box-shadow:var(--ring)
 }
 .option:active{transform:translateY(1px)}
 .option .thumb{
@@ -57,7 +56,6 @@ body{
 }
 .option .label{font-size:14px}
 
-/* 1問目（縦ボタン） */
 .vlist{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .vbtn{
   width:100%;text-align:center;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);
@@ -65,7 +63,6 @@ body{
 }
 .vbtn[aria-checked="true"]{border-color:var(--accent);box-shadow:var(--ring)}
 
-/* ナビ */
 .nav{display:flex;align-items:center;gap:10px;margin:16px 0}
 .spacer{flex:1}
 .btn{
@@ -77,6 +74,5 @@ body{
 .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,.2)}
 .btn.wide{display:inline-block;width:100%;text-align:center}
 .note{color:var(--muted);font-size:13px}
-
 .done{margin-top:16px}
 .hidden{display:none}
