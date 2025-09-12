@@ -1,95 +1,82 @@
-import express from 'express';
-import multer from 'multer';
-import path from 'path';
-import { updateLeadDetails, getLead } from '../lib/store.js';
-import { appendToSheet } from '../lib/sheets.js';
-import { sendAdminMail } from '../lib/mailer.js';
+// routes/details.js
+import express from "express";
+import multer from "multer";
+import path from "node:path";
+import fs from "node:fs";
+import { appendToSheet } from "../lib/sheets.js";
+import { sendAdminMail } from "../lib/mailer.js";
+import { CONFIG } from "../config.js";
 
 const router = express.Router();
 
-// Renderの一時ディスクに保存（メール添付後に削除を推奨）
-const upload = multer({
-  dest: 'uploads/',
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB/ファイル
-});
+// アップロード（10MB/ファイル）
+const upload = multer({ dest: "uploads/", limits: { fileSize: 10 * 1024 * 1024 } });
 
-// drawings: 立面図/平面図/断面図, photos: 正面/右/左/背面
-const fields = [
-  { name: 'drawing_elevation', maxCount: 1 },
-  { name: 'drawing_plan', maxCount: 1 },
-  { name: 'drawing_section', maxCount: 1 },
-  { name: 'photo_front', maxCount: 1 },
-  { name: 'photo_right', maxCount: 1 },
-  { name: 'photo_left', maxCount: 1 },
-  { name: 'photo_back', maxCount: 1 }
-];
-
-router.post('/api/details', upload.fields(fields), async (req, res) => {
+// POST /api/details
+router.post("/api/details", upload.fields([
+  { name: "drawing_elevation", maxCount: 1 },
+  { name: "drawing_plan",      maxCount: 1 },
+  { name: "drawing_section",   maxCount: 1 },
+  { name: "photo_front",       maxCount: 1 },
+  { name: "photo_right",       maxCount: 1 },
+  { name: "photo_left",        maxCount: 1 },
+  { name: "photo_back",        maxCount: 1 },
+]), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId } = req.body || {};
-    const lead = getLead(leadId);
-    if (!lead) return res.status(404).json({ error: 'lead not found' });
+    const {
+      leadId = "",
+      lineUserId = "",
+      name = "",
+      phone = "",
+      postal = "",
+    } = req.body || {};
 
-    const details = { name, phone, postal, lineUserId };
-    updateLeadDetails(leadId, details);
-
-    // スプレッドシートに追加
-    const created = new Date().toISOString();
+    // スプレッドシートへ追記
+    const now = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
     await appendToSheet([
-      created,                   // A:日時
-      leadId,                    // B
-      lineUserId || (lead.lineUserId || ''), // C
-      lead.answers.desiredWork,  // D
-      lead.answers.ageRange,     // E
-      lead.answers.floors,       // F
-      lead.answers.wallMaterial, // G
-      lead.amount,               // H
-      name,                      // I
-      phone,                     // J
-      postal,                    // K
-      'ファイルはメール添付で受領' // L
+      now,               // A:日時
+      leadId,            // B:leadId（state）
+      lineUserId,        // C:LINE userId（LIFF で取得していれば）
+      "", "", "", "",    // D-G: 初期アンケート（ここでは空。必要なら state を使って復元可能）
+      "",                // H: 概算金額（同上）
+      name,              // I
+      phone,             // J
+      postal,            // K
+      "ファイル受領: メール添付を確認" // L 以降メモ
     ]);
 
-    // メール添付作成
-    const attachments = [];
+    // 管理者メール送信（添付）
+    const files = [];
     for (const key of Object.keys(req.files || {})) {
-      const file = req.files[key]?.[0];
-      if (!file) continue;
-      attachments.push({
-        filename: file.originalname || path.basename(file.path),
-        path: file.path
-      });
+      const f = req.files[key]?.[0];
+      if (!f) continue;
+      files.push({ filename: f.originalname || path.basename(f.path), path: f.path });
     }
 
-    const summaryHtml = `
-      <h3>新しい見積り依頼</h3>
-      <p><b>Lead ID:</b> ${leadId}</p>
-      <p><b>概算見積:</b> ${lead.amount.toLocaleString()} 円</p>
-      <p><b>初期回答</b><br/>
-        見積り希望: ${lead.answers.desiredWork}<br/>
-        築年数: ${lead.answers.ageRange}<br/>
-        階数: ${lead.answers.floors}<br/>
-        外壁材: ${lead.answers.wallMaterial}
-      </p>
-      <p><b>詳細</b><br/>
-        お名前: ${name}<br/>
-        電話: ${phone}<br/>
-        郵便番号: ${postal}
-      </p>
-      <p>図面・写真は添付ファイルをご確認ください。</p>
+    const subject = "【外壁塗装】詳細見積もりの新規依頼";
+    const html = `
+      <h2>詳細見積もりの依頼が届きました</h2>
+      <ul>
+        <li>leadId: ${leadId}</li>
+        <li>LINE userId: ${lineUserId}</li>
+        <li>氏名: ${name}</li>
+        <li>電話: ${phone}</li>
+        <li>郵便: ${postal}</li>
+      </ul>
+      <p>図面・写真はメール添付ファイルをご確認ください。</p>
     `;
 
-    await sendAdminMail({
-      subject: `【見積依頼】Lead ${leadId} / ${name || '名無し'}`,
-      text: `Lead ${leadId} 概算: ${lead.amount}円`,
-      html: summaryHtml,
-      attachments
-    });
+    await sendAdminMail({ subject, html, text: html.replace(/<[^>]+>/g, ""), attachments: files });
 
-    res.json({ ok: true });
+    // 後始末（任意）
+    try {
+      for (const a of files) fs.unlink(a.path, ()=>{});
+    } catch(_e) {}
+
+    return res.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'internal error' });
+    console.error("[POST /api/details] error", e);
+    return res.status(500).json({ ok: false, error: "DETAILS_FAILED" });
   }
 });
 
