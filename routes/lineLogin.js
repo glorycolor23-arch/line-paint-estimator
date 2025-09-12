@@ -5,15 +5,13 @@ import { Client } from "@line/bot-sdk";
 
 const router = express.Router();
 
-/** =========================
- *  既存の環境変数をそのまま利用
- *  - Messaging API（プッシュ送信用）
- *  - LINEログイン（認可コード → userId取得用）
- *  - LIFFリンク（未設定でも既定URLを使って必ず送る）
+/* =========================
+ *  既存の環境変数（増やしません）
  * ========================= */
 const CHANNEL_ACCESS_TOKEN =
   process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-  process.env.CHANNEL_ACCESS_TOKEN || "";
+  process.env.CHANNEL_ACCESS_TOKEN ||
+  "";
 
 const CHANNEL_SECRET =
   process.env.LINE_CHANNEL_SECRET || process.env.CHANNEL_SECRET || "";
@@ -31,7 +29,7 @@ const LOGIN_REDIRECT_URI =
   process.env.LOGIN_REDIRECT_URI ||
   "";
 
-// LIFF の URL は未設定でも既定値で送信できるようにする
+// LIFF は未設定でも既定URLで必ず送れるように
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || "https://line-paint.onrender.com";
 const LIFF_URL =
@@ -39,7 +37,7 @@ const LIFF_URL =
   process.env.DETAIL_LIFF_URL ||
   `${PUBLIC_BASE_URL.replace(/\/$/, "")}/liff.html`;
 
-/** LINE Messaging API クライアント（プッシュ送信用） */
+// Messaging API クライアント（プッシュ用）
 const client =
   CHANNEL_ACCESS_TOKEN && CHANNEL_SECRET
     ? new Client({
@@ -48,13 +46,15 @@ const client =
       })
     : null;
 
-/** -------------------------------------------------
- *  /line/login
- *  既存の導線を壊さないよう、標準的な認可URLを生成
- *  （この導線は既に問題ないとのことなので、極力変更なし）
+/* -------------------------------------------------
+ * ログイン開始
+ * （既存導線を壊さない。複数パスで受ける）
+ *  - /login         （このルータを /line マウント → /line/login になる）
+ *  - /line/login    （ルートマウントの場合に備えた絶対パス）
+ *  - /auth/line/login（運用中の設定に合わせる保険）
  * ------------------------------------------------- */
-router.get("/line/login", (req, res) => {
-  // state は既存実装があればそのまま使う（なければ乱数）
+const loginPaths = ["/login", "/line/login", "/auth/line/login"];
+router.get(loginPaths, (req, res) => {
   const state =
     (typeof req.query.state === "string" && req.query.state) ||
     Math.random().toString(36).slice(2);
@@ -65,28 +65,29 @@ router.get("/line/login", (req, res) => {
   authUrl.searchParams.set("redirect_uri", LOGIN_REDIRECT_URI);
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("scope", "openid profile"); // メール不要
-  // 友だち追加は既存設定に依存。ここでは付けない/壊さない（必要なら bot_prompt=normal を追加）
 
   return res.redirect(authUrl.toString());
 });
 
-/** -------------------------------------------------
- *  /line/callback
- *  1) code→id_token 交換
- *  2) id_token 検証→ userId(sub) 取得
- *  3) 必ず LIFF リンクをプッシュ
- *  4) 既存の完了画面へ遷移（after-login.html）
+/* -------------------------------------------------
+ * コールバック
+ * （複数パスで必ず拾う）
+ *  - /callback
+ *  - /line/callback
+ *  - /auth/line/callback
  * ------------------------------------------------- */
-router.get("/line/callback", async (req, res) => {
+const callbackPaths = ["/callback", "/line/callback", "/auth/line/callback"];
+router.get(callbackPaths, async (req, res) => {
+  console.info("[CALLBACK] hit:", req.originalUrl, req.query);
+
   const code = req.query.code;
-  const state = req.query.state; // 既存実装が参照していてもOK、ここでは使わない
   if (!code) {
-    console.error("[LOGIN] missing code");
-    return res.redirect("/after-login.html"); // 既存の完了画面
+    console.error("[CALLBACK] missing code");
+    return res.redirect("/after-login.html");
   }
 
   try {
-    // ① 認可コードを id_token 等へ交換
+    // ① 認可コードをトークンへ交換
     const tokenRes = await axios.post(
       "https://api.line.me/oauth2/v2.1/token",
       new URLSearchParams({
@@ -101,7 +102,7 @@ router.get("/line/callback", async (req, res) => {
 
     const idToken = tokenRes.data?.id_token;
     if (!idToken) {
-      console.error("[LOGIN] no id_token in token response");
+      console.error("[CALLBACK] no id_token in token response");
       return res.redirect("/after-login.html");
     }
 
@@ -116,17 +117,16 @@ router.get("/line/callback", async (req, res) => {
     );
 
     const userId = verifyRes.data?.sub;
+    console.info("[CALLBACK] verified userId:", userId);
+
     if (!userId) {
-      console.error("[LOGIN] verify ok but no sub(userId)");
+      console.error("[CALLBACK] verify ok but no sub(userId)");
       return res.redirect("/after-login.html");
     }
 
-    // ③ 概算メッセージの送信有無に関わらず、
-    //    **必ず** LIFF リンクを続けて送る（既定URLでフォールバック）
+    // ③ 見積り連携の成否に関わらず、LIFFリンクは必ず送る
     if (client) {
       const link = LIFF_URL;
-
-      // 既存のUIを壊さないため、シンプルなボタンテンプレートで送信
       const messages = [
         {
           type: "template",
@@ -134,13 +134,7 @@ router.get("/line/callback", async (req, res) => {
           template: {
             type: "buttons",
             text: "より詳しいお見積もりをご希望の方はこちらから入力してください。",
-            actions: [
-              {
-                type: "uri",
-                label: "詳細見積もりを入力する",
-                uri: link,
-              },
-            ],
+            actions: [{ type: "uri", label: "詳細見積もりを入力する", uri: link }],
           },
         },
       ];
@@ -149,8 +143,10 @@ router.get("/line/callback", async (req, res) => {
         await client.pushMessage(userId, messages);
         console.info("[PUSH] LIFF link sent:", link);
       } catch (e) {
-        // プッシュ失敗でもフロントの画面遷移は継続
-        console.error("[PUSH] failed to send LIFF link:", e?.response?.data || e);
+        console.error(
+          "[PUSH] failed to send LIFF link:",
+          e?.response?.data || e
+        );
       }
     } else {
       console.warn(
@@ -158,11 +154,10 @@ router.get("/line/callback", async (req, res) => {
       );
     }
   } catch (e) {
-    console.error("[LOGIN] callback error:", e?.response?.data || e);
-    // 失敗しても UX を壊さず完了画面へ
+    console.error("[CALLBACK] error:", e?.response?.data || e);
   }
 
-  // ④ 既存の「送信しました。LINEをご確認ください。」画面へ
+  // ④ 既存の完了画面へ
   return res.redirect("/after-login.html");
 });
 
