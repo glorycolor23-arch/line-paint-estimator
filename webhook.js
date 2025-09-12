@@ -1,70 +1,47 @@
-// webhook.js
-import express from "express";
-import * as line from "@line/bot-sdk";
+// LINE ミドルウェアで署名検証済み、events は req.body.events に入ってくる前提
+import express from 'express';
+import {
+  DETAILS_LIFF_URL,
+} from './config.js';
 
-const router = express.Router();
+export default function webhookRouterFactory(lineClient) {
+  const router = express.Router();
 
-const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, // Messaging API
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
+  router.post('/', async (req, res) => {
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const results = await Promise.all(events.map(handleEvent));
+    res.json(results);
+  });
 
-const client = new line.Client(config);
+  async function handleEvent(event) {
+    // フォロー / メッセージのときだけ応答（必要に合わせ調整）
+    if (event.type !== 'follow' && event.type !== 'message') return null;
 
-const BASE_URL =
-  (process.env.BASE_URL ? process.env.BASE_URL.replace(/\/$/, "") : "") ||
-  "https://line-paint.onrender.com";
+    const userId = event.source?.userId;
+    if (!userId) return null;
 
-const DETAILS_LIFF_URL =
-  process.env.DETAILS_LIFF_URL || `${BASE_URL}/liff.html`;
-
-router.post("/webhook", line.middleware(config), async (req, res) => {
-  const events = req.body?.events || [];
-  await Promise.all(events.map(handleEvent));
-  res.sendStatus(200);
-});
-
-async function handleEvent(event) {
-  // 友だち追加直後に詳細ボタンを送る（push）
-  if (event.type === "follow" && event.source?.userId) {
-    await sendDetailsInvite(event.source.userId);
-    return;
-  }
-
-  // テキストメッセージの簡易トリガー（「詳細」でボタン再送）
-  if (event.type === "message" && event.message?.type === "text") {
-    const t = event.message.text.trim();
-    if (t === "詳細" || t === "詳細見積もり") {
-      await client.replyMessage(event.replyToken, makeDetailsMessages());
+    // 既に概算送信済みのフローは別の箇所（アンケート完了時 push）で実装済みの想定。
+    // ここではフォロー等の初回導線として「詳細見積もり」の LIFF URL を送る例を残す。
+    if (DETAILS_LIFF_URL) {
+      return lineClient.pushMessage(userId, {
+        type: 'template',
+        altText: '詳細見積もり入力',
+        template: {
+          type: 'buttons',
+          title: 'より詳しい見積もりをご希望ですか？',
+          text: 'ボタンから続きの入力に進めます。',
+          actions: [
+            { type: 'uri', label: '詳細見積もりを入力', uri: DETAILS_LIFF_URL },
+          ],
+        },
+      });
+    } else {
+      return lineClient.pushMessage(userId, {
+        type: 'text',
+        text: '詳細見積もりの入力リンクが未設定です。管理者にご連絡ください。（DETAILS_LIFF_URL）',
+      });
     }
   }
-}
 
-function makeDetailsMessages() {
-  return [
-    {
-      type: "text",
-      text:
-        "より詳しいお見積もりをご希望の方は、下のボタンから詳細情報をご入力ください。",
-    },
-    {
-      type: "template",
-      altText: "詳細見積もりの入力",
-      template: {
-        type: "buttons",
-        text: "詳細見積もりの入力",
-        actions: [{ type: "uri", label: "詳細見積もりを入力する", uri: DETAILS_LIFF_URL }],
-      },
-    },
-  ];
+  return router;
 }
-
-async function sendDetailsInvite(userId) {
-  try {
-    await client.pushMessage(userId, makeDetailsMessages());
-  } catch (e) {
-    console.error("[pushMessage error]", e?.response?.data || e);
-  }
-}
-
-export default router;
