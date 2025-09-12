@@ -1,6 +1,7 @@
 // webhook.js
 import express from "express";
-import line from "@line/bot-sdk";
+// ✅ default ではなく名前空間 import を使う
+import * as line from "@line/bot-sdk";
 
 const router = express.Router();
 
@@ -11,28 +12,28 @@ const config = {
 
 const client = new line.Client(config);
 
-// ベースURL（Renderの環境変数に設定推奨）
+// Render の環境変数に設定推奨
 const BASE_URL =
-  process.env.BASE_URL?.replace(/\/$/, "") || "https://line-paint.onrender.com";
+  (process.env.BASE_URL ? process.env.BASE_URL.replace(/\/$/, "") : "") ||
+  "https://line-paint.onrender.com";
 
-// LIFF の誘導URLを決定
+// 詳細見積もりの LIFF へ飛ばすリンク
 // 1) DETAILS_LIFF_URL（例: https://liff.line.me/<LIFF_ID>）
-// 2) なければ自サイトの /liff.html
+// 2) 未設定なら自サイトの /liff.html
 const DETAILS_LIFF_URL =
-  process.env.DETAILS_LIFF_URL ||
-  `${BASE_URL}/liff.html`;
+  process.env.DETAILS_LIFF_URL || `${BASE_URL}/liff.html`;
 
 // 受信エンドポイント
 router.post("/webhook", line.middleware(config), async (req, res) => {
-  const events = req.body.events ?? [];
+  const events = req.body?.events || [];
   await Promise.all(events.map(handleEvent));
-  res.status(200).end();
+  res.sendStatus(200);
 });
 
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
-  // ここでは単純に「見積もり完了後に送る想定の2通」を例示
+  // 動作確認用：トークで「テスト:概算完了」と送ると下の2通を返信
   if (event.message.text.trim() === "テスト:概算完了") {
     const messages = [
       {
@@ -57,6 +58,7 @@ async function handleEvent(event) {
         },
       },
     ];
+
     await client.replyMessage(event.replyToken, messages);
   }
 }
