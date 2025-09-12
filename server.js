@@ -1,55 +1,48 @@
-import express from 'express';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import cors from 'cors';
-import bodyParser from 'body-parser';
+// server.js
+import express from "express";
+import path from "path";
+import cors from "cors";
+import bodyParser from "body-parser";
+import { fileURLToPath } from "url";
 
-import webhookRouter from './routes/webhook.js';
-import lineLoginRouter from './routes/lineLogin.js';
+import webhookRouter from "./routes/webhook.js";
+import lineLoginRouter from "./routes/lineLogin.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.disable('x-powered-by');
-app.set('trust proxy', 1);
 
-// CORS（フロントはそのまま）
 app.use(cors());
+app.use(bodyParser.json());
 
-// ★ ヘルスチェック（Render の Health Check Path を /healthz にしている想定）
-app.get('/healthz', (_req, res) => res.type('text').send('ok'));
+// Health check
+app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// ★ どの順序でも署名検証できるように rawBody を常時保持
-const keepRaw = (req, _res, buf) => {
-  if (buf && buf.length) req.rawBody = buf;
-};
-app.use(bodyParser.json({ verify: keepRaw }));
-app.use(bodyParser.urlencoded({ extended: true, verify: keepRaw }));
+// 静的ファイル配信（/public と直下の両方）
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname)); // liff.html など直下も配信
 
-// 静的ファイル（UI は変更しない）
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // 直下に liff.html などがある場合
-
-// LINE Webhook（/line/webhook）。内部で 200 を必ず返す実装にしてある
-app.use('/line', webhookRouter);
-
-// LINEログイン（/auth/line/callback 等）
+// ★ 重要: LINEログインのルーターを必ずマウント（/login, /start, /callback 等）
 app.use(lineLoginRouter);
 
-// ルート（既存の index.html を優先）
-app.get('/', (req, res) => {
-  const file1 = path.join(__dirname, 'public', 'index.html');
-  const file2 = path.join(__dirname, 'index.html');
-  res.sendFile(file1, (err) => {
-    if (err) res.sendFile(file2, (err2) => err2 && res.status(404).send('Not Found'));
+// ★ Webhook ルーター
+app.use("/line", webhookRouter);  // /line/webhook
+app.use(webhookRouter);           // /webhook（互換）
+
+// ルート
+app.get("/", (req, res) => {
+  const f1 = path.join(__dirname, "public", "index.html");
+  const f2 = path.join(__dirname, "index.html");
+  res.sendFile(f1, (err) => {
+    if (err) res.sendFile(f2, (err2) => err2 && res.status(404).send("Not Found"));
   });
 });
 
-// 最後のエラーハンドラ（未処理例外で 502 化しないように握りつぶして 500）
+// Safety error handler
 app.use((err, _req, res, _next) => {
-  console.error('[ERROR]', err);
-  res.status(500).send('Server Error');
+  console.error("[ERROR]", err);
+  res.status(500).send("Server Error");
 });
 
 const PORT = process.env.PORT || 10000;
