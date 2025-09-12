@@ -1,7 +1,7 @@
-// ==== ローカル画像のみを参照（直リンク禁止） ====
-const IMG = (name) => `/img/${name}.png`; // 画像は /img/*.png に統一
+// 画像はローカルのみ（/img/*.png）
+const IMG = (name) => `/img/${name}.png`;
 
-// ==== アンケート定義 ====
+// 設問
 const STEPS = [
   {
     key: 'desiredWork',
@@ -25,9 +25,9 @@ const STEPS = [
     title: '何階建てですか？',
     type: 'select-one-v',
     options: [
-      { value: '1階建て',   label: '1階建て' },
-      { value: '2階建て',   label: '2階建て' },
-      { value: '3階建て以上', label: '3階建て以上' },
+      { value:'1階建て',   label:'1階建て' },
+      { value:'2階建て',   label:'2階建て' },
+      { value:'3階建て以上', label:'3階建て以上' },
     ],
   },
   {
@@ -49,10 +49,10 @@ const STEPS = [
   { key: 'confirm', title: '入力内容のご確認', type: 'confirm' },
 ];
 
-// ==== 状態管理 ====
+// 状態
 const state = { answers: {}, idx: 0, order: STEPS.map(s => s.key) };
 
-// ==== 要素参照 ====
+// 要素
 const $root    = document.getElementById('q-root');
 const $stepper = document.getElementById('stepper');
 const $next    = document.getElementById('nextBtn');
@@ -60,21 +60,31 @@ const $back    = document.getElementById('backBtn');
 const $done    = document.getElementById('done');
 const $navBar  = document.getElementById('nav-bar');
 
+// クリックのイベント委譲（動的DOMでも確実に拾う）
+document.addEventListener('click', (ev) => {
+  const tgt = ev.target;
+  if (!tgt) return;
+
+  // 最終確認：はい / いいえ
+  if (tgt.matches('[data-action="confirm-yes"]')) {
+    ev.preventDefault();
+    handleConfirmYes(tgt);
+  } else if (tgt.matches('[data-action="confirm-no"]')) {
+    ev.preventDefault();
+    handleConfirmNo();
+  }
+});
+
 $next.addEventListener('click', onNext);
 $back.addEventListener('click', onBack);
 
 init();
 
-// ==== 初期化 ====
-function init() {
-  render();
-}
+// 初期化
+function init(){ render(); }
+function curDef(){ return STEPS.find(s => s.key === state.order[state.idx]); }
 
-// ==== 現在ステップ定義 ====
-function curDef() { return STEPS.find(s => s.key === state.order[state.idx]); }
-
-// ==== 共通描画 ====
-function render() {
+function render(){
   $done.hidden = true;
   $root.innerHTML = '';
   $navBar.classList.remove('hidden');
@@ -85,7 +95,7 @@ function render() {
   const h2 = document.createElement('h2');
   h2.textContent = step.title;
   $root.appendChild(h2);
-  if (step.desc) {
+  if (step.desc){
     const p = document.createElement('p'); p.className = 'desc'; p.textContent = step.desc;
     $root.appendChild(p);
   }
@@ -98,26 +108,25 @@ function render() {
   } else if (step.type === 'select-one-grid') {
     renderSelectOneGrid(step);
   } else if (step.type === 'confirm') {
-    renderConfirm(); // ← ここで「はい / いいえ」を描画
+    renderConfirm();
   }
 }
 
-function renderStepper() {
+function renderStepper(){
   $stepper.textContent = `Step ${state.idx + 1} / ${state.order.length}`;
 }
 
-function renderSelectOneV(step) {
-  const wrap = document.createElement('div');
-  wrap.className = 'vlist';
+function renderSelectOneV(step){
+  const wrap = document.createElement('div'); wrap.className = 'vlist';
 
-  step.options.forEach(opt => {
+  step.options.forEach(opt=>{
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'vbtn';
     btn.textContent = opt.label;
-    btn.setAttribute('role', 'radio');
+    btn.setAttribute('role','radio');
     btn.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', ()=>{
       select(step.key, opt.value);
       wrap.querySelectorAll('.vbtn').forEach(b => b.setAttribute('aria-checked','false'));
       btn.setAttribute('aria-checked','true');
@@ -129,13 +138,13 @@ function renderSelectOneV(step) {
   $root.appendChild(wrap);
 }
 
-function renderSelectOneGrid(step) {
+function renderSelectOneGrid(step){
   const grid = document.createElement('div'); grid.className = 'grid';
-  step.options.forEach(opt => {
+  step.options.forEach(opt=>{
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'option';
-    card.setAttribute('role', 'radio');
+    card.setAttribute('role','radio');
     card.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
 
     const ph = document.createElement('div'); ph.className = 'thumb';
@@ -146,7 +155,7 @@ function renderSelectOneGrid(step) {
 
     card.appendChild(ph); card.appendChild(cap);
 
-    card.addEventListener('click', () => {
+    card.addEventListener('click', ()=>{
       select(step.key, opt.value);
       grid.querySelectorAll('.option').forEach(el => el.setAttribute('aria-checked','false'));
       card.setAttribute('aria-checked','true');
@@ -159,11 +168,10 @@ function renderSelectOneGrid(step) {
   $root.appendChild(grid);
 }
 
-function renderConfirm() {
-  // 確認ステップでは共通ナビ（次へ/戻る）は表示しない
+function renderConfirm(){
+  // 確認ステップは共通ナビを隠す
   $navBar.classList.add('hidden');
 
-  // サマリー
   const list = [
     ['■見積もり希望内容', state.answers.desiredWork ?? '-'],
     ['■築年数',           state.answers.ageRange ?? '-'],
@@ -175,20 +183,20 @@ function renderConfirm() {
   div.innerHTML = list.map(([k,v]) => `${k}　${v}`).join('<br/>');
   $root.appendChild(div);
 
-  // 「はい / いいえ」ボタン
   const actions = document.createElement('div');
   actions.className = 'nav';
-  const yes = document.createElement('button');
-  yes.type = 'button';
-  yes.className = 'btn';
-  yes.textContent = 'はい';
-  yes.addEventListener('click', onConfirmYes);
 
   const no = document.createElement('button');
   no.type = 'button';
   no.className = 'btn btn-ghost';
   no.textContent = 'いいえ（最初からやり直す）';
-  no.addEventListener('click', onConfirmNo);
+  no.setAttribute('data-action','confirm-no');
+
+  const yes = document.createElement('button');
+  yes.type = 'button';
+  yes.className = 'btn';
+  yes.textContent = 'はい';
+  yes.setAttribute('data-action','confirm-yes');
 
   actions.appendChild(no);
   actions.appendChild(document.createElement('div')).className = 'spacer';
@@ -196,23 +204,21 @@ function renderConfirm() {
   $root.appendChild(actions);
 }
 
-// ==== 値選択・移動 ====
-function select(key, value) {
+// 選択時：以降の回答をクリア
+function select(key, value){
   state.answers[key] = value;
-  // 以降の回答はクリア（戻る→再選択の不整合を回避）
   const i = state.order.indexOf(key);
   state.order.slice(i + 1).forEach(k => delete state.answers[k]);
 }
 
-function onNext() {
+function onNext(){
   if ($next.disabled) return;
-  if (state.idx < state.order.length - 1) {
-    state.idx++;
-    render();
+  if (state.idx < state.order.length - 1){
+    state.idx++; render();
   }
 }
 
-function onBack() {
+function onBack(){
   if (state.idx === 0) return;
   state.idx--;
   const key = state.order[state.idx];
@@ -221,41 +227,65 @@ function onBack() {
   render();
 }
 
-// ==== 確認：はい / いいえ ====
-async function onConfirmYes() {
+// ======= 確認「はい」：強制遷移のフェイルセーフ =======
+async function handleConfirmYes(btn){
   try {
-    // /estimate へ JSON 送信（サーバは redirectUrl を返す仕様）
+    // 二重クリック抑止
+    btn.disabled = true;
+
     const payload = { ...state.answers };
-    const res = await fetch('/estimate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
 
-    // レスポンスチェック
-    const json = await res.json().catch(() => ({}));
-
-    // 1) 正常：redirectUrl で LINE ログイン/友だち追加へ
-    if (res.ok && json && json.redirectUrl) {
-      window.location.href = json.redirectUrl;
+    // 1) /estimate
+    const r1 = await postJson('/estimate', payload);
+    if (r1?.redirectUrl) {
+      hardRedirect(r1.redirectUrl);
       return;
     }
 
-    // 2) フェイルセーフ：友だちURLに誘導（環境変数未設定などでもUXを止めない）
-    window.location.href = 'https://lin.ee/XxmuVXt';
-  } catch (e) {
-    console.error('submit failed', e);
-    // 3) ネットワーク例外時もフェイルセーフ
-    window.location.href = 'https://lin.ee/XxmuVXt';
+    // 2) /api/estimate にフォールバック
+    const r2 = await postJson('/api/estimate', payload);
+    if (r2?.redirectUrl) {
+      hardRedirect(r2.redirectUrl);
+      return;
+    }
+
+    // 3) 全て失敗 → 友だちURLへ
+    hardRedirect('https://lin.ee/XxmuVXt');
+  } catch (_e) {
+    // 例外時も確実に誘導
+    hardRedirect('https://lin.ee/XxmuVXt');
   }
 }
 
-function onConfirmNo() {
-  // 全リセットして最初へ
+function handleConfirmNo(){
   state.answers = {};
   state.idx = 0;
   render();
 }
 
-// 初期描画
-render();
+// JSON POST（5秒タイムアウト付き）
+async function postJson(url, body){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), 5000);
+  try{
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    return await res.json().catch(()=>null);
+  }catch(_e){
+    clearTimeout(t);
+    return null;
+  }
+}
+
+// リダイレクト（replace で戻るボタン汚染を避ける）
+function hardRedirect(url){
+  // location.assign だと一部環境でブロックされる事があるため両対応
+  try { window.location.replace(url); }
+  catch { window.location.href = url; }
+}
