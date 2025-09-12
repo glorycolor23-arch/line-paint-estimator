@@ -12,30 +12,27 @@ if (!CHANNEL_SECRET) console.warn('[WARN] LINE_CHANNEL_SECRET is empty');
 
 const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
 
-// 署名検証ミドルウェア（raw body 必須）
+// 署名検証ミドルウェア。server 側で req.rawBody を常時保持しているので順序依存なし
 const mw = lineMiddleware({ channelSecret: CHANNEL_SECRET });
 
-// 手動動作確認用（GET 200）
+// 手動確認用（GET 200）
 router.get('/webhook', (_req, res) => res.status(200).type('text').send('ok'));
 
-// 本番：LINE からの POST（Console 検証もここに来る）
-router.post('/webhook', mw, async (req, res, _next) => {
+// LINE からの POST。必ず 200 を返す（Console 検証で 500 を出さない）
+router.post('/webhook', mw, async (req, res) => {
   try {
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
-    if (events.length === 0) return res.sendStatus(200); // 検証は events:[] なので 200
+    if (events.length === 0) return res.sendStatus(200); // 検証時はここで 200
+
     await Promise.all(events.map(handleEvent));
     res.sendStatus(200);
   } catch (e) {
     console.error('[WEBHOOK ERROR]', e);
-    // 検証失敗で 500 を返すと Console がエラーになるため 200 で吸収
-    res.sendStatus(200);
+    res.sendStatus(200); // ここも 200 固定
   }
 });
 
-/**
- * ★ 署名NG時は lineMiddleware が next(err) を呼ぶ。
- *   その場合でも 200 を返して Console「検証」を落とさないようにする。
- */
+// mw 内の署名NGなどのエラーを 200 に変換（Console 検証が落ちないように）
 router.use('/webhook', (err, _req, res, _next) => {
   console.error('[WEBHOOK SIGNATURE ERROR]', err?.message || err);
   return res.sendStatus(200);
@@ -49,8 +46,7 @@ async function handleEvent(event) {
   if (type === 'follow') {
     try {
       const leadId = await findLeadIdByUserId(userId);
-      let estimate = null;
-      if (leadId) estimate = await getEstimateForLead(leadId); // { price, summaryText } 想定
+      const estimate = leadId ? await getEstimateForLead(leadId) : null;
 
       const liffUrl = process.env.LIFF_ID
         ? `https://liff.line.me/${process.env.LIFF_ID}${leadId ? `?lead=${encodeURIComponent(leadId)}` : ''}`
