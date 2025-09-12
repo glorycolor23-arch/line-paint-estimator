@@ -2,7 +2,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as line from '@line/bot-sdk'; // ← ESM では * as で取り込む
+import * as line from '@line/bot-sdk';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,30 +10,28 @@ const __dirname = path.dirname(__filename);
 const {
   PORT = 10000,
   NODE_ENV = 'production',
-
-  // Messaging API
   LINE_CHANNEL_ACCESS_TOKEN,
   LINE_CHANNEL_SECRET,
-
-  // LINEログイン
-  LINE_LOGIN_CHANNEL_ID,
-  LINE_LOGIN_CHANNEL_SECRET,
-  LINE_LOGIN_REDIRECT_URI,
 } = process.env;
 
 const app = express();
 app.use(express.json());
 
-// 静的ファイル（/public）
-app.use(express.static(path.join(__dirname)));
+// --- 静的ファイル ---
+// /public 以下（新UI）と /img（ローカル画像）を確実に配信
+app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/img', express.static(path.join(__dirname, 'img')));
 
-// LINE Bot SDK クライアント（webhook等で使う想定。ここで作っておく）
+// 互換: 旧直下の静的も残す（必要最小限）
+app.use(express.static(__dirname)); // ただし "/" では新UIの index を返すようにする
+
+// LINE SDK クライアント
 const lineClient = new line.Client({
-  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: LINE_CHANNEL_SECRET,
+  channelAccessToken: LINE_CHANNEL_ACCESS_TOKEN || '',
+  channelSecret: LINE_CHANNEL_SECRET || '',
 });
 
-// ルート間で共有する一時ストア（アンケート回答 → ログイン完了まで）
+// 共有ストア（アンケート→ログイン完了までの一時保管）
 app.locals.pendingEstimates = new Map();
 app.locals.lineClient = lineClient;
 
@@ -43,20 +41,20 @@ app.get('/healthz', (_req, res) => res.type('text/plain').send('ok'));
 // ルーティング
 import estimateRouter from './routes/estimate.js';
 import lineLoginRouter from './routes/lineLogin.js';
-import webhookRouter from './routes/webhook.js'; // 既存のまま利用
+import webhookRouter from './routes/webhook.js';
 
-app.use('/', estimateRouter);    // /estimate を提供
-app.use('/', lineLoginRouter);   // /auth/line/callback を提供
-app.use('/', webhookRouter);     // /line/webhook など既存のまま
+app.use('/', estimateRouter);
+app.use('/', lineLoginRouter);
+app.use('/', webhookRouter);
 
-// トップ（既存の index.html を配信）
+// ルートは必ず「新UI」を返す（古い index.html は使わない）
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
-  console.log('[INFO] サーバーが起動しました');
+  console.log('[INFO] サーバー起動');
   console.log('[INFO] ポート:', PORT);
   console.log('[INFO] 環境:', NODE_ENV);
-  console.log('[INFO] ヘルスチェック: http://localhost:' + PORT + '/healthz');
+  console.log('[INFO] Health:', `http://localhost:${PORT}/healthz`);
 });
