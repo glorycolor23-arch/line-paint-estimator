@@ -15,15 +15,17 @@ const {
   LINE_LOGIN_CHANNEL_SECRET,
   LINE_LOGIN_REDIRECT_URI,
 
-  // 詳細見積り LIFF
-  LIFF_URL_DETAIL,   // 例: https://liff.line.me/xxxxxxxx  ← あればこれを最優先
-  LIFF_ID_DETAIL,    // 例: xxxxxxxx                    ← 無ければこれから組み立て
+  // 詳細見積もり LIFF
+  LIFF_URL_DETAIL,   // 例: https://liff.line.me/165xxxxxxxx-xxxxxxxx（フルURL推奨）
+  LIFF_ID_DETAIL,    // 例: 165xxxxxxxx-xxxxxxxx（IDだけでも可）
+  LIFF_ID,           // 例: 165xxxxxxxx-xxxxxxxx（旧変数名に対応：保険）
 
-  // トーク遷移用
-  LINE_BOT_BASIC_ID,                         // 例: @004szogc（設定推奨）
-  FRIEND_ADD_URL = 'https://lin.ee/XxmuVXt', // フォールバックの友だち追加URL
+  // トーク誘導
+  LINE_BOT_BASIC_ID,                          // 例: @004szogc（設定推奨）
+  FRIEND_ADD_URL = 'https://lin.ee/XxmuVXt',  // フォールバック（友だち追加URL）
+  PUBLIC_BASE_URL = 'https://line-paint.onrender.com', // 既定の自己URL（通常URLフォールバックで使用）
 
-  // 認証後の自動遷移ディレイ（ms）。0 なら即時にトークを開く。
+  // 認証後の自動遷移ディレイ（ms）。0 で即時遷移
   TALK_REDIRECT_DELAY_MS = '1200',
 } = process.env;
 
@@ -33,22 +35,26 @@ const client = new line.Client({
   channelSecret: LINE_CHANNEL_SECRET || '',
 });
 
-// トーク画面のURLを作る（Basic ID を優先）
+// ===== Utility =====
 function buildTalkUrl() {
   if (LINE_BOT_BASIC_ID && LINE_BOT_BASIC_ID.trim()) {
-    // https://line.me/R/ti/p/{basic_id_without_@}
     return `https://line.me/R/ti/p/${LINE_BOT_BASIC_ID.replace(/^@/, '')}`;
   }
   return FRIEND_ADD_URL;
 }
 
-// LIFF の URL を決定（URL優先→IDから生成→なければ null）
+// LIFF の URL を決定（URL優先 → ID群から生成 → それでも無ければ null）
 function buildLiffUrl() {
-  if (LIFF_URL_DETAIL && /^https:\/\/liff\.line\.me\/[A-Za-z0-9_\-]+$/.test(LIFF_URL_DETAIL)) {
-    return LIFF_URL_DETAIL;
+  const trimmedUrl = (LIFF_URL_DETAIL || '').trim();
+  const trimmedId  = (LIFF_ID_DETAIL || LIFF_ID || '').trim();
+
+  // https://liff.line.me/ で始まっていれば OK（クエリやパラメータ付きも許容）
+  if (trimmedUrl && /^https:\/\/liff\.line\.me\//.test(trimmedUrl)) {
+    return trimmedUrl;
   }
-  if (LIFF_ID_DETAIL && /^[A-Za-z0-9_\-]+$/.test(LIFF_ID_DETAIL)) {
-    return `https://liff.line.me/${LIFF_ID_DETAIL}`;
+  // ID があれば組み立て
+  if (trimmedId && /^[A-Za-z0-9_\-]+$/.test(trimmedId)) {
+    return `https://liff.line.me/${trimmedId}`;
   }
   return null;
 }
@@ -84,14 +90,14 @@ function renderPostMessageAndRedirect(talkUrl, justPushedText) {
 <script>
   (function(){
     var url = ${JSON.stringify(talkUrl)};
-    var delay = ${Math.max(0, Number(TALK_REDIRECT_DELAY_MS || 0))};
+    var delay = ${delay};
     function go(){ try{ location.replace(url); }catch(e){ location.href = url; } }
     if (delay === 0) { go(); } else { setTimeout(go, delay); }
   })();
 </script>`;
 }
 
-// LINEログインのコールバック
+// ===== Callback =====
 router.get('/auth/line/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query ?? {};
   if (error) {
@@ -99,13 +105,13 @@ router.get('/auth/line/callback', async (req, res) => {
     return res.status(400).send('Login canceled.');
   }
 
-  // pending に保存しておいたアンケート回答を取得
+  // pending に保存していた回答を取得
   const bucket = req.app.locals?.pendingEstimates;
   const pending = bucket?.get(state);
   if (!pending) return res.status(400).send('Session expired. Please try again.');
 
   try {
-    // 1) 認可コード → アクセストークン / id_token
+    // --- 認可コード → トークン ---
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -123,7 +129,7 @@ router.get('/auth/line/callback', async (req, res) => {
       return res.status(400).send('Login token error.');
     }
 
-    // 2) id_token 検証 → sub(userId)
+    // --- id_token 検証 → userId ---
     const verifyRes = await fetch('https://api.line.me/oauth2/v2.1/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -139,7 +145,7 @@ router.get('/auth/line/callback', async (req, res) => {
     }
     const userId = idInfo.sub;
 
-    // 3) 概算算出（仮ロジック）
+    // --- 概算算出（仮ロジック） ---
     const a = pending.answers || {};
     const amount = computeEstimate({
       desiredWork: a.desiredWork,
@@ -149,9 +155,16 @@ router.get('/auth/line/callback', async (req, res) => {
     });
     const amountTxt = (amount ?? 0).toLocaleString('ja-JP');
 
-    // 4) 送信するメッセージを構築
+    // --- LIFF URL の決定（ログ出力で見える化） ---
     const liffUrl = buildLiffUrl();
+    console.log('[LINE LOGIN] LIFF resolve', {
+      hasUrl: !!LIFF_URL_DETAIL,
+      hasIdDetail: !!LIFF_ID_DETAIL,
+      hasId: !!LIFF_ID,
+      resolved: liffUrl || null
+    });
 
+    // --- 送信メッセージ構築 ---
     const messages = [
       {
         type: 'text',
@@ -169,8 +182,8 @@ router.get('/auth/line/callback', async (req, res) => {
     ];
 
     if (liffUrl) {
-      // Buttonsテンプレート（ボタンで開く）
-      const templateMsg = {
+      // Buttonsテンプレート＋テキストURLの二重化
+      messages.push({
         type: 'template',
         altText: '詳細見積もりの入力はこちら',
         template: {
@@ -178,54 +191,38 @@ router.get('/auth/line/callback', async (req, res) => {
           text: 'より詳しい見積もりをご希望の方は、こちらから詳細情報をご入力ください。',
           actions: [{ type: 'uri', label: '詳細見積もりを入力', uri: liffUrl }]
         }
-      };
-      messages.push(templateMsg);
-
-      // テキストURLも併送（端末/状況でテンプレが出ない場合の保険）
-      messages.push({
-        type: 'text',
-        text: `詳細見積もりの入力はこちら：\n${liffUrl}`
       });
+      messages.push({ type: 'text', text: `詳細見積もりの入力はこちら：\n${liffUrl}` });
     } else {
-      // LIFF 未設定の場合でもユーザー体験を止めない
+      // 最低限のフォールバック：通常URL（LIFFではないがリンクは流す）
+      const normalUrl = `${(PUBLIC_BASE_URL || '').replace(/\/+$/,'')}/liff/index.html`;
       messages.push({
         type: 'text',
-        text: '詳細見積もりの入力リンクが未設定です。管理者にご連絡ください。'
+        text: `詳細見積もりの入力はこちら：\n${normalUrl}`
       });
     }
 
-    // 5) まとめてプッシュ（3通以内に収まる）
+    // --- 送信 ---
     try {
       await client.pushMessage(userId, messages);
     } catch (err) {
-      console.error('[PUSH batch] failed', err?.originalError?.response?.data ?? err);
-
-      // テンプレが原因で失敗した場合のリトライ（テキストのみで再送）
-      if (liffUrl) {
-        const fallback = [
-          messages[0],
-          { type: 'text', text: `詳細見積もりの入力はこちら：\n${liffUrl}` }
-        ];
-        try {
-          await client.pushMessage(userId, fallback);
-        } catch (e2) {
-          console.error('[PUSH text-fallback] failed', e2?.originalError?.response?.data ?? e2);
-        }
+      console.error('[PUSH] failed', err?.originalError?.response?.data ?? err);
+      // テンプレが原因ならテキストのみで再送
+      try {
+        const textOnly = messages.filter(m => m.type === 'text');
+        if (textOnly.length) await client.pushMessage(userId, textOnly);
+      } catch (e2) {
+        console.error('[PUSH text-fallback] failed', e2?.originalError?.response?.data ?? e2);
       }
     }
 
-    // 6) state 後始末
+    // --- 後始末 & 画面遷移 ---
     bucket.delete(state);
-
-    // 7) 画面表示 → 自動でトークを開く
     const talkUrl = buildTalkUrl();
-    const html = renderPostMessageAndRedirect(
-      talkUrl,
-      liffUrl
-        ? 'LINEに概算と「詳細見積もり入力」のリンクを送信しました。'
-        : 'LINEに概算を送信しました。'
-    );
-    return res.status(200).send(html);
+    const justText = liffUrl
+      ? 'LINEに概算と「詳細見積もり入力」のリンクを送信しました。'
+      : 'LINEに概算を送信しました（詳細入力リンクは通常URLで送付）。';
+    return res.status(200).send(renderPostMessageAndRedirect(talkUrl, justText));
   } catch (e) {
     console.error('[GET /auth/line/callback] error', e);
     const talkUrl = buildTalkUrl();
