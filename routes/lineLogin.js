@@ -1,127 +1,67 @@
 // routes/lineLogin.js
-// 目的: LINEログインのコールバックで userId を取得し、必ず LIFF への誘導メッセージ（ボタン+テキスト）を push する。
-// フロントは一切変更しない。ログを詳細に出力してトラブルシュートを容易にする。
-
-import express from 'express';
-import { Client } from '@line/bot-sdk';
+import express from "express";
+import * as line from "@line/bot-sdk";
 
 const router = express.Router();
 
-// ==== 環境変数の取得（複数名称をフォールバック） ====
-const env = (k, d = '') => (process.env[k] ?? d).toString().trim();
+// --- LINE Login (認可コード) 用 ---
+const LOGIN = {
+  channelId: process.env.LINE_LOGIN_CHANNEL_ID,
+  channelSecret: process.env.LINE_LOGIN_CHANNEL_SECRET,
+  redirectUri:
+    process.env.LINE_LOGIN_REDIRECT_URI ||
+    "https://line-paint.onrender.com/auth/line/callback",
+};
 
-const CHANNEL_ACCESS_TOKEN =
-  env('LINE_CHANNEL_ACCESS_TOKEN') || env('CHANNEL_ACCESS_TOKEN');
+// --- Messaging API 用 ---
+const MSG = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+const client = new line.Client(MSG);
 
-const LOGIN_CHANNEL_ID = env('LINE_LOGIN_CHANNEL_ID');
-const LOGIN_CHANNEL_SECRET = env('LINE_LOGIN_CHANNEL_SECRET');
-const LOGIN_REDIRECT_URI = env('LINE_LOGIN_REDIRECT_URI', 'https://line-paint.onrender.com/line/callback');
+const BASE_URL =
+  (process.env.BASE_URL ? process.env.BASE_URL.replace(/\/$/, "") : "") ||
+  "https://line-paint.onrender.com";
+const DETAILS_LIFF_URL =
+  process.env.DETAILS_LIFF_URL || `${BASE_URL}/liff.html`;
 
-// LIFF URL の解決（URL優先 → IDから生成 → /liff.html フォールバック）
-function resolveLiffUrl() {
-  const urlFromEnv = env('DETAILS_LIFF_URL') || env('LIFF_URL_DETAIL');
-  if (urlFromEnv && /^https:\/\/liff\.line\.me\//.test(urlFromEnv)) return urlFromEnv;
-
-  const id = env('LIFF_ID_DETAIL') || env('LIFF_ID');
-  if (id && /^[A-Za-z0-9_\-]+$/.test(id)) return `https://liff.line.me/${id}`;
-
-  const base = env('PUBLIC_BASE_URL', 'https://line-paint.onrender.com').replace(/\/+$/, '');
-  return `${base}/liff.html`;
-}
-const LIFF_URL = resolveLiffUrl();
-
-// Messaging API クライアント
-let lineClient = null;
-if (!CHANNEL_ACCESS_TOKEN) {
-  console.error('[FATAL] CHANNEL_ACCESS_TOKEN が未設定です。push は失敗します。');
-} else {
-  lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
-  console.log('[INIT] LINE client ready. LIFF_URL:', LIFF_URL);
-}
-
-// 共通ハンドラ（どの callback パスでも同処理）
-async function handleCallback(req, res) {
+// 認証後のコールバック
+router.get("/auth/line/callback", async (req, res) => {
   try {
-    const { code, state, error, error_description } = req.query ?? {};
-    console.log('[CALLBACK] hit', { path: req.path, hasCode: !!code, hasState: !!state });
+    const { code, error, state } = req.query;
+    if (error) return res.status(400).send(`Login error: ${error}`);
+    if (!code) return res.status(400).send("Missing code");
 
-    if (error) {
-      console.error('[CALLBACK] login error', { error, error_description });
-      return res.status(400).send('Login canceled.');
-    }
-    if (!code) return res.status(400).send('Missing code');
+    // アクセストークン取得
+    const params = new URLSearchParams();
+    params.set("grant_type", "authorization_code");
+    params.set("code", code);
+    params.set("redirect_uri", LOGIN.redirectUri);
+    params.set("client_id", LOGIN.channelId);
+    params.set("client_secret", LOGIN.channelSecret);
 
-    // 1) 認可コード → アクセストークン（ログインチャネル）
-    const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: LOGIN_REDIRECT_URI,
-        client_id: LOGIN_CHANNEL_ID,
-        client_secret: LOGIN_CHANNEL_SECRET,
-      }),
+    const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
     });
     const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
-      console.error('[CALLBACK] token error', tokenJson);
-      return res.status(400).send('Login token error.');
+      throw new Error(`token error: ${JSON.stringify(tokenJson)}`);
     }
-    console.log('[CALLBACK] token ok');
 
-    // 2) プロフィール取得（userId）
-    const profRes = await fetch('https://api.line.me/v2/profile', {
+    // プロフィールから userId を取得
+    const profRes = await fetch("https://api.line.me/v2/profile", {
       headers: { Authorization: `Bearer ${tokenJson.access_token}` },
     });
-    const profile = await profRes.json();
-    if (!profRes.ok || !profile?.userId) {
-      console.error('[CALLBACK] profile error', profile);
-      return res.status(400).send('Login profile error.');
-    }
-    const userId = profile.userId;
-    console.log('[CALLBACK] profile ok', { userId });
+    const prof = await profRes.json();
+    const userId = prof.userId;
+    if (!userId) throw new Error("LINE userId not found");
 
-    // 3) LIFF への誘導を push（テンプレ + テキストの二重化）
-    const msgs = [
-      {
-        type: 'text',
-        text: 'より詳しいお見積もりをご希望の方は、下のボタンから詳細情報をご入力ください。',
-      },
-      {
-        type: 'template',
-        altText: '詳細見積もりの入力',
-        template: {
-          type: 'buttons',
-          text: '詳細見積もりの入力',
-          actions: [{ type: 'uri', label: '詳細見積もりを入力', uri: LIFF_URL }],
-        },
-      },
-      { type: 'text', text: `詳細見積もりの入力はこちら：\n${LIFF_URL}` },
-    ];
-
-    if (!lineClient) {
-      console.error('[PUSH] skipped: LINE client not initialized (no token).');
-    } else {
-      try {
-        await lineClient.pushMessage(userId, msgs);
-        console.log('[PUSH] ok -> userId', userId);
-      } catch (e) {
-        const d = e?.originalError?.response?.data || e?.response?.data || e;
-        console.error('[PUSH] error', d);
-      }
-    }
-
-    // 4) 完了画面へ（フロントは既存のまま）
-    return res.redirect('/after-login.html?ok=1');
-  } catch (e) {
-    console.error('[CALLBACK] exception', e);
-    return res.status(500).send('Callback error');
-  }
-}
-
-// できるだけ多くのパスで拾う（マウント位置に依存させない）
-['/line/callback', '/auth/line/callback', '/line/login/callback', '/callback', '/login/callback']
-  .forEach(p => router.get(p, handleCallback));
-
-export default router;
+    // （任意）state で概算金額テキストがあるなら一緒に送る
+    let estimateText = null;
+    try {
+      const mod = await import("../store/linkStore.js").catch(() => ({}));
+      if (mod?.getByState) {
+        const data = await mod.getByState(state);
