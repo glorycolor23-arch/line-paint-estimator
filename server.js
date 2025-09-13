@@ -1,45 +1,48 @@
 // server.js
 import express from "express";
 import path from "path";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import bodyParser from "body-parser";
-import { fileURLToPath } from "url";
 
-import webhookRouter from "./routes/webhook.js";
-import lineLoginRouter from "./routes/lineLogin.js";
+import webhookRouter from "./routes/webhook.js";      // ← LINE Webhook
+import lineLoginRouter from "./routes/lineLogin.js";  // ← 既存のログインルータ（そのまま）
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
 
+// CORS は先でOK
 app.use(cors());
-app.use(bodyParser.json());
 
-// Health check
+// ヘルスチェック
 app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// 静的ファイル配信（/public と直下の両方）
+// 静的配信（フロントの UI はそのまま）
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.static(__dirname)); // liff.html など直下も配信
+app.use(express.static(__dirname)); // 直下に liff.html などがある想定のまま
 
-// ★ 重要: LINEログインのルーターを必ずマウント（/login, /start, /callback 等）
+// ✅ 重要：LINE Webhook を「最初に」マウントする（bodyParser より前）
+app.use("/line", webhookRouter);
+
+// 既存のログイン系ルート（/login, /auth/line/callback など）
 app.use(lineLoginRouter);
 
-// ★ Webhook ルーター
-app.use("/line", webhookRouter);  // /line/webhook
-app.use(webhookRouter);           // /webhook（互換）
+// それ以外の API 用（Webhook より後ろに置くのがポイント）
+app.use(bodyParser.json());
 
-// ルート
+// ルート（フロントの index）
 app.get("/", (req, res) => {
-  const f1 = path.join(__dirname, "public", "index.html");
-  const f2 = path.join(__dirname, "index.html");
-  res.sendFile(f1, (err) => {
-    if (err) res.sendFile(f2, (err2) => err2 && res.status(404).send("Not Found"));
+  const file1 = path.join(__dirname, "public", "index.html");
+  const file2 = path.join(__dirname, "index.html");
+  res.sendFile(file1, (err) => {
+    if (err) {
+      res.sendFile(file2, (err2) => err2 && res.status(404).send("Not Found"));
+    }
   });
 });
 
-// Safety error handler
+// エラーハンドラ（落ちにくく）
 app.use((err, _req, res, _next) => {
   console.error("[ERROR]", err);
   res.status(500).send("Server Error");
