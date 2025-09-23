@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
@@ -8,10 +7,10 @@ import { saveLink, savePending, getEstimate } from './lib/store.js';
 const router = Router();
 const TOKEN_URL = 'https://api.line.me/oauth2/v2.1/token';
 
-router.get('/callback', async (req,res)=>{
-  try{
+router.get('/callback', async (req, res) => {
+  try {
     const { code, state, error } = req.query;
-    if(error) throw new Error('LINE Login error: '+error);
+    if (error) throw new Error('LINE Login error: ' + error);
     const leadId = state;
 
     const params = new URLSearchParams({
@@ -19,33 +18,36 @@ router.get('/callback', async (req,res)=>{
       code,
       redirect_uri: process.env.LINE_LOGIN_REDIRECT_URI,
       client_id: process.env.LINE_LOGIN_CHANNEL_ID,
-      client_secret: process.env.LINE_LOGIN_CHANNEL_SECRET
+      client_secret: process.env.LINE_LOGIN_CHANNEL_SECRET,
     });
     const tokenRes = await axios.post(TOKEN_URL, params);
     const { id_token } = tokenRes.data || {};
-    if(!id_token) throw new Error('No id_token');
+    if (!id_token) throw new Error('No id_token');
     const decoded = jwt.decode(id_token);
     const userId = decoded?.sub;
-    if(!userId) throw new Error('No userId');
+    if (!userId) throw new Error('No userId');
 
-    if(leadId) saveLink(userId, leadId);
+    if (leadId) saveLink(userId, leadId);
 
-    try{
+    try {
       const est = getEstimate(leadId);
-      if(est){
-        await client.pushMessage(userId, { type:'text', text: est.text });
+      if (est) {
+        await client.pushMessage(userId, { type: 'text', text: est.text });
         const url = `${process.env.LIFF_URL}?lead=${encodeURIComponent(leadId)}`;
-        await client.pushMessage(userId, { type:'template', altText:'詳細見積もりを見る',
-          template:{ type:'buttons', text:'さらに詳しい見積もりを見る', actions:[{ type:'uri', label:'開く', uri:url }]} });
-      }else{
-        await client.pushMessage(userId, { type:'text', text: 'ログインありがとうございます。概算計算中です。少々お待ちください。' });
+        await client.pushMessage(userId, {
+          type: 'template',
+          altText: '詳細見積もりを見る',
+          template: { type: 'buttons', text: 'さらに詳しい見積もりを見る', actions: [{ type: 'uri', label: '開く', uri: url }] }
+        });
+      } else {
+        await client.pushMessage(userId, { type: 'text', text: 'ログインありがとうございます。概算計算中です。少々お待ちください。' });
       }
-    }catch(e){
-      if(leadId) savePending(userId, leadId);
+    } catch (e) {
+      if (leadId) savePending(userId, leadId);
     }
 
     res.status(200).send('ログインが完了しました。LINEトークをご確認ください。');
-  }catch(e){
+  } catch (e) {
     console.error(e);
     res.status(400).send('ログイン処理でエラーが発生しました。');
   }

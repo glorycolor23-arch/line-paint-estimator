@@ -1,10 +1,9 @@
-
 import { google } from 'googleapis';
 function jwt(){
   const email = process.env.GOOGLE_SERVICE_ACCOUNT || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   let key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if(!email || !key) return null;
-  key = key.replace(/\\n/g,'\n');
+  key = key.replace(/\n/g,'\n');
   return new google.auth.JWT(email, null, key, ['https://www.googleapis.com/auth/spreadsheets']);
 }
 export async function appendSheet(values){

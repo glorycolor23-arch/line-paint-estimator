@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 const DATA_PATH = './store/store.json';
 function read(){ try{ return JSON.parse(fs.readFileSync(DATA_PATH,'utf-8')); }catch(e){ return {links:{}, estimates:{}, pending:{}, details:{}}; } }

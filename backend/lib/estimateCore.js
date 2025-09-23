@@ -1,4 +1,3 @@
-
 export function computeEstimate(answers){
   const area = Number(answers?.area||120);
   const grade = String(answers?.paintGrade||'standard');
