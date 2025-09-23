@@ -33,7 +33,8 @@ router.get('/callback', async (req, res) => {
       const est = getEstimate(leadId);
       if (est) {
         await client.pushMessage(userId, { type: 'text', text: est.text });
-        const url = `${process.env.LIFF_URL}?lead=${encodeURIComponent(leadId)}`;
+        const urlBase = process.env.LIFF_URL || (process.env.BASE_URL || '') + '/liff/index.html';
+        const url = `${urlBase}?lead=${encodeURIComponent(leadId)}`;
         await client.pushMessage(userId, {
           type: 'template',
           altText: '詳細見積もりを見る',
