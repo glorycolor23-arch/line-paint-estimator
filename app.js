@@ -20,10 +20,8 @@ app.use(bodyParser.json({ limit: '1mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// static
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Routers (root-level files)
 import webhook from './webhook.js';
 import lineLogin from './lineLogin.js';
 import estimate from './estimate.js';
@@ -34,6 +32,5 @@ app.use('/auth/line', lineLogin);
 app.use('/api/estimate', estimate);
 app.use('/api/details', details);
 
-// Health
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/', (req, res) => res.send(`LINE Paint up. <a href="${process.env.LINE_ADD_FRIEND_URL||'#'}">友だち追加</a>`));

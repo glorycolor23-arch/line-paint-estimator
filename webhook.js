@@ -1,11 +1,11 @@
 
 import express from 'express';
-import line from '@line/bot-sdk';
+import { middleware as lineMiddleware } from '@line/bot-sdk';
 import { client, liffButtonMessage } from './lib/lineClient.js';
 import { findLeadByUser, pickPending, getEstimate } from './lib/store.js';
 
 const router = express.Router();
-const middleware = line.middleware({ channelSecret: process.env.LINE_CHANNEL_SECRET });
+const middleware = lineMiddleware({ channelSecret: process.env.LINE_CHANNEL_SECRET });
 
 router.post('/webhook', middleware, async (req,res)=>{
   const events = req.body.events || [];

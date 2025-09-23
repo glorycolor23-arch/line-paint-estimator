@@ -20,7 +20,15 @@ router.post('/', async (req,res)=>{
 
     const mailTo = process.env.ADMIN_EMAIL || process.env.MAIL_TO;
     if(mailTo){
-      const text = `LINE外壁塗装の詳細回答を受信しました。\nUser: ${userId}\nLead: ${id}\n\n[概算]\n${est?est.text:'(なし)'}\n\n[詳細回答]\n${JSON.stringify(answers,null,2)}`;
+      const text = `LINE外壁塗装の詳細回答を受信しました。
+User: ${userId}
+Lead: ${id}
+
+[概算]
+${est?est.text:'(なし)'}
+
+[詳細回答]
+${JSON.stringify(answers,null,2)}`;
       await sendMail({ to: mailTo, subject: '【外壁塗装】詳細回答を受信', text });
     }
     await client.pushMessage(userId, { type:'text', text:'詳細情報を受け取りました。ありがとうございます。' });
