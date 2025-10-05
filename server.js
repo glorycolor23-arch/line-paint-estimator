@@ -1,8 +1,4 @@
 // server.js
-import { runBootChecks } from "./bootcheck.js";            // ← 追加①
-import { requestLogger } from "./middleware/request-logger.js"; // ← 追加②
-import selftestRouter from "./routes/selftest.js";         // ← 追加③
-
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,57 +6,61 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import fs from "fs";
 
-import webhookRouter from "./routes/webhook.js";      // LINE Webhook（follow で概算サマリー送付）
-import lineLoginRouter from "./routes/lineLogin.js";  // LINE Login（callback でも概算サマリー送付）
-import estimateRouter from "./routes/estimate.js";    // /estimate, /api/estimate, /api/link-line-user
-import detailsRouter from "./routes/details.js";      // /api/details（LIFF 詳細送信）
+// 既存ルータ
+import webhookRouter from "./routes/webhook.js";     // /line/webhook（follow時の概算送付など）
+import lineLoginRouter from "./routes/lineLogin.js"; // /auth/line/...（ログイン後の誘導）
+import estimateRouter from "./routes/estimate.js";   // /estimate, /api/estimate, /api/link-line-user
+import detailsRouter from "./routes/details.js";     // /api/details（LIFF詳細送信）
+
+// ★ 追加：自己診断用
+import selftestRouter from "./routes/selftest.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// ===== 起動時に uploads/ を必ず作成（multer の保存先） =====
-try { fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true }); } catch {}
+// ===== 起動時に uploads/ を必ず作成（multerの保存先）=====
+try {
+  fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
+} catch { /* ignore */ }
 
-// CORS
+// CORS（必要なら限定してください）
 app.use(cors());
 
-// ヘルスチェック
+// 軽量ヘルスチェック & ping
 app.get("/healthz", (_req, res) => res.type("text").send("ok"));
+app.get("/__ping", (_req, res) => res.type("text").send("pong"));
 
-// ---- 静的配信 ----
-const PUBLIC_DIR = path.join(__dirname, "public");
-app.use(express.static(PUBLIC_DIR));  // /index.html, /after-login.html, /styles.css, /liff.js など
-app.use(express.static(__dirname));   // 互換（/public/... と直下の両方を拾える）
+// ★ 追加：自己診断ルータを最初にマウント
+app.use(selftestRouter);
+console.log("[BOOT] selftestRouter mounted");
 
-// ---- Webhook は bodyParser より前に（LINE署名検証のため）----
+// 静的配信（フロントUI）
+app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname)); // 直下に liff.html / after-login.html がある想定の互換
+
+// LINE Webhook は bodyParser より前に置く
 app.use("/line", webhookRouter);
 
-// ---- Login / JSON 本文 / API ルータ ----
+// LINE ログイン系（/auth/line/callback 等）
 app.use(lineLoginRouter);
-app.use(bodyParser.json());
+
+// 以降は通常の JSON ボディを扱う API
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// 概算＆詳細API
 app.use(estimateRouter);
 app.use(detailsRouter);
-app.use(selftestRouter);   // ← ここに1行追加
 
-// ---- 明示ルート（Cannot GET 対策）----
-app.get(["/after-login", "/after-login.html"], (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "after-login.html"));
-});
-
-// /liff 系は /liff.html を正とし、/liff や /liff/index.html は転送
-app.get("/liff.html", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "liff.html"));
-});
-app.get(["/liff", "/liff/", "/liff/index.html"], (req, res) => {
-  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-  res.redirect(302, `/liff.html${q}`);
-});
-
-// ルート（トップ）
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+// ルート（index.html を返す）
+app.get("/", (req, res) => {
+  const p1 = path.join(__dirname, "public", "index.html");
+  const p2 = path.join(__dirname, "index.html");
+  res.sendFile(p1, (err) => {
+    if (err) res.sendFile(p2, (err2) => err2 && res.status(404).send("Not Found"));
+  });
 });
 
 // エラーハンドラ
@@ -69,7 +69,5 @@ app.use((err, _req, res, _next) => {
   res.status(500).send("Server Error");
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`[INFO] Server listening on ${PORT}`);
-});
+const PORT = Number(process.env.PORT || 10000);
+app.listen(PORT, () => console.log(`[INFO] Server listening on ${PORT}`));
