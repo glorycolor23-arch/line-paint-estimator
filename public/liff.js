@@ -65,4 +65,97 @@
       <input id="phone" inputmode="numeric" pattern="[0-9]*" placeholder="08012345678" style="font-size:16px;padding:14px"/>
       <label>郵便番号</label>
       <input id="postal" inputmode="numeric" pattern="[0-9]*" placeholder="5300001" style="font-size:16px;padding:14px"/>
-      <button class="btn" id=
+      <button class="btn" id="next" style="font-size:16px;padding:14px 18px;">次へ</button>
+    `;
+    document.querySelector('#name').value   = model.form.name;
+    document.querySelector('#phone').value  = model.form.phone;
+    document.querySelector('#postal').value = model.form.postal;
+    document.querySelector('#next').onclick = () => {
+      model.form.name   = document.querySelector('#name').value.trim();
+      model.form.phone  = document.querySelector('#phone').value.trim();
+      model.form.postal = document.querySelector('#postal').value.trim();
+      if (!model.form.name || !model.form.phone || !model.form.postal) return alert('未入力の項目があります。');
+      model.step = 2; render();
+    };
+  }
+
+  function fileInput(id, label, accept, capture=false) {
+    return `
+      <label>${label}</label>
+      <input class="file" id="${id}" type="file" accept="${accept}" ${capture ? 'capture="environment"' : ''} style="font-size:16px;padding:12px"/>
+    `;
+  }
+
+  function renderDrawings() {
+    ui.root.innerHTML = `
+      <div class="badge">2/4</div>
+      <h3>お住まいの図面をアップロード</h3>
+      <p class="note">スマホはカメラ撮影/ファイル選択、PCはファイル選択が利用できます（PDF/画像）。</p>
+      ${fileInput('drawing_elevation','立面図','image/*,application/pdf')}
+      ${fileInput('drawing_plan','平面図','image/*,application/pdf')}
+      ${fileInput('drawing_section','断面図','image/*,application/pdf')}
+      <button class="btn" id="next" style="font-size:16px;padding:14px 18px;">次へ</button>
+    `;
+    document.querySelector('#next').onclick = () => { model.step = 3; render(); };
+  }
+
+  function renderPhotos() {
+    ui.root.innerHTML = `
+      <div class="badge">3/4</div>
+      <h3>建物の写真をアップロード</h3>
+      ${fileInput('photo_front','建物の正面','image/*', true)}
+      ${fileInput('photo_right','建物の右側面','image/*', true)}
+      ${fileInput('photo_left','建物の左側面','image/*', true)}
+      ${fileInput('photo_back','建物の背面','image/*', true)}
+      <button class="btn" id="next" style="font-size:16px;padding:14px 18px;">確認へ</button>
+    `;
+    document.querySelector('#next').onclick = () => { model.step = 4; render(); };
+  }
+
+  function renderConfirm() {
+    ui.root.innerHTML = `
+      <div class="badge">4/4</div>
+      <h3>入力内容のご確認</h3>
+      <div class="summary">
+        <div>お名前：<b>${model.form.name}</b></div>
+        <div>電話番号：<b>${model.form.phone}</b></div>
+        <div>郵便番号：<b>${model.form.postal}</b></div>
+        <div>図面：立面/平面/断面</div>
+        <div>写真：正面/右/左/背面</div>
+      </div>
+      <button class="btn primary" id="submit" style="font-size:16px;padding:16px 20px;">この内容で見積もりを依頼</button>
+    `;
+    document.querySelector('#submit').onclick = submitAll;
+  }
+
+  async function submitAll() {
+    const fd = new FormData();
+    fd.append('leadId', model.leadId || '');
+    fd.append('lineUserId', model.lineUserId || '');
+    fd.append('name', model.form.name);
+    fd.append('phone', model.form.phone);
+    fd.append('postal', model.form.postal);
+
+    const ids = ['drawing_elevation','drawing_plan','drawing_section','photo_front','photo_right','photo_left','photo_back'];
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el && el.files && el.files[0]) fd.append(id, el.files[0], el.files[0].name);
+    }
+
+    try {
+      const res  = await fetch('/api/details', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (data && data.error) return alert('送信に失敗しました。再度お試しください。');
+      model.step = 5; render();
+    } catch {
+      alert('送信に失敗しました。通信状態をご確認ください。');
+    }
+  }
+
+  function renderDone() {
+    ui.root.innerHTML = `
+      <h3>送信完了しました</h3>
+      <p>1〜3営業日以内にお見積もりをLINEにて回答いたします。ご利用ありがとうございました。</p>
+    `;
+  }
+})();
