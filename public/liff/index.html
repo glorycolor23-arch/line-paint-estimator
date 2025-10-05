@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>詳細見積のご依頼</title>
-  <link rel="stylesheet" href="/styles.css"/>
+  <link rel="stylesheet" href="/public/styles.css"/>
   <!-- LIFF SDK -->
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
@@ -15,11 +15,15 @@
       <div id="liff-step"></div>
     </div>
   </div>
+
+  <!-- 正しい LIFF ID を設定（Line Developers の値と完全一致にしてください） -->
   <script>
     window.LIFF_CONFIG = {
-      LIFF_ID: "2007914959-XP5Rpoay"  // ← 余計な「-9-」を削除して正しい ID に
+      LIFF_ID: "2007914959-XP5Rpoay"
     };
   </script>
-  <script src="/liff.js"></script>
+
+  <!-- LIFF 画面ロジック（public 直下の liff.js を読み込み） -->
+  <script src="/public/liff.js?v=1"></script>
 </body>
 </html>
