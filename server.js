@@ -5,14 +5,16 @@ import { fileURLToPath } from "url";
 import cors from "cors";
 import bodyParser from "body-parser";
 
-import webhookRouter from "./routes/webhook.js";      // ← LINE Webhook
-import lineLoginRouter from "./routes/lineLogin.js";  // ← 既存のログインルータ（そのまま）
+import webhookRouter from "./routes/webhook.js";      // LINE Webhook
+import lineLoginRouter from "./routes/lineLogin.js";  // LINE Login
+import estimateRouter from "./routes/estimate.js";    // ← 追加（/estimate, /api/estimate, /api/link-line-user）
+import detailsRouter from "./routes/details.js";      // ← 追加（/api/details）
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
-// CORS は先でOK
+// CORS
 app.use(cors());
 
 // ヘルスチェック
@@ -20,16 +22,16 @@ app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
 // 静的配信（フロントの UI はそのまま）
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.static(__dirname)); // 直下に liff.html などがある想定のまま
+app.use(express.static(__dirname)); // 直下に liff.html 等がある場合にも対応
 
-// ✅ 重要：LINE Webhook を「最初に」マウントする（bodyParser より前）
+// ✅ Webhook は bodyParser より前に
 app.use("/line", webhookRouter);
 
-// 既存のログイン系ルート（/login, /auth/line/callback など）
-app.use(lineLoginRouter);
-
-// それ以外の API 用（Webhook より後ろに置くのがポイント）
+// ✅ API は JSON パーサを有効化してから
 app.use(bodyParser.json());
+app.use(estimateRouter);   // /estimate, /api/estimate, /api/link-line-user
+app.use(detailsRouter);    // /api/details
+app.use(lineLoginRouter);  // /auth/line/*
 
 // ルート（フロントの index）
 app.get("/", (req, res) => {
@@ -42,7 +44,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// エラーハンドラ（落ちにくく）
+// エラーハンドラ
 app.use((err, _req, res, _next) => {
   console.error("[ERROR]", err);
   res.status(500).send("Server Error");
