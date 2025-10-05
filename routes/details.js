@@ -1,3 +1,4 @@
+// routes/details.js
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -7,13 +8,11 @@ import { sendAdminMail } from '../lib/mailer.js';
 
 const router = express.Router();
 
-// Renderの一時ディスクに保存（メール添付後に削除を推奨）
 const upload = multer({
   dest: 'uploads/',
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB/ファイル
 });
 
-// drawings: 立面図/平面図/断面図, photos: 正面/右/左/背面
 const fields = [
   { name: 'drawing_elevation', maxCount: 1 },
   { name: 'drawing_plan', maxCount: 1 },
@@ -33,7 +32,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
     const details = { name, phone, postal, lineUserId };
     updateLeadDetails(leadId, details);
 
-    // ----- スプレッドシート（失敗は握りつぶして継続） -----
+    // Sheets（失敗は握りつぶし）
     try {
       const created = new Date().toISOString();
       await appendToSheet([
@@ -54,7 +53,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       console.warn('[SHEETS WARN]', e?.message || e);
     }
 
-    // ----- メール送信（失敗は握りつぶして継続） -----
+    // メール（失敗は握りつぶし）
     try {
       const attachments = [];
       for (const key of Object.keys(req.files || {})) {
@@ -94,11 +93,9 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       console.warn('[MAIL WARN]', e?.message || e);
     }
 
-    // すべて成功扱いで返す（UIの「送信に失敗しました」を防止）
     res.json({ ok: true });
   } catch (e) {
     console.error('[DETAILS ERROR]', e);
-    // 予期せぬ例外のみ 500
     res.status(500).json({ error: 'internal error' });
   }
 });
