@@ -1,4 +1,8 @@
 // server.js
+import { runBootChecks } from "./bootcheck.js";            // ← 追加①
+import { requestLogger } from "./middleware/request-logger.js"; // ← 追加②
+import selftestRouter from "./routes/selftest.js";         // ← 追加③
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
