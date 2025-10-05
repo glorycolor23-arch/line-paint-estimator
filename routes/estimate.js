@@ -20,10 +20,7 @@ function createState() {
     .map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// -----------------------------
 // 1) 既存フロントのフェイルセーフ入口：/estimate
-//    友だち未追加も確実に LINE へ誘導
-// -----------------------------
 router.post('/estimate', async (req, res) => {
   try {
     const body = req.body || {};
@@ -35,11 +32,10 @@ router.post('/estimate', async (req, res) => {
     const { LINE_LOGIN_CHANNEL_ID, LINE_LOGIN_REDIRECT_URI } = process.env;
 
     if (!LINE_LOGIN_CHANNEL_ID || !LINE_LOGIN_REDIRECT_URI) {
-      // 最低限のUX確保：友だちURLへ
       return res.json({ ok: true, redirectUrl: process.env.LINE_ADD_FRIEND_URL || 'https://lin.ee/XxmuVXt' });
     }
 
-    // state を作り、サーバーに pending 保存（初期の実装互換：app.locals）
+    // state を作り、サーバーに pending 保存（初期互換）
     const store = req.app.locals?.pendingEstimates || (req.app.locals.pendingEstimates = new Map());
     const state = createState();
     store.set(state, { answers, createdAt: Date.now() });
@@ -63,10 +59,8 @@ router.post('/estimate', async (req, res) => {
   }
 });
 
-// -----------------------------
 // 2) 初回アンケート → 概算作成（/api/estimate）
 //    ※ linkStore にも保存して follow で拾えるようにする
-// -----------------------------
 router.post('/api/estimate', (req, res) => {
   const { desiredWork, ageRange, floors, wallMaterial } = req.body || {};
   if (!desiredWork || !ageRange || !floors || !wallMaterial) {
@@ -95,10 +89,7 @@ router.post('/api/estimate', (req, res) => {
   });
 });
 
-// -----------------------------
-// 3) LIFF 内で userId 紐付け → 概算プッシュ
-//    ※ 友だち済みの人にも「詳細つき」で必ず届く
-// -----------------------------
+// 3) LIFF 内で userId 紐付け → 概算プッシュ（詳細文面つき）
 router.post('/api/link-line-user', async (req, res) => {
   const { leadId, lineUserId } = req.body || {};
   const lead = linkLineUser(leadId, lineUserId);
