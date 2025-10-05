@@ -1,6 +1,5 @@
 // routes/estimate.js
 import express from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { Client } from '@line/bot-sdk';
 import { computeEstimate } from '../lib/estimate.js';
 import { createLead, getLead, linkLineUser } from '../lib/store.js';
@@ -42,9 +41,9 @@ function loginAuthorizeUrl(leadId) {
   auth.searchParams.set('response_type', 'code');
   auth.searchParams.set('client_id', LOGIN_CHANNEL_ID);
   auth.searchParams.set('redirect_uri', LOGIN_REDIRECT_URI);
-  auth.searchParams.set('state', leadId);                 // ★ ここに leadId を必ず載せる
+  auth.searchParams.set('state', leadId);                 // ★ leadId を state へ
   auth.searchParams.set('scope', 'openid profile');
-  auth.searchParams.set('bot_prompt', 'normal');          // ★ 友だち未追加なら追加へ誘導
+  auth.searchParams.set('bot_prompt', 'normal');          // ★ 未友だちを友だち追加へ誘導
   return auth.toString();
 }
 
@@ -63,16 +62,10 @@ function buildSummaryText(price, answers) {
 
 // 内部ヘルパ：概算を計算・保存し、leadId を返す
 function createAndSaveEstimate(answers) {
-  // 1) 概算
-  const price = computeEstimate(answers);
-
-  // 2) lead を lib/store に保存（/api/details で answers を参照するため）
-  const leadId = createLead(answers, price);
-
-  // 3) summaryText を linkStore に保存（follow/login 用）
-  const summaryText = buildSummaryText(price, answers);
-  saveEstimateForLead(leadId, { price, summaryText });
-
+  const price = computeEstimate(answers);                          // 1) 概算
+  const leadId = createLead(answers, price);                       // 2) lead 保存（lib/store）
+  const summaryText = buildSummaryText(price, answers);            // 3) サマリー作成
+  saveEstimateForLead(leadId, { price, summaryText });             //    linkStore に保存（follow/login 用）
   return { leadId, price, summaryText };
 }
 
@@ -93,8 +86,8 @@ router.post('/estimate', (req, res) => {
 
     return res.json({
       ok: true,
-      redirectUrl,                 // ← 1・2の挙動を維持
-      // 参考情報（将来フロントで使いたいとき用）
+      redirectUrl,                 // ← 1・2 の挙動を維持（LINE Loginへ）
+      // 参考情報
       leadId,
       amount: price,
       addFriendUrl: ADD_FRIEND_URL,
@@ -135,7 +128,6 @@ router.post('/api/link-line-user', async (req, res) => {
     const { leadId, lineUserId } = req.body || {};
     if (!leadId || !lineUserId) return res.status(400).json({ error: 'leadId/lineUserId required' });
 
-    // lib/store にも user 紐付け（将来参照用）
     const lead = linkLineUser(leadId, lineUserId);
     if (!lead) return res.status(404).json({ error: 'lead not found' });
 
@@ -161,11 +153,8 @@ router.post('/api/link-line-user', async (req, res) => {
       },
     };
 
-    try {
-      await lineClient.pushMessage(lineUserId, [msg1, msg2]);
-    } catch (e) {
-      console.error('[push error] /api/link-line-user', e);
-    }
+    try { await lineClient.pushMessage(lineUserId, [msg1, msg2]); }
+    catch (e) { console.error('[push error] /api/link-line-user', e); }
 
     return res.json({ ok: true });
   } catch (e) {
