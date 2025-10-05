@@ -6,11 +6,21 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import fs from "fs";
 
-// ルータ
-import webhookRouter from "./routes/webhook.js";      // ← LINE Webhook（bodyParserより前にマウント）
-import lineLoginRouter from "./routes/lineLogin.js";  // ← LINE Login 一式
-import estimateRouter from "./routes/estimate.js";    // ← 初回アンケート & /api/link-line-user
-import detailsRouter from "./routes/details.js";      // ← LIFF 詳細送信（ファイル添付）
+// それぞれのモジュールは default / named / 本体 いずれでも受けられるようにする
+import * as webhookMod from "./routes/webhook.js";
+import * as lineLoginMod from "./routes/lineLogin.js";
+import * as estimateMod from "./routes/estimate.js";
+import * as detailsMod from "./routes/details.js";
+
+function pickRouter(mod) {
+  // export default router / export const router / module.exports = router などに対応
+  return mod?.default || mod?.router || mod;
+}
+
+const webhookRouter  = pickRouter(webhookMod);
+const lineLoginRouter = pickRouter(lineLoginMod);
+const estimateRouter = pickRouter(estimateMod);
+const detailsRouter  = pickRouter(detailsMod);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +31,7 @@ const app = express();
 try {
   fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
 } catch (_) {
-  // noop
+  /* noop */
 }
 
 // ------- CORS / ヘルスチェック -------
@@ -33,6 +43,12 @@ app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 app.use("/public", express.static(path.join(__dirname, "public")));
 // 互換: サービス直下に置いた liff.html 等も配信可能に（例: /liff.html）
 app.use(express.static(__dirname));
+
+// ------- LIFF の古いエンドポイントへのフォールバック -------
+// LINE 側の自動遷移で /liff/index.html になっても常に public/liff.html を返す
+app.get(["/liff", "/liff/index.html"], (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "liff.html"));
+});
 
 // ------- 重要：Webhook は bodyParser より“前”にマウント -------
 app.use("/line", webhookRouter); // /line/webhook（互換で /webhook も内部で受ける）
