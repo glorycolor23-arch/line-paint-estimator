@@ -2,17 +2,27 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { updateLeadDetails, getLead } from '../lib/store.js';
 import { appendToSheet } from '../lib/sheets.js';
 import { sendAdminMail } from '../lib/mailer.js';
 
 const router = express.Router();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+
+try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch {}
+
+// Renderの一時ディスクに保存（メール添付後に削除してもOK）
 const upload = multer({
-  dest: 'uploads/',
+  dest: UPLOAD_DIR,
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB/ファイル
 });
 
+// drawings: 立面図/平面図/断面図, photos: 正面/右/左/背面
 const fields = [
   { name: 'drawing_elevation', maxCount: 1 },
   { name: 'drawing_plan', maxCount: 1 },
@@ -32,7 +42,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
     const details = { name, phone, postal, lineUserId };
     updateLeadDetails(leadId, details);
 
-    // Sheets（失敗は握りつぶし）
+    // スプレッドシート（未設定ならスキップ）
     try {
       const created = new Date().toISOString();
       await appendToSheet([
@@ -50,10 +60,10 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         'ファイルはメール添付で受領' // L
       ]);
     } catch (e) {
-      console.warn('[SHEETS WARN]', e?.message || e);
+      console.warn('[details] sheets append skipped:', e.message);
     }
 
-    // メール（失敗は握りつぶし）
+    // メール（未設定ならスキップ）
     try {
       const attachments = [];
       for (const key of Object.keys(req.files || {})) {
@@ -90,12 +100,12 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         attachments
       });
     } catch (e) {
-      console.warn('[MAIL WARN]', e?.message || e);
+      console.warn('[details] mail send skipped:', e.message);
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[DETAILS ERROR]', e);
+    console.error(e);
     res.status(500).json({ error: 'internal error' });
   }
 });
