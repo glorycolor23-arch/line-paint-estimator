@@ -1,163 +1,129 @@
 // routes/lineLogin.js
-import express from 'express';
-import { Client } from '@line/bot-sdk';
-import {
-  saveLink,
-  getEstimateForLead,
-} from '../store/linkStore.js';
+import express from "express";
+import { Client } from "@line/bot-sdk";
+import { saveLink, getEstimateForLead } from "../store/linkStore.js";
 
 const router = express.Router();
 
-// --- 環境変数 ---
-const LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || '';
-const LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET || '';
-const LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI || '';
-const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
-const LIFF_ID = process.env.LIFF_ID || '';
-const LIFF_URL_ENV = process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || '';
-
-// ボタンの遷移先（LIFF優先、なければホストした liff.html）
-function resolveLiffUrl(lead) {
-  if (LIFF_ID) {
-    const base = `https://liff.line.me/${LIFF_ID}`;
-    return lead ? `${base}?lead=${encodeURIComponent(lead)}` : base;
-  }
-  if (LIFF_URL_ENV) {
-    // ここは /liff.html を想定（/liff/index.html ではない）
-    const url = new URL(LIFF_URL_ENV, 'https://dummy.invalid');
-    if (lead) {
-      if (url.search) url.search += `&lead=${encodeURIComponent(lead)}`;
-      else url.search = `?lead=${encodeURIComponent(lead)}`;
-    }
-    return LIFF_URL_ENV + (lead ? (LIFF_URL_ENV.includes('?') ? '&' : '?') + `lead=${encodeURIComponent(lead)}` : '');
-  }
-  return '';
-}
+const LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || "";
+const LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET || "";
+const LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI || "";
+const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
+const LIFF_ID = process.env.LIFF_ID || "";
+const LIFF_URL_ENV = process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || "";
+const ADD_URL = process.env.LINE_ADD_FRIEND_URL || "";
+const OA_BASIC_ID_ENV = process.env.LINE_OA_BASIC_ID || ""; // 任意：明示指定できる
 
 const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
 
-// -------------------------------------------------
-// ログイン開始
-// -------------------------------------------------
-const loginPaths = ['/auth/line/login', '/line/login', '/login'];
-router.get(loginPaths, (req, res) => {
-  // state に lead を入れてくる実装・?lead=で来る実装の両対応
-  const lead =
-    (typeof req.query.lead === 'string' && req.query.lead) ||
-    (typeof req.query.state === 'string' && req.query.state) ||
-    '';
+function resolveLiffUrl(leadId) {
+  if (LIFF_ID) {
+    const base = `https://liff.line.me/${LIFF_ID}`;
+    return leadId ? `${base}?leadId=${encodeURIComponent(leadId)}` : base;
+  }
+  if (LIFF_URL_ENV) {
+    return leadId
+      ? `${LIFF_URL_ENV}${LIFF_URL_ENV.includes("?") ? "&" : "?"}leadId=${encodeURIComponent(leadId)}`
+      : LIFF_URL_ENV;
+  }
+  return `/liff.html${leadId ? `?leadId=${encodeURIComponent(leadId)}` : ""}`;
+}
 
+function deriveBasicId() {
+  if (OA_BASIC_ID_ENV) return OA_BASIC_ID_ENV;         // 明示渡し
+  const m = ADD_URL.match(/\/p\/(@[A-Za-z0-9._-]+)/);  // /p/@xxxx から抽出
+  return m ? m[1] : "";
+}
+
+// ログイン開始（任意）
+const loginPaths = ["/auth/line/login", "/line/login", "/login"];
+router.get(loginPaths, (req, res) => {
+  const lead =
+    (typeof req.query.lead === "string" && req.query.lead) ||
+    (typeof req.query.state === "string" && req.query.state) || "";
   const state = lead || Math.random().toString(36).slice(2);
 
-  const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('client_id', LOGIN_CHANNEL_ID);
-  authUrl.searchParams.set('redirect_uri', LOGIN_REDIRECT_URI);
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('scope', 'openid profile');
-  return res.redirect(authUrl.toString());
+  const authUrl = new URL("https://access.line.me/oauth2/v2.1/authorize");
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", LOGIN_CHANNEL_ID);
+  authUrl.searchParams.set("redirect_uri", LOGIN_REDIRECT_URI);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("scope", "openid profile");
+  res.redirect(authUrl.toString());
 });
 
-// -------------------------------------------------
-// コールバック（/auth/line/callback ほか複数で受ける）
-// -------------------------------------------------
-const callbackPaths = ['/auth/line/callback', '/line/callback', '/callback'];
+// コールバック
+const callbackPaths = ["/auth/line/callback", "/line/callback", "/callback"];
 router.get(callbackPaths, async (req, res) => {
   try {
     const code = req.query.code;
-    if (!code) return res.redirect('/after-login.html');
+    const leadId =
+      (typeof req.query.lead === "string" && req.query.lead) ||
+      (typeof req.query.state === "string" && req.query.state) || "";
 
-    // state を lead として受ける／または ?lead=
-    const lead =
-      (typeof req.query.lead === 'string' && req.query.lead) ||
-      (typeof req.query.state === 'string' && req.query.state) ||
-      '';
+    if (!code) return res.redirect("/after-login.html");
 
-    // --- token exchange ---
-    const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      },
+    // token exchange
+    const tokenRes = await fetch("https://api.line.me/oauth2/v2.1/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
       body: new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         code,
         redirect_uri: LOGIN_REDIRECT_URI,
         client_id: LOGIN_CHANNEL_ID,
         client_secret: LOGIN_CHANNEL_SECRET,
       }),
     });
-
     if (!tokenRes.ok) {
-      console.error('[LOGIN] token exchange failed', await tokenRes.text());
-      return res.redirect('/after-login.html');
+      console.error("[LOGIN] token exchange failed", await tokenRes.text());
+      return res.redirect("/after-login.html");
     }
+    const { access_token } = await tokenRes.json();
 
-    const tokenJson = await tokenRes.json();
-    const accessToken = tokenJson.access_token;
-
-    // --- profile 取得 ---
-    const profRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    // profile
+    const profRes = await fetch("https://api.line.me/v2/profile", {
+      headers: { Authorization: `Bearer ${access_token}` },
     });
     if (!profRes.ok) {
-      console.error('[LOGIN] profile fetch failed', await profRes.text());
-      return res.redirect('/after-login.html');
+      console.error("[LOGIN] profile fetch failed", await profRes.text());
+      return res.redirect("/after-login.html");
     }
     const prof = await profRes.json();
     const userId = prof.userId;
 
-    // userId と lead を紐付け
-    if (userId && lead) {
-      await saveLink(userId, lead);
+    if (userId && leadId) {
+      await saveLink(userId, leadId);
 
-      // 保存済みの概算があれば即プッシュ（follow の取りこぼし救済）
-      const estimate = await getEstimateForLead(lead);
-      if (estimate) {
-        const priceFmt =
-          estimate.price != null
-            ? Number(estimate.price).toLocaleString('ja-JP')
-            : '—';
-
-        const liffUrl = resolveLiffUrl(lead);
-
-        // 1通目：概算
-        const msg1 = {
-          type: 'text',
-          text: `お見積もりのご依頼ありがとうございます。\n概算お見積額は ${priceFmt} 円です。\n※ご回答内容をもとに算出した概算です。`,
-        };
-
-        // 2通目：カード型ボタン（ご希望の文言）
+      // 概算があれば push（follow取りこぼし救済）
+      const est = await getEstimateForLead(leadId);
+      if (est) {
+        const msg1 = { type: "text", text: est.text };
         const msg2 = {
-          type: 'template',
-          altText: '詳細見積もりのご案内',
+          type: "template",
+          altText: "詳細見積もりのご案内",
           template: {
-            type: 'buttons',
-            title: 'より詳しいお見積もりをご希望の方はこちらから。',
-            text: '現地調査での訪問は行わず、具体的なお見積もりを提示します。',
-            actions: [
-              {
-                type: 'uri',
-                label: '無料で詳細見積もりを依頼する',
-                uri: liffUrl || 'https://line.me', // フォールバック
-              },
-            ],
+            type: "buttons",
+            text: "さらに詳しい見積もりをご確認ください。",
+            actions: [{ type: "uri", label: "詳細見積もりを開く", uri: resolveLiffUrl(leadId) }],
           },
         };
-
-        try {
-          await lineClient.pushMessage(userId, [msg1, msg2]);
-        } catch (e) {
-          console.error('[LOGIN] push failed', e);
-        }
+        try { await lineClient.pushMessage(userId, [msg1, msg2]); }
+        catch (e) { console.warn("[LOGIN] push failed", e.message); }
       }
     }
 
-    // 既存の UI を崩さない：いつもどおり after-login へ
-    return res.redirect('/after-login.html');
+    // ✅ after-login に OA 情報を渡す（→ 公式サイトではなくトークを開く）
+    const oa = deriveBasicId();
+    const msg = "見積結果を確認したいです";
+    const qs = new URLSearchParams();
+    if (oa) qs.set("oa", oa);
+    if (ADD_URL) qs.set("add", ADD_URL);
+    qs.set("msg", msg);
+    return res.redirect(`/after-login.html${qs.toString() ? "?" + qs.toString() : ""}`);
   } catch (e) {
-    console.error('[LOGIN CALLBACK ERROR]', e);
-    return res.redirect('/after-login.html');
+    console.error("[LOGIN CALLBACK ERROR]", e);
+    return res.redirect("/after-login.html");
   }
 });
 
