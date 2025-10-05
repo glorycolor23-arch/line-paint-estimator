@@ -53,15 +53,17 @@ async function handleEvent(event) {
       if (leadId) {
         const estimate = await getEstimateForLead(leadId);
         if (estimate) {
-          const priceFmt = Number(estimate.price).toLocaleString('ja-JP');
+          const priceFmt =
+            estimate.price != null
+              ? Number(estimate.price).toLocaleString('ja-JP')
+              : '—';
 
           const msg1 = {
             type: 'text',
             text:
               `お見積もりのご依頼ありがとうございます。\n` +
               `概算お見積額は ${priceFmt} 円です。\n` +
-              `※ご回答内容をもとに算出した概算です。\n\n` +
-              estimate.summaryText,
+              (estimate.summaryText ? `\n— ご回答内容 —\n${estimate.summaryText}` : ''),
           };
 
           const msg2 = {
@@ -82,6 +84,7 @@ async function handleEvent(event) {
         }
       }
 
+      // 概算がまだ無い/lead が無いときは LIFF ボタンのみ
       const msg = {
         type: 'template',
         altText: '詳細見積もりのご案内',
