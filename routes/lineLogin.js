@@ -8,7 +8,6 @@ import {
 
 const router = express.Router();
 
-// --- 環境変数 ---
 const LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || '';
 const LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET || '';
 const LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI || '';
@@ -16,24 +15,47 @@ const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LIFF_ID = process.env.LIFF_ID || '';
 const LIFF_URL_ENV = process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || '';
 
-// ボタンの遷移先（LIFF優先、なければホストした liff.html）
+// 友だち追加誘導用（環境変数）
+const ADD_URL = process.env.LINE_ADD_FRIEND_URL || '';
+const OA_BASIC_ID = process.env.LINE_OA_BASIC_ID || process.env.LINE_BASIC_ID || '';
+
+const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
+
 function resolveLiffUrl(lead) {
   if (LIFF_ID) {
     const base = `https://liff.line.me/${LIFF_ID}`;
     return lead ? `${base}?lead=${encodeURIComponent(lead)}` : base;
   }
   if (LIFF_URL_ENV) {
-    const url = new URL(LIFF_URL_ENV, 'https://dummy.invalid');
-    if (lead) {
-      if (url.search) url.search += `&lead=${encodeURIComponent(lead)}`;
-      else url.search = `?lead=${encodeURIComponent(lead)}`;
-    }
-    return LIFF_URL_ENV + (lead ? (LIFF_URL_ENV.includes('?') ? '&' : '?') + `lead=${encodeURIComponent(lead)}` : '');
+    return lead
+      ? LIFF_URL_ENV + (LIFF_URL_ENV.includes('?') ? '&' : '?') + `lead=${encodeURIComponent(lead)}`
+      : LIFF_URL_ENV;
   }
   return '';
 }
 
-const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
+// after-login へ常に「友だち追加 or トークを開く」クエリを付ける
+function makeAfterLoginUrl() {
+  const u = new URL('/after-login.html', 'https://dummy.local'); // 相対URL組み立て用
+  if (ADD_URL) {
+    u.searchParams.set('add', ADD_URL); // 例: https://line.me/R/ti/p/@XXXX
+  } else if (OA_BASIC_ID) {
+    u.searchParams.set('oa', OA_BASIC_ID); // 例: @004szogc
+    u.searchParams.set('msg', '見積結果を確認したいです');
+  }
+  return u.pathname + u.search; // 相対で返す
+}
+
+function buildDetailsText(est) {
+  if (est?.summaryText) return est.summaryText;
+  const a = est?.answers || {};
+  return (
+    `■見積もり希望内容：${a.desiredWork ?? '-'}\n` +
+    `■築年数：${a.ageRange ?? '-'}\n` +
+    `■階数：${a.floors ?? '-'}\n` +
+    `■外壁材：${a.wallMaterial ?? '-'}`
+  );
+}
 
 // ログイン開始（複数パス対応）
 const loginPaths = ['/auth/line/login', '/line/login', '/login'];
@@ -42,7 +64,6 @@ router.get(loginPaths, (req, res) => {
     (typeof req.query.lead === 'string' && req.query.lead) ||
     (typeof req.query.state === 'string' && req.query.state) ||
     '';
-
   const state = lead || Math.random().toString(36).slice(2);
 
   const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
@@ -59,7 +80,7 @@ const callbackPaths = ['/auth/line/callback', '/line/callback', '/callback'];
 router.get(callbackPaths, async (req, res) => {
   try {
     const code = req.query.code;
-    if (!code) return res.redirect('/after-login.html');
+    if (!code) return res.redirect(makeAfterLoginUrl());
 
     const lead =
       (typeof req.query.lead === 'string' && req.query.lead) ||
@@ -80,7 +101,7 @@ router.get(callbackPaths, async (req, res) => {
     });
     if (!tokenRes.ok) {
       console.error('[LOGIN] token exchange failed', await tokenRes.text());
-      return res.redirect('/after-login.html');
+      return res.redirect(makeAfterLoginUrl());
     }
     const tokenJson = await tokenRes.json();
     const accessToken = tokenJson.access_token;
@@ -91,7 +112,7 @@ router.get(callbackPaths, async (req, res) => {
     });
     if (!profRes.ok) {
       console.error('[LOGIN] profile fetch failed', await profRes.text());
-      return res.redirect('/after-login.html');
+      return res.redirect(makeAfterLoginUrl());
     }
     const prof = await profRes.json();
     const userId = prof.userId;
@@ -110,6 +131,8 @@ router.get(callbackPaths, async (req, res) => {
           type: 'text',
           text: `お見積もりのご依頼ありがとうございます。\n概算お見積額は ${priceFmt} 円です。\n※ご回答内容をもとに算出した概算です。`,
         };
+        // 4項目の詳細
+        const msg1b = { type: 'text', text: buildDetailsText(estimate) };
         const msg2 = {
           type: 'template',
           altText: '詳細見積もりのご案内',
@@ -123,15 +146,15 @@ router.get(callbackPaths, async (req, res) => {
           },
         };
 
-        try { await lineClient.pushMessage(userId, [msg1, msg2]); }
+        try { await lineClient.pushMessage(userId, [msg1, msg1b, msg2]); }
         catch (e) { console.error('[LOGIN] push failed', e); }
       }
     }
 
-    return res.redirect('/after-login.html');
+    return res.redirect(makeAfterLoginUrl());
   } catch (e) {
     console.error('[LOGIN CALLBACK ERROR]', e);
-    return res.redirect('/after-login.html');
+    return res.redirect(makeAfterLoginUrl());
   }
 });
 
