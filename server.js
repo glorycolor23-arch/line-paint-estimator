@@ -6,42 +6,37 @@ import cors from "cors";
 import bodyParser from "body-parser";
 
 import webhookRouter from "./routes/webhook.js";      // LINE Webhook
-import lineLoginRouter from "./routes/lineLogin.js";  // LINE Login
-import estimateRouter from "./routes/estimate.js";    // ← 追加（/estimate, /api/estimate, /api/link-line-user）
-import detailsRouter from "./routes/details.js";      // ← 追加（/api/details）
+import lineLoginRouter from "./routes/lineLogin.js";  // LINE Login（コールバックで after-login に遷移）
+import estimateRouter from "./routes/estimate.js";    // /estimate, /api/estimate, /api/link-line-user
+import detailsRouter from "./routes/details.js";      // /api/details
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 
-// CORS
 app.use(cors());
 
-// ヘルスチェック
+// ヘルス
 app.get("/healthz", (_req, res) => res.type("text").send("ok"));
 
-// 静的配信（フロントの UI はそのまま）
+// 静的（フロントはそのまま）
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.static(__dirname)); // 直下に liff.html 等がある場合にも対応
+app.use(express.static(__dirname)); // 直下の liff.html / after-login.html も出す
 
-// ✅ Webhook は bodyParser より前に
+// ✅ Webhook は bodyParser より前
 app.use("/line", webhookRouter);
 
-// ✅ API は JSON パーサを有効化してから
+// ✅ API は JSON パーサ後に
 app.use(bodyParser.json());
-app.use(estimateRouter);   // /estimate, /api/estimate, /api/link-line-user
-app.use(detailsRouter);    // /api/details
-app.use(lineLoginRouter);  // /auth/line/*
+app.use(estimateRouter);
+app.use(detailsRouter);
+app.use(lineLoginRouter);
 
-// ルート（フロントの index）
+// ルート
 app.get("/", (req, res) => {
-  const file1 = path.join(__dirname, "public", "index.html");
-  const file2 = path.join(__dirname, "index.html");
-  res.sendFile(file1, (err) => {
-    if (err) {
-      res.sendFile(file2, (err2) => err2 && res.status(404).send("Not Found"));
-    }
-  });
+  const a = path.join(__dirname, "public", "index.html");
+  const b = path.join(__dirname, "index.html");
+  res.sendFile(a, (err) => { if (err) res.sendFile(b, (err2) => err2 && res.status(404).send("Not Found")); });
 });
 
 // エラーハンドラ
@@ -51,6 +46,4 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`[INFO] Server listening on ${PORT}`);
-});
+app.listen(PORT, () => console.log(`[INFO] Server listening on ${PORT}`));
