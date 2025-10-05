@@ -28,7 +28,6 @@ function resolveLiffUrl(lead) {
   return origin ? `${origin.replace(/\/+$/, '')}/liff.html${lead ? `?lead=${encodeURIComponent(lead)}` : ''}` : '';
 }
 
-// /line/webhook（推奨）と /webhook（互換）
 router.post(['/line/webhook', '/webhook'], mw, async (req, res) => {
   try {
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
@@ -54,17 +53,15 @@ async function handleEvent(event) {
       if (leadId) {
         const estimate = await getEstimateForLead(leadId);
         if (estimate) {
-          const priceFmt =
-            estimate.price != null
-              ? Number(estimate.price).toLocaleString('ja-JP')
-              : '—';
+          const priceFmt = Number(estimate.price).toLocaleString('ja-JP');
 
           const msg1 = {
             type: 'text',
             text:
               `お見積もりのご依頼ありがとうございます。\n` +
               `概算お見積額は ${priceFmt} 円です。\n` +
-              `※ご回答内容をもとに算出した概算です。`,
+              `※ご回答内容をもとに算出した概算です。\n\n` +
+              estimate.summaryText,
           };
 
           const msg2 = {
@@ -85,7 +82,6 @@ async function handleEvent(event) {
         }
       }
 
-      // 概算がまだ無い/lead が無いときは LIFF ボタンのみ
       const msg = {
         type: 'template',
         altText: '詳細見積もりのご案内',
@@ -101,32 +97,6 @@ async function handleEvent(event) {
       await lineClient.pushMessage(userId, msg);
     } catch (e) {
       console.error('[FOLLOW ERROR]', e);
-    }
-  }
-
-  // 任意：ユーザーのメッセージでLIFFを返す
-  if (type === 'message' && event.message?.type === 'text') {
-    const q = (event.message.text || '').trim();
-    if (/詳細見積もり|見積もりを依頼|無料で詳細|現地調査なし/i.test(q)) {
-      const leadId = await findLeadIdByUserId(userId);
-      const liffUrl = resolveLiffUrl(leadId || '');
-      const msg = {
-        type: 'template',
-        altText: '詳細見積もりのご案内',
-        template: {
-          type: 'buttons',
-          title: 'より詳しいお見積もりをご希望の方はこちらから。',
-          text: '現地調査での訪問は行わず、具体的なお見積もりを提示します。',
-          actions: [
-            { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: liffUrl || 'https://line.me' },
-          ],
-        },
-      };
-      try {
-        await lineClient.replyMessage(event.replyToken, msg);
-      } catch (e) {
-        console.error('[MSG REPLY ERROR]', e);
-      }
     }
   }
 }
