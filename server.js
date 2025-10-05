@@ -6,33 +6,51 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import fs from "fs";
 
-// それぞれのモジュールは default / named / 本体 いずれでも受けられるようにする
-import * as webhookMod from "./routes/webhook.js";
-import * as lineLoginMod from "./routes/lineLogin.js";
-import * as estimateMod from "./routes/estimate.js";
-import * as detailsMod from "./routes/details.js";
-
-function pickRouter(mod) {
-  // export default router / export const router / module.exports = router などに対応
-  return mod?.default || mod?.router || mod;
-}
-
-const webhookRouter  = pickRouter(webhookMod);
-const lineLoginRouter = pickRouter(lineLoginMod);
-const estimateRouter = pickRouter(estimateMod);
-const detailsRouter  = pickRouter(detailsMod);
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ---------- ルーターを動的に読み込む（拡張子あり/なしどちらでもOK） ----------
+async function loadRouter(moduleBasePath, humanName) {
+  try {
+    let mod;
+    try {
+      // まず拡張子あり
+      mod = await import(`${moduleBasePath}.js`);
+    } catch (e1) {
+      try {
+        // 拡張子なしのファイル名にフォールバック
+        mod = await import(moduleBasePath);
+      } catch (e2) {
+        console.error(`[FATAL] Failed to import ${humanName} from "${moduleBasePath}.js" and "${moduleBasePath}"`);
+        console.error("e1:", e1?.message);
+        console.error("e2:", e2?.message);
+        process.exit(1);
+      }
+    }
+    const router = mod?.default || mod?.router || mod;
+    if (!router || typeof router !== "function") {
+      console.error(`[FATAL] ${humanName} did not export an Express router (default/router).`);
+      process.exit(1);
+    }
+    return router;
+  } catch (e) {
+    console.error(`[FATAL] Unexpected error while loading ${humanName}:`, e);
+    process.exit(1);
+  }
+}
+
+// 必要な各ルーターをロード（ここで失敗すれば必ずどのモジュールかがログに出る）
+const webhookRouter  = await loadRouter("./routes/webhook",   "webhook router");
+const lineLoginRouter= await loadRouter("./routes/lineLogin", "lineLogin router");
+const estimateRouter = await loadRouter("./routes/estimate",  "estimate router");
+const detailsRouter  = await loadRouter("./routes/details",   "details router");
 
 const app = express();
 
 // ------- 起動時に一時アップロード先を必ず作る（multerは自動作成しない）-------
 try {
   fs.mkdirSync(path.join(__dirname, "uploads"), { recursive: true });
-} catch (_) {
-  /* noop */
-}
+} catch (_) { /* noop */ }
 
 // ------- CORS / ヘルスチェック -------
 app.use(cors());
@@ -65,9 +83,9 @@ app.use(detailsRouter);
 
 // ------- ルート: フロントの index.html を返す（/public/index.html 優先） -------
 app.get("/", (_req, res) => {
-  const file1 = path.join(__dirname, "public", "index.html");
+  const main = path.join(__dirname, "public", "index.html");
   const fallback = path.join(__dirname, "index.html");
-  res.sendFile(file1, (err) => {
+  res.sendFile(main, (err) => {
     if (err) res.sendFile(fallback, (err2) => err2 && res.status(404).send("Not Found"));
   });
 });
