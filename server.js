@@ -42,6 +42,7 @@ app.use(lineLoginRouter);
 app.use(bodyParser.json());
 app.use(estimateRouter);
 app.use(detailsRouter);
+app.use(selftestRouter);   // ← ここに1行追加
 
 // ---- 明示ルート（Cannot GET 対策）----
 app.get(["/after-login", "/after-login.html"], (_req, res) => {
