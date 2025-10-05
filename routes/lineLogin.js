@@ -4,19 +4,27 @@ import { Client } from '@line/bot-sdk';
 import {
   saveLink,
   getEstimateForLead,
-  saveEstimateForLead,
 } from '../store/linkStore.js';
-import { computeEstimate } from '../lib/estimate.js';
 
 const router = express.Router();
 
-const LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID || '';
+// --- 環境変数 ---
+const LOGIN_CHANNEL_ID     = process.env.LINE_LOGIN_CHANNEL_ID || '';
 const LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET || '';
-const LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI || '';
+const LOGIN_REDIRECT_URI   = process.env.LINE_LOGIN_REDIRECT_URI || '';
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
-const LIFF_ID = process.env.LIFF_ID || '';
-const LIFF_URL_ENV = process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || '';
 
+const LIFF_ID     = process.env.LIFF_ID || '';
+const LIFF_URL_ENV= process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || '';
+
+/** 友だち追加誘導用：OAのベーシックID / 友だち追加URL
+ * after-login.html は ?oa= or ?add= があればトーク/友だち追加を開く。
+ * これが欠落すると line.me（公式サイト）へフォールバックしてしまうため、常に付与する。
+ */
+const OA_BASIC_ID        = process.env.OA_BASIC_ID || process.env.LINE_OA_BASIC_ID || ''; // 例: @004szogc
+const LINE_ADD_FRIEND_URL= process.env.LINE_ADD_FRIEND_URL || ''; // 例: https://line.me/R/ti/p/@004szogc
+
+// ボタンの遷移先（LIFF優先、なければホストした liff.html）
 function resolveLiffUrl(lead) {
   if (LIFF_ID) {
     const base = `https://liff.line.me/${LIFF_ID}`;
@@ -33,13 +41,12 @@ function resolveLiffUrl(lead) {
 
 const lineClient = new Client({ channelAccessToken: CHANNEL_ACCESS_TOKEN });
 
+// -------------------------------------------------
+// ログイン開始
+// -------------------------------------------------
 const loginPaths = ['/auth/line/login', '/line/login', '/login'];
-router.get(loginPaths, (req, res) => {
-  const lead = (typeof req.query.lead === 'string' && req.query.lead)
-            || (typeof req.query.state === 'string' && req.query.state)
-            || '';
-  const state = lead || Math.random().toString(36).slice(2);
-
+router.get(loginPaths, (_req, res) => {
+  const state = Math.random().toString(36).slice(2); // 任意
   const authUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', LOGIN_CHANNEL_ID);
@@ -49,20 +56,33 @@ router.get(loginPaths, (req, res) => {
   return res.redirect(authUrl.toString());
 });
 
+// -------------------------------------------------
+// コールバック（/auth/line/callback ほか複数で受ける）
+// -------------------------------------------------
 const callbackPaths = ['/auth/line/callback', '/line/callback', '/callback'];
 router.get(callbackPaths, async (req, res) => {
+  // after-login に必ず oa / add を付けて返す関数（ここが今回の修正ポイント）
+  const redirectToAfterLogin = () => {
+    const q = new URLSearchParams();
+    if (OA_BASIC_ID)         q.set('oa',  OA_BASIC_ID);
+    if (LINE_ADD_FRIEND_URL) q.set('add', LINE_ADD_FRIEND_URL);
+    const qs = q.toString();
+    return res.redirect(`/after-login.html${qs ? `?${qs}` : ''}`);
+  };
+
   try {
     const code = req.query.code;
-    if (!code) return res.redirect('/after-login.html');
+    if (!code) return redirectToAfterLogin();
 
-    const lead = (typeof req.query.lead === 'string' && req.query.lead)
-              || (typeof req.query.state === 'string' && req.query.state)
-              || '';
+    // state を lead として受ける／または ?lead=
+    const lead =
+      (typeof req.query.lead === 'string'  && req.query.lead)  ||
+      (typeof req.query.state === 'string' && req.query.state) || '';
 
-    // token
+    // --- token exchange ---
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
       method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
@@ -71,40 +91,33 @@ router.get(callbackPaths, async (req, res) => {
         client_secret: LOGIN_CHANNEL_SECRET,
       }),
     });
-    if (!tokenRes.ok) return res.redirect('/after-login.html');
+    if (!tokenRes.ok) {
+      console.error('[LOGIN] token exchange failed', await tokenRes.text());
+      return redirectToAfterLogin();
+    }
+    const tokenJson   = await tokenRes.json();
+    const accessToken = tokenJson.access_token;
 
-    const { access_token } = await tokenRes.json();
-
-    // profile
+    // --- profile 取得 ---
     const profRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!profRes.ok) return res.redirect('/after-login.html');
-    const prof = await profRes.json();
+    if (!profRes.ok) {
+      console.error('[LOGIN] profile fetch failed', await profRes.text());
+      return redirectToAfterLogin();
+    }
+    const prof   = await profRes.json();
     const userId = prof.userId;
 
-    if (userId) await saveLink(userId, lead);
-
-    // ★ 初期回答を取得して概算を確定保存（follow でも使えるように）
-    if (lead && req.app.locals?.pendingEstimates?.has(lead)) {
-      const { answers } = req.app.locals.pendingEstimates.get(lead) || {};
-      if (answers) {
-        const price = computeEstimate(answers);
-        const summaryText =
-          `■見積もり希望内容：${answers.desiredWork}\n` +
-          `■築年数：${answers.ageRange}\n` +
-          `■階数：${answers.floors}\n` +
-          `■外壁材：${answers.wallMaterial}`;
-        await saveEstimateForLead(lead, { price, summaryText, answers });
-        req.app.locals.pendingEstimates.delete(lead);
-      }
-    }
-
-    // 概算をプッシュ（回答の内訳付き）
+    // userId と lead を紐付け
     if (userId && lead) {
+      await saveLink(userId, lead);
+
+      // 保存済みの概算があれば即プッシュ（follow の取りこぼし救済）
       const estimate = await getEstimateForLead(lead);
       if (estimate) {
-        const priceFmt = Number(estimate.price).toLocaleString('ja-JP');
+        const priceFmt =
+          estimate.price != null ? Number(estimate.price).toLocaleString('ja-JP') : '—';
         const liffUrl = resolveLiffUrl(lead);
 
         const msg1 = {
@@ -112,10 +125,8 @@ router.get(callbackPaths, async (req, res) => {
           text:
             `お見積もりのご依頼ありがとうございます。\n` +
             `概算お見積額は ${priceFmt} 円です。\n` +
-            `※ご回答内容をもとに算出した概算です。\n\n` +
-            estimate.summaryText,
+            `※ご回答内容をもとに算出した概算です。`,
         };
-
         const msg2 = {
           type: 'template',
           altText: '詳細見積もりのご案内',
@@ -123,25 +134,19 @@ router.get(callbackPaths, async (req, res) => {
             type: 'buttons',
             title: 'より詳しいお見積もりをご希望の方はこちらから。',
             text: '現地調査での訪問は行わず、具体的なお見積もりを提示します。',
-            actions: [
-              {
-                type: 'uri',
-                label: '無料で、現地調査なしの見積もりを依頼',
-                uri: liffUrl || 'https://line.me',
-              },
-            ],
+            actions: [{ type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: liffUrl || 'https://line.me' }],
           },
         };
-
         try { await lineClient.pushMessage(userId, [msg1, msg2]); }
         catch (e) { console.error('[LOGIN] push failed', e); }
       }
     }
 
-    return res.redirect('/after-login.html');
+    // ✅ ここで必ず OA 情報付きで after-login に戻す（友だち追加/トークを開く）
+    return redirectToAfterLogin();
   } catch (e) {
     console.error('[LOGIN CALLBACK ERROR]', e);
-    return res.redirect('/after-login.html');
+    return redirectToAfterLogin();
   }
 });
 
