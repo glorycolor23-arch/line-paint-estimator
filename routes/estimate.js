@@ -3,20 +3,23 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { Client } from '@line/bot-sdk';
 import { computeEstimate } from '../lib/estimate.js';
+import { createLead, getLead, linkLineUser } from '../lib/store.js';
 import {
   saveEstimateForLead,   // leadId -> { price, summaryText }
-  getEstimateForLead,    // 既存の概算取得（必要なら）
-  findLeadIdByUserId,    // userId -> leadId
+  getEstimateForLead,
 } from '../store/linkStore.js';
 
 const router = express.Router();
 
-// ===== 環境変数 =====
+// ===== Env =====
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET || '';
+const LOGIN_CHANNEL_ID     = process.env.LINE_LOGIN_CHANNEL_ID || '';
+const LOGIN_REDIRECT_URI   = process.env.LINE_LOGIN_REDIRECT_URI || '';
 const LIFF_ID              = process.env.LIFF_ID || '';
 const LIFF_URL_ENV         = process.env.LIFF_URL || process.env.DETAIL_LIFF_URL || '';
 const ADD_FRIEND_URL       = process.env.LINE_ADD_FRIEND_URL || 'https://line.me';
+const BASE_URL             = (process.env.BASE_URL || process.env.PUBLIC_BASE_URL || '').replace(/\/+$/,'');
 
 // LINE client（push 用）
 const lineClient = new Client({
@@ -24,51 +27,101 @@ const lineClient = new Client({
   channelSecret: CHANNEL_SECRET,
 });
 
-// LIFF のディープリンクを解決
-function resolveLiffDeepLink(leadId, extra = '') {
+// LIFF DeepLink
+function liffDeepLink(leadId, extra = '') {
   const q = `leadId=${encodeURIComponent(leadId)}${extra ? `&${extra}` : ''}`;
-  if (LIFF_ID)     return `https://liff.line.me/${LIFF_ID}?${q}`;
+  if (LIFF_ID)      return `https://liff.line.me/${LIFF_ID}?${q}`;
   if (LIFF_URL_ENV) return `${LIFF_URL_ENV}${LIFF_URL_ENV.includes('?') ? '&' : '?'}${q}`;
-  // フォールバック（自ホストの liff.html）
-  const origin = process.env.BASE_URL || process.env.PUBLIC_BASE_URL || '';
-  if (origin) return `${origin.replace(/\/+$/, '')}/liff.html?${q}`;
+  if (BASE_URL)     return `${BASE_URL}/liff.html?${q}`;
   return `/liff.html?${q}`;
 }
 
-// ===== 1) 初回アンケート → 概算作成・保存 → レスポンス返却 =====
+// LINE Login authorize URL（state=leadId を必ず付与）
+function loginAuthorizeUrl(leadId) {
+  const auth = new URL('https://access.line.me/oauth2/v2.1/authorize');
+  auth.searchParams.set('response_type', 'code');
+  auth.searchParams.set('client_id', LOGIN_CHANNEL_ID);
+  auth.searchParams.set('redirect_uri', LOGIN_REDIRECT_URI);
+  auth.searchParams.set('state', leadId);                 // ★ ここに leadId を必ず載せる
+  auth.searchParams.set('scope', 'openid profile');
+  auth.searchParams.set('bot_prompt', 'normal');          // ★ 友だち未追加なら追加へ誘導
+  return auth.toString();
+}
+
+// 回答 → サマリー文面の生成（トークに載せる）
+function buildSummaryText(price, answers) {
+  return (
+    `【概算お見積もり】\n` +
+    `金額：${Number(price).toLocaleString('ja-JP')} 円\n\n` +
+    `— ご回答内容 —\n` +
+    `・見積もり内容：${answers.desiredWork}\n` +
+    `・築年数：${answers.ageRange}\n` +
+    `・階数：${answers.floors}\n` +
+    `・外壁材：${answers.wallMaterial}`
+  );
+}
+
+// 内部ヘルパ：概算を計算・保存し、leadId を返す
+function createAndSaveEstimate(answers) {
+  // 1) 概算
+  const price = computeEstimate(answers);
+
+  // 2) lead を lib/store に保存（/api/details で answers を参照するため）
+  const leadId = createLead(answers, price);
+
+  // 3) summaryText を linkStore に保存（follow/login 用）
+  const summaryText = buildSummaryText(price, answers);
+  saveEstimateForLead(leadId, { price, summaryText });
+
+  return { leadId, price, summaryText };
+}
+
+// ===== A. 既存 UX：/estimate → redirectUrl だけ返す（でも保存は必ずやる） =====
+router.post('/estimate', (req, res) => {
+  try {
+    const body = req.body || {};
+    const answers =
+      (body.answers && typeof body.answers === 'object') ? body.answers : body;
+
+    const required = ['desiredWork','ageRange','floors','wallMaterial'];
+    for (const k of required) {
+      if (!answers?.[k]) return res.status(400).json({ error: `Missing ${k}` });
+    }
+
+    const { leadId, price } = createAndSaveEstimate(answers);
+    const redirectUrl = loginAuthorizeUrl(leadId);
+
+    return res.json({
+      ok: true,
+      redirectUrl,                 // ← 1・2の挙動を維持
+      // 参考情報（将来フロントで使いたいとき用）
+      leadId,
+      amount: price,
+      addFriendUrl: ADD_FRIEND_URL,
+      liffDeepLink: liffDeepLink(leadId),
+    });
+  } catch (e) {
+    console.error('[POST /estimate] error', e);
+    return res.json({ ok: true, redirectUrl: ADD_FRIEND_URL }); // フェイルセーフ
+  }
+});
+
+// ===== B. /api/estimate（JSON返却版：既存フォールバック） =====
 router.post('/api/estimate', (req, res) => {
   try {
     const { desiredWork, ageRange, floors, wallMaterial } = req.body || {};
     if (!desiredWork || !ageRange || !floors || !wallMaterial) {
       return res.status(400).json({ error: 'Missing fields' });
     }
-
-    // 概算計算
-    const price = computeEstimate({ desiredWork, ageRange, floors, wallMaterial });
-
-    // 表示用サマリー（トークに載せる）
-    const summaryText =
-      `【概算お見積もり】\n` +
-      `金額：${Number(price).toLocaleString('ja-JP')} 円\n\n` +
-      `— ご回答内容 —\n` +
-      `・見積もり内容：${desiredWork}\n` +
-      `・築年数：${ageRange}\n` +
-      `・階数：${floors}\n` +
-      `・外壁材：${wallMaterial}`;
-
-    // leadId 発行 & 保存
-    const leadId = uuidv4();
-    saveEstimateForLead(leadId, { price, summaryText });
-
-    // LIFF で引き継ぐための deep link
-    const liffDeepLink = resolveLiffDeepLink(leadId);
+    const answers = { desiredWork, ageRange, floors, wallMaterial };
+    const { leadId, price } = createAndSaveEstimate(answers);
 
     return res.json({
       ok: true,
       leadId,
       amount: price,
       addFriendUrl: ADD_FRIEND_URL,
-      liffDeepLink,
+      liffDeepLink: liffDeepLink(leadId),
     });
   } catch (e) {
     console.error('[POST /api/estimate] error', e);
@@ -76,18 +129,24 @@ router.post('/api/estimate', (req, res) => {
   }
 });
 
-// ===== 2) LIFF 内で LINE userId を紐付け → 概算をプッシュ送信 =====
+// ===== C. LIFF 内：userId 紐付け → 概算サマリー＋ボタンをプッシュ =====
 router.post('/api/link-line-user', async (req, res) => {
   try {
     const { leadId, lineUserId } = req.body || {};
     if (!leadId || !lineUserId) return res.status(400).json({ error: 'leadId/lineUserId required' });
 
-    // 既存の概算を取得
-    const est = await getEstimateForLead(leadId);
-    if (!est) return res.status(404).json({ error: 'estimate not found' });
+    // lib/store にも user 紐付け（将来参照用）
+    const lead = linkLineUser(leadId, lineUserId);
+    if (!lead) return res.status(404).json({ error: 'lead not found' });
 
-    // ボタン文言の指示に合わせて変更
-    const detailBtnUri = resolveLiffDeepLink(leadId, 'step=1');
+    // 概算サマリー（linkStore 優先、無ければ lead から生成）
+    let est = await getEstimateForLead(leadId);
+    if (!est?.summaryText) {
+      const fallbackSummary = buildSummaryText(lead.amount, lead.answers);
+      est = { price: lead.amount, summaryText: fallbackSummary };
+      saveEstimateForLead(leadId, est);
+    }
+
     const msg1 = { type: 'text', text: est.summaryText };
     const msg2 = {
       type: 'template',
@@ -97,7 +156,7 @@ router.post('/api/link-line-user', async (req, res) => {
         title: 'より詳しいお見積もりをご希望の方はこちらから。',
         text: '現地調査なしで無料の詳細見積もりが可能です。',
         actions: [
-          { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: detailBtnUri },
+          { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: liffDeepLink(leadId, 'step=1') },
         ],
       },
     };
@@ -106,7 +165,6 @@ router.post('/api/link-line-user', async (req, res) => {
       await lineClient.pushMessage(lineUserId, [msg1, msg2]);
     } catch (e) {
       console.error('[push error] /api/link-line-user', e);
-      // push が失敗しても 200 を返す（LIFF 側 UX 優先）
     }
 
     return res.json({ ok: true });
@@ -116,16 +174,11 @@ router.post('/api/link-line-user', async (req, res) => {
   }
 });
 
-// ===== 3) （任意）lead の確認用 =====
-router.get('/api/lead/:leadId', async (req, res) => {
-  try {
-    const est = await getEstimateForLead(req.params.leadId);
-    if (!est) return res.status(404).json({ error: 'lead not found' });
-    res.json(est);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'internal error' });
-  }
+// 任意：lead の確認
+router.get('/api/lead/:leadId', (req, res) => {
+  const lead = getLead(req.params.leadId);
+  if (!lead) return res.status(404).json({ error: 'lead not found' });
+  res.json(lead);
 });
 
 export default router;
