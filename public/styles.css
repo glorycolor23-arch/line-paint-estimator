@@ -1,126 +1,16 @@
-:root{
-  --bg:#ffffff;
-  --panel:#f7f7f8;
-  --muted:#555;
-  --text:#111;
-  --accent:#0d6efd;
-  --accent-600:#0b5ed7;
-  --ring:0 0 0 3px rgba(13,110,253,.25);
-  --radius:14px;
-  --line:#e5e7eb;
+/* 既存の下に追記でOK（上書き） */
+input, .file {
+  font-size: 16px;          /* iOSのズーム防止＆視認性 */
+  height: 48px;             /* タップしやすく */
 }
 
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
-  background:var(--bg);
-  color:var(--text);
-  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
-}
-
-.container{max-width:980px;margin:32px auto;padding:0 18px}
-
-.page-head h1{margin:0 0 6px;font-size:24px}
-.lead{margin:0;color:var(--muted)}
-
-.stepper{margin:16px 0 8px;color:var(--muted);font-size:14px}
-
-.card{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:18px;
-  box-shadow:0 1px 0 rgba(0,0,0,.02), 0 10px 28px rgba(0,0,0,.05);
-}
-.card h2, .card h1{margin:0 0 12px;font-size:22px}
-.card .desc{margin:0 0 8px;color:var(--muted);font-size:14px}
-
-/* ====== 汎用入力・ボタン（LIFFでも使う） ====== */
-input, .file, input[type="text"], input[type="tel"], input[type="number"]{
-  width:100%;
-  padding:14px 12px;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background:#fff;
-  color:var(--text);
-  font-size:16px; /* モバイルで拡大防止 */
-}
-
-.nav{display:flex;align-items:center;gap:10px;margin:16px 0}
-.spacer{flex:1}
-.btn{
-  appearance:none;border:0;border-radius:12px;background:var(--accent);color:#fff;
-  padding:14px 18px;font-weight:700;cursor:pointer;transition:background .15s ease, opacity .15s ease;
-  font-size:16px; line-height:1.1;
-}
-.btn.wide{display:inline-block;width:100%;text-align:center}
-.btn.large{padding:16px 20px; font-size:18px; border-radius:14px}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.btn:hover{background:var(--accent-600)}
-.btn-ghost{
-  background:#fff;border:1px solid var(--line);color:var(--text);
-}
-
-.grid{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:12px;
-}
-@media (max-width:720px){
-  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-
-.option{
-  display:flex;flex-direction:column;gap:8px;
-  background:#fff;border:1px solid var(--line);
-  border-radius:12px;padding:10px;cursor:pointer;user-select:none;
-  transition:border-color .15s ease, transform .05s ease, box-shadow .15s ease;
-  color:var(--text);
-}
-.option:hover{border-color:#cbd5e1; box-shadow:0 0 0 2px rgba(13,110,253,.08)}
-.option[aria-checked="true"]{
-  outline:none;border-color:var(--accent);box-shadow:var(--ring)
-}
-.option:active{transform:translateY(1px)}
-.option .thumb{
-  width:100%;aspect-ratio:16/10;background:#f0f2f5;border-radius:8px;
-  background-position:center;background-size:cover;background-repeat:no-repeat;
-  border:1px solid var(--line);
-}
-.option .label{font-size:14px}
-
-.vlist{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-.vbtn{
-  width:100%;text-align:center;padding:14px;border-radius:10px;border:1px solid var(--line);
-  background:#fff;color:var(--text);cursor:pointer;transition:border-color .15s ease, box-shadow .15s ease;
-  font-size:16px;
-}
-.vbtn:hover{border-color:#cbd5e1; box-shadow:0 0 0 2px rgba(13,110,253,.08)}
-.vbtn[aria-checked="true"]{border-color:var(--accent);box-shadow:var(--ring)}
-
-.note{color:var(--muted);font-size:13px}
-.done{margin-top:16px}
-.hidden{display:none}
-
-/* 既存の下に追記してOK（重ねがけ） */
-
-/* --- LIFF の操作ボタンを大きく --- */
-.btn, button.btn {
+.btn {
   min-height: 48px;
   font-size: 16px;
 }
 
-/* --- 入力フィールドを大きく（iOSのズーム回避も兼ねて16px） --- */
-input, .file, input[type="text"], input[type="tel"], input[type="number"] {
-  font-size: 16px;
-  min-height: 44px;
-  padding: 12px 14px;
-}
-
-/* LIFF の最初の“見積もりを開始する”をより目立たせる */
-#liff-step .btn.primary {
-  font-size: 18px;
+.btn.primary,
+button.btn.primary {
   min-height: 52px;
+  font-size: 17px;
 }
-
