@@ -40,9 +40,13 @@
   model.lineUserId = model.profile.userId;
   model.displayName = model.profile.displayName || '';
 
-  console.log('[LIFF] leadId:', leadId);
+  console.log('[LIFF] ========== DEBUG INFO ==========');
+  console.log('[LIFF] URL:', location.href);
+  console.log('[LIFF] URL params:', location.search);
+  console.log('[LIFF] leadId from URL:', leadId);
   console.log('[LIFF] lineUserId:', model.lineUserId);
   console.log('[LIFF] displayName:', model.displayName);
+  console.log('[LIFF] ===================================');
 
   // leadIdから概算見積もりの回答を取得
   if (leadId) {
@@ -542,7 +546,11 @@
     console.log('[LIFF] displayName:', model.displayName);
 
     if (!model.leadId) {
-      console.error('[LIFF] leadId is missing!');
+      console.error('[LIFF] ========== ERROR: leadId is missing! ==========');
+      console.error('[LIFF] URL:', location.href);
+      console.error('[LIFF] URL params:', location.search);
+      console.error('[LIFF] model.leadId:', model.leadId);
+      console.error('[LIFF] ================================================');
       alert('エラー: 概算見積もりから開始してください。\n\n以下のURLから概算見積もりを開始してください：\nhttps://line-paint.onrender.com/');
       // 概算見積もりページにリダイレクト
       window.location.href = 'https://line-paint.onrender.com/';
