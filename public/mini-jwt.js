@@ -1,0 +1,1 @@
+export function decodeJwt(t){ try{ const p=t.split('.')[1]; const s=atob(p.replace(/-/g,'+').replace(/_/g,'/')); return JSON.parse(decodeURIComponent(escape(s))); }catch(e){ return null; } }
