@@ -18,7 +18,7 @@ export const CONFIG = {
     (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
 
   // Mail (Nodemailer)
-  ADMIN_EMAIL: process.env.ADMIN_EMAIL || process.env.EMAIL_TO || '',
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL || process.env.EMAIL_TO || 'matsuo@graphity.co.jp',
   SMTP_HOST: process.env.SMTP_HOST || '',
   SMTP_PORT: Number(process.env.SMTP_PORT || 587),
   SMTP_SECURE: String(process.env.SMTP_SECURE || 'false') === 'true',
