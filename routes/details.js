@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { Client } from '@line/bot-sdk';
 import { updateLeadDetails, getLead } from '../lib/store.js';
 import { appendToSheet } from '../lib/sheets.js';
 import { sendAdminMail } from '../lib/mailer.js';
@@ -31,8 +32,8 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial } = req.body || {};
-    console.log('[details] Received request:', { leadId, name, phone, postal, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial });
+    const { leadId, name, phone, postal, address, addressDetail, lineUserId, displayName, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial } = req.body || {};
+    console.log('[details] Received request:', { leadId, lineUserId, displayName, name, phone, postal, address, addressDetail });
     const lead = getLead(leadId);
     if (!lead) {
       console.warn('[details] lead not found', { leadId });
@@ -40,7 +41,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
     }
     console.log('[details] Lead found:', lead);
 
-    updateLeadDetails(leadId, { name, phone, postal, lineUserId });
+    updateLeadDetails(leadId, { name, phone, postal, address, addressDetail, lineUserId, displayName });
 
     // スプレッドシート：失敗しても処理続行（ログのみ）
     try {
@@ -49,14 +50,16 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         created,                   // A:日時
         leadId,                    // B
         lineUserId || (lead.lineUserId || ''), // C
-        name || '', phone || '', postal || '', // D,E,F
-        needsPaint === 'true' ? '希望する' : '希望しない', // G:外壁塗装
-        paintType || '',                  // H:希望の塗料
-        needsRoof === 'true' ? '希望する' : '希望しない', // I:屋根工事
-        roofWorkType || '',               // J:希望の工事内容
-        buildingAge || '',                // K:築年数
-        buildingFloors || '',             // L:階数
-        wallMaterial || '',               // M:外壁材
+        displayName || '', // D:LINE表示名
+        name || '', phone || '', postal || '', // E,F,G
+        (address || '') + ' ' + (addressDetail || ''), // H:住所
+        needsPaint === 'true' ? '希望する' : '希望しない', // I:外壁塗装
+        paintType || '',                  // J:希望の塗料
+        needsRoof === 'true' ? '希望する' : '希望しない', // K:屋根工事
+        roofWorkType || '',               // L:希望の工事内容
+        buildingAge || '',                // M:築年数
+        buildingFloors || '',             // N:階数
+        wallMaterial || '',               // O:外壁材
         'ファイルはメール添付で受領' // N
       ]);
     } catch (e) {
@@ -88,9 +91,12 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       const summaryHtml = `
         <h3>新しい見積り依頼</h3>
         <p><b>Lead ID:</b> ${leadId}</p>
+        <p><b>LINE User ID:</b> ${lineUserId || ''}</p>
+        <p><b>LINE表示名:</b> ${displayName || ''}</p>
         <p><b>お名前:</b> ${name || ''}</p>
         <p><b>電話:</b> ${phone || ''}</p>
         <p><b>郵便番号:</b> ${postal || ''}</p>
+        <p><b>住所:</b> ${(address || '') + ' ' + (addressDetail || '')}</p>
         <hr/>
         <p><b>外壁塗装:</b> ${needsPaint === 'true' ? '希望する' : '希望しない'}</p>
         ${needsPaint === 'true' ? `<p><b>希望の塗料:</b> ${paintLabels[paintType] || paintType || '未選択'}</p>` : ''}
@@ -112,6 +118,20 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       });
     } catch (e) {
       console.error('[details] sendAdminMail failed (non-fatal):', e);
+    }
+
+    // LINEメッセージ送信
+    if (lineUserId) {
+      try {
+        const lineClient = new Client({ channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '' });
+        await lineClient.pushMessage(lineUserId, {
+          type: 'text',
+          text: '詳細見積もりのご依頼ありがとうございます。\nお見積もりが出来次第LINEでご連絡いたします。\n現地調査や営業訪問電話での営業などは一切行いませんのでご安心ください。'
+        });
+        console.log('[details] LINE message sent to:', lineUserId);
+      } catch (e) {
+        console.error('[details] Failed to send LINE message:', e);
+      }
     }
 
     return res.json({ ok: true });
