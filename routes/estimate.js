@@ -73,15 +73,16 @@ router.post('/api/link-line-user', async (req, res) => {
   const text = buildSummaryText(lead.answers, lead.amount);
 
   try {
+    const amountText = `概算見積もり金額\n¥${Number(lead.amount).toLocaleString('ja-JP')}\n\nより詳しいお見積もりをご希望の方はこちら\n現地調査での訪問は行わず、具体的なお見積もりを提示します。`;
     await lineClient.pushMessage(lineUserId, [
-      { type: 'text', text },
+      { type: 'text', text: amountText },
       {
         type: 'template',
         altText: '詳細見積もりのご案内',
         template: {
           type: 'buttons',
-          title: 'より詳しいお見積もりをご希望の方はこちらから。',
-          text: '現地調査での訪問は行わず、具体的なお見積もりを提示します。',
+          title: '詳細見積もりのご案内',
+          text: '下記ボタンよりお進みください',
           actions: [
             { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: detailBtnUri }
           ]

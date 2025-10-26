@@ -31,7 +31,7 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId } = req.body || {};
+    const { leadId, name, phone, postal, lineUserId, paintType, roofWorkType } = req.body || {};
     const lead = getLead(leadId);
     if (!lead) {
       console.warn('[details] lead not found', { leadId });
@@ -53,7 +53,9 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         lead.answers?.wallMaterial || '', // G
         lead.amount || '',                // H
         name || '', phone || '', postal || '', // I,J,K
-        'ファイルはメール添付で受領' // L
+        paintType || '',                  // L:希望の塗料
+        roofWorkType || '',               // M:希望の工事内容
+        'ファイルはメール添付で受領' // N
       ]);
     } catch (e) {
       console.error('[details] appendToSheet failed (non-fatal):', e);
@@ -67,6 +69,10 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
       }
 
+      let additionalInfo = '';
+      if (paintType) additionalInfo += `希望の塗料: ${paintType}<br/>`;
+      if (roofWorkType) additionalInfo += `希望の工事内容: ${roofWorkType}<br/>`;
+
       const summaryHtml = `
         <h3>新しい見積り依頼</h3>
         <p><b>Lead ID:</b> ${leadId}</p>
@@ -76,6 +82,9 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
           築年数: ${lead.answers?.ageRange || ''}<br/>
           階数: ${lead.answers?.floors || ''}<br/>
           外壁材: ${lead.answers?.wallMaterial || ''}
+        </p>
+        <p><b>追加情報</b><br/>
+          ${additionalInfo || 'なし'}
         </p>
         <p><b>詳細</b><br/>
           お名前: ${name || ''}<br/>
