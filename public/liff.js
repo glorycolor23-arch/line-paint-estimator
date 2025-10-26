@@ -16,6 +16,7 @@
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
     form: { name: '', phone: '', postal: '' },
     files: {},
+    fileUrls: {}, // サムネイル用URL
     // 概算見積もりで選択された内容を保持
     initialAnswers: null,
     // 追加質問の回答
@@ -104,23 +105,23 @@
     ui.root.innerHTML = `
       <div class="badge">2/5</div>
       <h3>お住まいの図面をアップロード</h3>
-      <p class="note">スマホはカメラ撮影/ファイル選択、PCはファイル選択が利用できます(PDF/画像)。</p>
+      <p class="note">以下は参考例です。工事希望の物件の図面を撮影または保存済みの画像をアップロードしてください。</p>
       
       <div style="margin-bottom:20px;">
         <label>立面図</label>
-        <div style="margin-bottom:8px;"><img src="/examples/elevation-drawing.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="立面図の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/elevation-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="立面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_elevation" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>平面図</label>
-        <div style="margin-bottom:8px;"><img src="/examples/floor-plan.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="平面図の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/floor-plan.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="平面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_plan" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>断面図</label>
-        <div style="margin-bottom:8px;"><img src="/examples/section-drawing.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="断面図の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/section-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="断面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_section" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
       </div>
       
@@ -130,35 +131,40 @@
       </div>
     `;
     document.querySelector('#back').onclick = () => { model.step = 1; render(); };
-    document.querySelector('#next').onclick = () => { model.step = 3; render(); };
+    document.querySelector('#next').onclick = () => {
+      // ファイルをmodelに保存
+      saveFiles(['drawing_elevation', 'drawing_plan', 'drawing_section']);
+      model.step = 3; render();
+    };
   }
 
   function renderPhotos() {
     ui.root.innerHTML = `
       <div class="badge">3/5</div>
       <h3>建物の写真をアップロード</h3>
+      <p class="note">以下は参考例です。工事希望の物件の写真を撮影または保存済みの画像をアップロードしてください。</p>
       
       <div style="margin-bottom:20px;">
         <label>建物の正面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-front.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-front.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_front" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の右側面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_right" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の左側面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_left" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の背面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_back" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
@@ -168,7 +174,11 @@
       </div>
     `;
     document.querySelector('#back').onclick = () => { model.step = 2; render(); };
-    document.querySelector('#next').onclick = () => { model.step = 4; render(); };
+    document.querySelector('#next').onclick = () => {
+      // ファイルをmodelに保存
+      saveFiles(['photo_front', 'photo_right', 'photo_left', 'photo_back']);
+      model.step = 4; render();
+    };
   }
 
   function renderAdditionalQuestions() {
@@ -332,14 +342,22 @@
     document.querySelector('#submit').onclick = submitAll;
   }
 
-  function generateThumbnails(ids) {
-    let html = '';
+  function saveFiles(ids) {
     for (const id of ids) {
       const el = document.getElementById(id);
       if (el && el.files && el.files[0]) {
         const file = el.files[0];
-        const url = URL.createObjectURL(file);
-        html += `<img src="${url}" style="width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;" alt="${id}">`;
+        model.files[id] = file;
+        model.fileUrls[id] = URL.createObjectURL(file);
+      }
+    }
+  }
+
+  function generateThumbnails(ids) {
+    let html = '';
+    for (const id of ids) {
+      if (model.fileUrls[id]) {
+        html += `<img src="${model.fileUrls[id]}" style="width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;" alt="${id}">`;
       }
     }
     return html || '<span style="color:#999;">なし</span>';
@@ -357,8 +375,9 @@
 
     const ids = ['drawing_elevation','drawing_plan','drawing_section','photo_front','photo_right','photo_left','photo_back'];
     for (const id of ids) {
-      const el = document.getElementById(id);
-      if (el && el.files && el.files[0]) fd.append(id, el.files[0], el.files[0].name);
+      if (model.files[id]) {
+        fd.append(id, model.files[id], model.files[id].name);
+      }
     }
 
     try {
