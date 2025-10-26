@@ -181,3 +181,21 @@ input[type="file"]{
    ========= */
 hr{border:none;border-top:1px solid var(--line);margin:16px 0}
 small, .hint{color:#6b7280}
+
+
+/* =========
+   Option Card (追加質問用)
+   ========= */
+.option-card {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.option-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 0 0 2px rgba(13,110,253,.08);
+}
+.option-card.selected {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+  background: #f0f7ff !important;
+}
+

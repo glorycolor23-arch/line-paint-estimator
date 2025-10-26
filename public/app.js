@@ -8,9 +8,9 @@ const STEPS = [
     title: 'お見積もり希望の内容は？',
     type: 'select-one-v',
     options: [
-      { value: '外壁',       label: '外壁' },
-      { value: '屋根',       label: '屋根' },
-      { value: '外壁と屋根', label: '外壁と屋根' },
+      { value: '外壁塗装',       label: '外壁塗装' },
+      { value: '屋根工事',       label: '屋根工事' },
+      { value: '外壁塗装と屋根工事', label: '外壁塗装と屋根工事' },
     ],
   },
   {
