@@ -56,12 +56,13 @@ router.post('/api/estimate', (req, res) => {
   const liffDeepLink = liffLinkWithLead(leadId, '');
 
   // 金額表示ページへリダイレクト
-  const resultUrl = `/result.html?leadId=${encodeURIComponent(leadId)}&amount=${encodeURIComponent(amount)}`;
+  const lineAddFriendUrl = process.env.LINE_ADD_FRIEND_URL || 'https://lin.ee/dFC71xA';
+  const resultUrl = `/result.html?leadId=${encodeURIComponent(leadId)}&amount=${encodeURIComponent(amount)}&lineUrl=${encodeURIComponent(lineAddFriendUrl)}`;
   return res.json({
     leadId,
     amount,
     redirectUrl: resultUrl,
-    addFriendUrl: process.env.LINE_ADD_FRIEND_URL || '',
+    addFriendUrl: lineAddFriendUrl,
     liffDeepLink
   });
 });

@@ -250,10 +250,10 @@ async function handleConfirmYes(btn){
     }
 
     // 3) 全て失敗 → 友だちURLへ
-    hardRedirect('https://lin.ee/XxmuVXt');
+    hardRedirect('https://lin.ee/dFC71xA');
   } catch (_e) {
     // 例外時も確実に誘導
-    hardRedirect('https://lin.ee/XxmuVXt');
+    hardRedirect('https://lin.ee/dFC71xA');
   }
 }
 
