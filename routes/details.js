@@ -31,8 +31,8 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId, paintType, roofWorkType } = req.body || {};
-    console.log('[details] Received request:', { leadId, name, phone, postal, paintType, roofWorkType });
+    const { leadId, name, phone, postal, lineUserId, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial } = req.body || {};
+    console.log('[details] Received request:', { leadId, name, phone, postal, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial });
     const lead = getLead(leadId);
     if (!lead) {
       console.warn('[details] lead not found', { leadId });
@@ -49,14 +49,14 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         created,                   // A:日時
         leadId,                    // B
         lineUserId || (lead.lineUserId || ''), // C
-        lead.answers?.desiredWork || '',  // D
-        lead.answers?.ageRange || '',     // E
-        lead.answers?.floors || '',       // F
-        lead.answers?.wallMaterial || '', // G
-        lead.amount || '',                // H
-        name || '', phone || '', postal || '', // I,J,K
-        paintType || '',                  // L:希望の塗料
-        roofWorkType || '',               // M:希望の工事内容
+        name || '', phone || '', postal || '', // D,E,F
+        needsPaint === 'true' ? '希望する' : '希望しない', // G:外壁塗装
+        paintType || '',                  // H:希望の塗料
+        needsRoof === 'true' ? '希望する' : '希望しない', // I:屋根工事
+        roofWorkType || '',               // J:希望の工事内容
+        buildingAge || '',                // K:築年数
+        buildingFloors || '',             // L:階数
+        wallMaterial || '',               // M:外壁材
         'ファイルはメール添付で受領' // N
       ]);
     } catch (e) {
@@ -71,28 +71,36 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
       }
 
-      let additionalInfo = '';
-      if (paintType) additionalInfo += `希望の塗料: ${paintType}<br/>`;
-      if (roofWorkType) additionalInfo += `希望の工事内容: ${roofWorkType}<br/>`;
+      const paintLabels = {
+        'acrylic': 'コスト重視(アクリル系またはウレタン系塗料)',
+        'silicon': 'バランス重視(シリコン系塗料)',
+        'fluorine': '高耐久＋機能付き(フッ素系/無機系/ラジカル制御塗料)',
+        'thermal': '機能重視(遮熱・断熱塗料)'
+      };
+      const roofLabels = {
+        'painting': '屋根塗装',
+        'cover': 'カバー工法(重ね葵き)',
+        'replacement': '葵き替え(全面交換)',
+        'repair': '部分修理・補修',
+        'insulation': '断熱・遮熱リフォーム'
+      };
 
       const summaryHtml = `
         <h3>新しい見積り依頼</h3>
         <p><b>Lead ID:</b> ${leadId}</p>
-        <p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>
-        <p><b>初期回答</b><br/>
-          見積り希望: ${lead.answers?.desiredWork || ''}<br/>
-          築年数: ${lead.answers?.ageRange || ''}<br/>
-          階数: ${lead.answers?.floors || ''}<br/>
-          外壁材: ${lead.answers?.wallMaterial || ''}
-        </p>
-        <p><b>追加情報</b><br/>
-          ${additionalInfo || 'なし'}
-        </p>
-        <p><b>詳細</b><br/>
-          お名前: ${name || ''}<br/>
-          電話: ${phone || ''}<br/>
-          郵便番号: ${postal || ''}
-        </p>
+        <p><b>お名前:</b> ${name || ''}</p>
+        <p><b>電話:</b> ${phone || ''}</p>
+        <p><b>郵便番号:</b> ${postal || ''}</p>
+        <hr/>
+        <p><b>外壁塗装:</b> ${needsPaint === 'true' ? '希望する' : '希望しない'}</p>
+        ${needsPaint === 'true' ? `<p><b>希望の塗料:</b> ${paintLabels[paintType] || paintType || '未選択'}</p>` : ''}
+        <p><b>屋根工事:</b> ${needsRoof === 'true' ? '希望する' : '希望しない'}</p>
+        ${needsRoof === 'true' ? `<p><b>希望の工事内容:</b> ${roofLabels[roofWorkType] || roofWorkType || '未選択'}</p>` : ''}
+        <hr/>
+        <p><b>築年数:</b> ${buildingAge || ''}</p>
+        <p><b>階数:</b> ${buildingFloors || ''}</p>
+        <p><b>外壁材:</b> ${wallMaterial || ''}</p>
+        <hr/>
         <p>図面・写真は添付ファイルをご確認ください。</p>
       `;
 

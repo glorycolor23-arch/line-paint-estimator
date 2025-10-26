@@ -1,7 +1,6 @@
-// public/liff.js
-(async function() {
+(async () => {
   const params = new URLSearchParams(location.search);
-  const leadId = params.get('leadId') || params.get('lead');
+  const leadId = params.get('leadId');
   const forcedStep = params.get('step');
 
   const ui = {
@@ -14,14 +13,22 @@
     lineUserId: null,
     leadId,
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
-    form: { name: '', phone: '', postal: '' },
+    form: {
+      name: '',
+      phone: '',
+      postal: ''
+    },
     files: {},
-    fileUrls: {}, // サムネイル用URL
-    // 概算見積もりで選択された内容を保持
-    initialAnswers: null,
-    // 追加質問の回答
+    fileUrls: {},
+    initialAnswers: {},
+    // 新しいフィールド
+    needsPaint: undefined,  // true/false/undefined
+    needsRoof: undefined,   // true/false/undefined
     paintType: '',
-    roofWorkType: ''
+    roofWorkType: '',
+    buildingAge: '',
+    buildingFloors: '',
+    wallMaterial: ''
   };
 
   await liff.init({ liffId: (window.LIFF_CONFIG && window.LIFF_CONFIG.LIFF_ID) || '' });
@@ -29,7 +36,7 @@
   model.profile   = await liff.getProfile();
   model.lineUserId = model.profile.userId;
 
-  // leadIdから概算見積もりの回答を取得
+  // leadIdから概算見積もりの回答を取得(参考情報として)
   if (leadId) {
     console.log('[LIFF] leadId:', leadId);
     try {
@@ -63,9 +70,9 @@
     if (model.step === 1) return renderContact();
     if (model.step === 2) return renderDrawings();
     if (model.step === 3) return renderPhotos();
-    // 追加質問ステップ
-    if (model.step === 4) return renderAdditionalQuestions();
-    if (model.step === 5) return renderConfirm();
+    if (model.step === 4) return renderWorkDetails();
+    if (model.step === 5) return renderBuildingInfo();
+    if (model.step === 6) return renderConfirm();
     return renderDone();
   }
 
@@ -80,57 +87,46 @@
 
   function renderContact() {
     ui.root.innerHTML = `
-      <div class="badge">1/5</div>
-      <h3>ご連絡先の入力</h3>
-      <label>お名前</label>
-      <input id="name" placeholder="山田 太郎" autocomplete="name" style="font-size:16px;padding:14px"/>
-      <label>電話番号</label>
-      <input id="phone" inputmode="numeric" pattern="[0-9]*" placeholder="08012345678" style="font-size:16px;padding:14px"/>
-      <label>郵便番号</label>
-      <input id="postal" inputmode="numeric" pattern="[0-9]*" placeholder="5300001" style="font-size:16px;padding:14px"/>
-      <button class="btn" id="next" style="font-size:16px;padding:14px 18px;">次へ</button>
+      <div class="badge">1/7</div>
+      <h3>お客様情報</h3>
+      <label>お名前<input class="input" id="name" type="text" value="${model.form.name}" placeholder="山田太郎" style="font-size:16px;padding:12px;"/></label>
+      <label>電話番号<input class="input" id="phone" type="tel" value="${model.form.phone}" placeholder="090-1234-5678" style="font-size:16px;padding:12px;"/></label>
+      <label>郵便番号<input class="input" id="postal" type="text" value="${model.form.postal}" placeholder="123-4567" style="font-size:16px;padding:12px;"/></label>
+      <button class="btn primary" id="next" style="font-size:16px;padding:14px 18px;width:100%;margin-top:10px;">次へ</button>
     `;
-    document.querySelector('#name').value   = model.form.name;
-    document.querySelector('#phone').value  = model.form.phone;
-    document.querySelector('#postal').value = model.form.postal;
     document.querySelector('#next').onclick = () => {
-      model.form.name   = document.querySelector('#name').value.trim();
-      model.form.phone  = document.querySelector('#phone').value.trim();
-      model.form.postal = document.querySelector('#postal').value.trim();
-      if (!model.form.name || !model.form.phone || !model.form.postal) return alert('未入力の項目があります。');
+      model.form.name = document.getElementById('name').value.trim();
+      model.form.phone = document.getElementById('phone').value.trim();
+      model.form.postal = document.getElementById('postal').value.trim();
+      if (!model.form.name || !model.form.phone || !model.form.postal) {
+        return alert('すべての項目を入力してください。');
+      }
       model.step = 2; render();
     };
   }
 
-  function fileInput(id, label, accept, capture=false) {
-    return `
-      <label>${label}</label>
-      <input class="file" id="${id}" type="file" accept="${accept}" ${capture ? 'capture="environment"' : ''} style="font-size:16px;padding:12px"/>
-    `;
-  }
-
   function renderDrawings() {
     ui.root.innerHTML = `
-      <div class="badge">2/5</div>
-      <h3>お住まいの図面をアップロード</h3>
-      <p class="note">以下は参考例です。工事希望の物件の図面を撮影または保存済みの画像をアップロードしてください。</p>
+      <div class="badge">2/7</div>
+      <h3>図面のアップロード</h3>
+      <p style="margin-bottom:20px;color:#666;">以下は参考例です。工事希望の物件の図面を撮影または保存済みの画像をアップロードしてください。</p>
       
       <div style="margin-bottom:20px;">
         <label>立面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/elevation-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="立面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="drawing_elevation" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
+        <input class="file" id="drawing_elevation" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>平面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/floor-plan.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="平面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="drawing_plan" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
+        <input class="file" id="drawing_plan" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>断面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/section-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="断面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="drawing_section" type="file" accept="image/*,application/pdf" style="font-size:16px;padding:12px"/>
+        <input class="file" id="drawing_section" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="display:flex;gap:10px;margin-top:20px;">
@@ -148,32 +144,32 @@
 
   function renderPhotos() {
     ui.root.innerHTML = `
-      <div class="badge">3/5</div>
-      <h3>建物の写真をアップロード</h3>
-      <p class="note">以下は参考例です。工事希望の物件の写真を撮影または保存済みの画像をアップロードしてください。</p>
+      <div class="badge">3/7</div>
+      <h3>建物の写真</h3>
+      <p style="margin-bottom:20px;color:#666;">以下は参考例です。工事希望の物件の写真を撮影または保存済みの画像をアップロードしてください。</p>
       
       <div style="margin-bottom:20px;">
         <label>建物の正面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-front.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="photo_front" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <input class="file" id="photo_front" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の右側面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="photo_right" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <input class="file" id="photo_right" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の左側面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="photo_left" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <input class="file" id="photo_left" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の背面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
-        <input class="file" id="photo_back" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <input class="file" id="photo_back" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="display:flex;gap:10px;margin-top:20px;">
@@ -189,17 +185,23 @@
     };
   }
 
-  function renderAdditionalQuestions() {
-    const desiredWork = model.initialAnswers?.desiredWork || '';
-    console.log('[LIFF] renderAdditionalQuestions - desiredWork:', desiredWork);
-    const needsPaint = desiredWork.includes('外壁塗装');
-    const needsRoof = desiredWork.includes('屋根工事');
-    console.log('[LIFF] needsPaint:', needsPaint, 'needsRoof:', needsRoof);
+  function renderWorkDetails() {
+    let html = `<div class="badge">4/7</div><h3>工事内容の詳細</h3>`;
+    html += `<p style="margin-bottom:20px;color:#666;">ご希望の工事内容をお聞かせください。</p>`;
 
-    let html = `<div class="badge">4/5</div><h3>工事内容の詳細</h3>`;
-    html += `<p style="margin-bottom:20px;color:#666;">概算見積もりで選択した工事内容について、より詳しくお聞かせください。</p>`;
+    // 外壁塗装の希望
+    html += `
+      <div style="margin-bottom:30px;">
+        <label style="font-weight:bold;font-size:16px;margin-bottom:10px;display:block;">外壁塗装を希望しますか?</label>
+        <div style="display:flex;gap:10px;margin-bottom:15px;">
+          <button class="btn ${model.needsPaint === true ? 'primary' : 'btn-ghost'}" id="paintYes" style="flex:1;font-size:16px;padding:12px;">はい</button>
+          <button class="btn ${model.needsPaint === false ? 'primary' : 'btn-ghost'}" id="paintNo" style="flex:1;font-size:16px;padding:12px;">いいえ</button>
+        </div>
+      </div>
+    `;
 
-    if (needsPaint) {
+    // 外壁塗装を希望する場合のみ塗料選択を表示
+    if (model.needsPaint === true) {
       html += `
         <div style="margin-bottom:30px;">
           <label style="font-weight:bold;font-size:16px;">希望の塗料を教えてください</label>
@@ -213,7 +215,19 @@
       `;
     }
 
-    if (needsRoof) {
+    // 屋根工事の希望
+    html += `
+      <div style="margin-bottom:30px;">
+        <label style="font-weight:bold;font-size:16px;margin-bottom:10px;display:block;">屋根工事を希望しますか?</label>
+        <div style="display:flex;gap:10px;margin-bottom:15px;">
+          <button class="btn ${model.needsRoof === true ? 'primary' : 'btn-ghost'}" id="roofYes" style="flex:1;font-size:16px;padding:12px;">はい</button>
+          <button class="btn ${model.needsRoof === false ? 'primary' : 'btn-ghost'}" id="roofNo" style="flex:1;font-size:16px;padding:12px;">いいえ</button>
+        </div>
+      </div>
+    `;
+
+    // 屋根工事を希望する場合のみ工事内容選択を表示
+    if (model.needsRoof === true) {
       html += `
         <div style="margin-bottom:30px;">
           <label style="font-weight:bold;font-size:16px;">希望の工事内容を教えてください</label>
@@ -228,22 +242,40 @@
       `;
     }
 
-    // どちらも選択されていない場合でも、確認画面へ進むボタンを表示
-    if (!needsPaint && !needsRoof) {
-      html += `<p style="color:#999;font-size:14px;">※概算見積もりで選択した内容が取得できませんでした。確認画面に進んでください。</p>`;
-    }
-
     html += `
       <div style="display:flex;gap:10px;margin-top:20px;">
         <button class="btn btn-ghost" id="back" style="font-size:16px;padding:14px 18px;flex:1;">戻る</button>
-        <button class="btn" id="next" style="font-size:16px;padding:14px 18px;flex:2;">確認へ</button>
+        <button class="btn" id="next" style="font-size:16px;padding:14px 18px;flex:2;">次へ</button>
       </div>
     `;
 
     ui.root.innerHTML = html;
 
     // イベントリスナー設定
-    if (needsPaint) {
+    // 外壁塗装のはい/いいえボタン
+    document.getElementById('paintYes').onclick = () => {
+      model.needsPaint = true;
+      render();
+    };
+    document.getElementById('paintNo').onclick = () => {
+      model.needsPaint = false;
+      model.paintType = ''; // 塗料選択をリセット
+      render();
+    };
+
+    // 屋根工事のはい/いいえボタン
+    document.getElementById('roofYes').onclick = () => {
+      model.needsRoof = true;
+      render();
+    };
+    document.getElementById('roofNo').onclick = () => {
+      model.needsRoof = false;
+      model.roofWorkType = ''; // 工事内容選択をリセット
+      render();
+    };
+
+    // 塗料選択
+    if (model.needsPaint === true) {
       document.querySelectorAll('[data-paint-type]').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('[data-paint-type]').forEach(b => b.classList.remove('selected'));
@@ -256,7 +288,8 @@
       });
     }
 
-    if (needsRoof) {
+    // 工事内容選択
+    if (model.needsRoof === true) {
       document.querySelectorAll('[data-roof-type]').forEach(btn => {
         btn.onclick = () => {
           document.querySelectorAll('[data-roof-type]').forEach(b => b.classList.remove('selected'));
@@ -271,78 +304,143 @@
 
     document.querySelector('#back').onclick = () => { model.step = 3; render(); };
     document.querySelector('#next').onclick = () => {
-      if (needsPaint && !model.paintType) return alert('塗料を選択してください。');
-      if (needsRoof && !model.roofWorkType) return alert('工事内容を選択してください。');
+      if (model.needsPaint === undefined || model.needsRoof === undefined) {
+        return alert('外壁塗装と屋根工事の希望を選択してください。');
+      }
+      if (model.needsPaint === true && !model.paintType) {
+        return alert('塗料を選択してください。');
+      }
+      if (model.needsRoof === true && !model.roofWorkType) {
+        return alert('工事内容を選択してください。');
+      }
       model.step = 5; render();
     };
   }
 
-  function paintOption(value, title, desc, img) {
-    return `
-      <button type="button" class="option-card" data-paint-type="${value}" style="display:block;width:100%;text-align:left;padding:12px;margin-bottom:12px;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="${img}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;" alt="${title}">
-          <div style="flex:1;">
-            <div style="font-weight:bold;font-size:15px;margin-bottom:4px;">${title}</div>
-            <div style="font-size:13px;color:#666;line-height:1.4;">${desc}</div>
-          </div>
-        </div>
-      </button>
+  function renderBuildingInfo() {
+    ui.root.innerHTML = `
+      <div class="badge">5/7</div>
+      <h3>建物情報</h3>
+      <p style="margin-bottom:20px;color:#666;">建物の詳細情報をお聞かせください。</p>
+      
+      <label style="font-weight:bold;font-size:16px;margin-bottom:10px;display:block;">築年数をお選びください</label>
+      <div class="vlist" style="margin-bottom:30px;">
+        ${buildingOption('age', '5年未満', '5年未満')}
+        ${buildingOption('age', '5〜10年', '5〜10年')}
+        ${buildingOption('age', '10〜15年', '10〜15年')}
+        ${buildingOption('age', '15〜20年', '15〜20年')}
+        ${buildingOption('age', '20年以上', '20年以上')}
+      </div>
+      
+      <label style="font-weight:bold;font-size:16px;margin-bottom:10px;display:block;">何階建ですか?</label>
+      <div class="vlist" style="margin-bottom:30px;">
+        ${buildingOption('floors', '1階建て', '1階建て')}
+        ${buildingOption('floors', '2階建て', '2階建て')}
+        ${buildingOption('floors', '3階建て', '3階建て')}
+        ${buildingOption('floors', '4階建て以上', '4階建て以上')}
+      </div>
+      
+      <label style="font-weight:bold;font-size:16px;margin-bottom:10px;display:block;">外壁材をお選びください</label>
+      <div class="vlist" style="margin-bottom:30px;">
+        ${buildingOption('wall', 'サイディング', 'サイディング')}
+        ${buildingOption('wall', 'モルタル', 'モルタル')}
+        ${buildingOption('wall', 'ALC', 'ALC')}
+        ${buildingOption('wall', 'タイル', 'タイル')}
+        ${buildingOption('wall', 'その他', 'その他')}
+      </div>
+      
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn btn-ghost" id="back" style="font-size:16px;padding:14px 18px;flex:1;">戻る</button>
+        <button class="btn" id="next" style="font-size:16px;padding:14px 18px;flex:2;">確認へ</button>
+      </div>
     `;
-  }
 
-  function roofOption(value, title, desc, img) {
-    return `
-      <button type="button" class="option-card" data-roof-type="${value}" style="display:block;width:100%;text-align:left;padding:12px;margin-bottom:12px;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <img src="${img}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;" alt="${title}">
-          <div style="flex:1;">
-            <div style="font-weight:bold;font-size:15px;margin-bottom:4px;">${title}</div>
-            <div style="font-size:13px;color:#666;line-height:1.4;">${desc}</div>
-          </div>
-        </div>
-      </button>
-    `;
+    // イベントリスナー設定
+    document.querySelectorAll('[data-building-age]').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('[data-building-age]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        model.buildingAge = btn.dataset.buildingAge;
+      };
+      if (model.buildingAge === btn.dataset.buildingAge) {
+        btn.classList.add('selected');
+      }
+    });
+
+    document.querySelectorAll('[data-building-floors]').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('[data-building-floors]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        model.buildingFloors = btn.dataset.buildingFloors;
+      };
+      if (model.buildingFloors === btn.dataset.buildingFloors) {
+        btn.classList.add('selected');
+      }
+    });
+
+    document.querySelectorAll('[data-wall-material]').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('[data-wall-material]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        model.wallMaterial = btn.dataset.wallMaterial;
+      };
+      if (model.wallMaterial === btn.dataset.wallMaterial) {
+        btn.classList.add('selected');
+      }
+    });
+
+    document.querySelector('#back').onclick = () => { model.step = 4; render(); };
+    document.querySelector('#next').onclick = () => {
+      if (!model.buildingAge || !model.buildingFloors || !model.wallMaterial) {
+        return alert('すべての項目を選択してください。');
+      }
+      model.step = 6; render();
+    };
   }
 
   function renderConfirm() {
-    // アップロードされたファイルのサムネイル生成
     const drawingThumbs = generateThumbnails(['drawing_elevation', 'drawing_plan', 'drawing_section']);
     const photoThumbs = generateThumbnails(['photo_front', 'photo_right', 'photo_left', 'photo_back']);
 
-    const desiredWork = model.initialAnswers?.desiredWork || '';
-    const needsPaint = desiredWork.includes('外壁塗装');
-    const needsRoof = desiredWork.includes('屋根工事');
-
     let additionalInfo = '';
-    if (needsPaint && model.paintType) {
+    if (model.needsPaint === true) {
       const paintLabels = {
-        acrylic: 'コスト重視(アクリル系/ウレタン系)',
-        silicon: 'バランス重視(シリコン系)',
-        fluorine: '高耐久＋機能付き(フッ素系/無機系/ラジカル制御)',
-        thermal: '機能重視(遮熱・断熱)'
+        'acrylic': 'コスト重視(アクリル系またはウレタン系塗料)',
+        'silicon': 'バランス重視(シリコン系塗料)',
+        'fluorine': '高耐久＋機能付き(フッ素系/無機系/ラジカル制御塗料)',
+        'thermal': '機能重視(遮熱・断熱塗料)'
       };
+      additionalInfo += `<div>外壁塗装:<b>希望する</b></div>`;
       additionalInfo += `<div>希望の塗料:<b>${paintLabels[model.paintType] || model.paintType}</b></div>`;
+    } else {
+      additionalInfo += `<div>外壁塗装:<b>希望しない</b></div>`;
     }
-    if (needsRoof && model.roofWorkType) {
+
+    if (model.needsRoof === true) {
       const roofLabels = {
-        painting: '屋根塗装',
-        cover: 'カバー工法(重ね葺き)',
-        replacement: '葺き替え(全面交換)',
-        repair: '部分修理・補修',
-        insulation: '断熱・遮熱リフォーム'
+        'painting': '屋根塗装',
+        'cover': 'カバー工法(重ね葺き)',
+        'replacement': '葺き替え(全面交換)',
+        'repair': '部分修理・補修',
+        'insulation': '断熱・遮熱リフォーム'
       };
+      additionalInfo += `<div>屋根工事:<b>希望する</b></div>`;
       additionalInfo += `<div>希望の工事内容:<b>${roofLabels[model.roofWorkType] || model.roofWorkType}</b></div>`;
+    } else {
+      additionalInfo += `<div>屋根工事:<b>希望しない</b></div>`;
     }
 
     ui.root.innerHTML = `
-      <div class="badge">5/5</div>
+      <div class="badge">6/7</div>
       <h3>入力内容のご確認</h3>
       <div class="summary">
         <div>お名前:<b>${model.form.name}</b></div>
         <div>電話番号:<b>${model.form.phone}</b></div>
         <div>郵便番号:<b>${model.form.postal}</b></div>
         ${additionalInfo}
+        <div>築年数:<b>${model.buildingAge}</b></div>
+        <div>階数:<b>${model.buildingFloors}</b></div>
+        <div>外壁材:<b>${model.wallMaterial}</b></div>
         <div style="margin-top:12px;">図面:</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${drawingThumbs}</div>
         <div>写真:</div>
@@ -381,8 +479,13 @@
     fd.append('name', model.form.name);
     fd.append('phone', model.form.phone);
     fd.append('postal', model.form.postal);
+    fd.append('needsPaint', model.needsPaint ? 'true' : 'false');
+    fd.append('needsRoof', model.needsRoof ? 'true' : 'false');
     fd.append('paintType', model.paintType || '');
     fd.append('roofWorkType', model.roofWorkType || '');
+    fd.append('buildingAge', model.buildingAge || '');
+    fd.append('buildingFloors', model.buildingFloors || '');
+    fd.append('wallMaterial', model.wallMaterial || '');
 
     const ids = ['drawing_elevation','drawing_plan','drawing_section','photo_front','photo_right','photo_left','photo_back'];
     for (const id of ids) {
@@ -403,7 +506,7 @@
         console.error('[LIFF] Submit error:', data.error);
         return alert('送信に失敗しました: ' + data.error);
       }
-      model.step = 6; render();
+      model.step = 7; render();
     } catch (e) {
       console.error('[LIFF] Submit exception:', e);
       alert('送信に失敗しました。通信状態をご確認ください。');
@@ -412,8 +515,42 @@
 
   function renderDone() {
     ui.root.innerHTML = `
-      <h3>送信完了しました</h3>
-      <p>1〜3営業日以内にお見積もりをLINEにて回答いたします。ご利用ありがとうございました。</p>
+      <h2 style="color:#10b981;margin-bottom:20px;">送信完了</h2>
+      <p>お見積もりのご依頼ありがとうございます。<br>
+      内容を確認の上、担当者よりご連絡させていただきます。</p>
+    `;
+  }
+
+  function paintOption(value, title, desc, img) {
+    return `
+      <div class="selectable-card" data-paint-type="${value}">
+        <img src="${img}" alt="${title}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;margin-right:12px;">
+        <div style="flex:1;">
+          <div style="font-weight:bold;font-size:15px;margin-bottom:4px;">${title}</div>
+          <div style="font-size:13px;color:#666;">${desc}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function roofOption(value, title, desc, img) {
+    return `
+      <div class="selectable-card" data-roof-type="${value}">
+        <img src="${img}" alt="${title}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;margin-right:12px;">
+        <div style="flex:1;">
+          <div style="font-weight:bold;font-size:15px;margin-bottom:4px;">${title}</div>
+          <div style="font-size:13px;color:#666;">${desc}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildingOption(type, value, label) {
+    const dataAttr = type === 'age' ? 'data-building-age' : type === 'floors' ? 'data-building-floors' : 'data-wall-material';
+    return `
+      <div class="selectable-card" ${dataAttr}="${value}">
+        <div style="font-weight:bold;font-size:15px;">${label}</div>
+      </div>
     `;
   }
 })();
