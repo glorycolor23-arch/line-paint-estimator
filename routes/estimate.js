@@ -55,9 +55,12 @@ router.post('/api/estimate', (req, res) => {
   // LIFF deeplink（詳細依頼へ）
   const liffDeepLink = liffLinkWithLead(leadId, '');
 
+  // 金額表示ページへリダイレクト
+  const resultUrl = `/result.html?leadId=${encodeURIComponent(leadId)}&amount=${encodeURIComponent(amount)}`;
   return res.json({
     leadId,
     amount,
+    redirectUrl: resultUrl,
     addFriendUrl: process.env.LINE_ADD_FRIEND_URL || '',
     liffDeepLink
   });
