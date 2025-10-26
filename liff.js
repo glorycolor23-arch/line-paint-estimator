@@ -106,20 +106,22 @@
         <input class="input" id="postal" type="tel" inputmode="numeric" pattern="[0-9-]*" value="${model.form.postal}" placeholder="123-4567" style="font-size:16px;padding:12px;width:100%;"/>
         <div style="font-size:12px;color:#666;margin-top:5px;">ハイフンなしでも入力可能です</div>
       </label>
-      <div id="addressArea" style="display:none;margin-bottom:15px;">
+      <label style="display:block;margin-bottom:15px;">
         <div style="font-weight:bold;margin-bottom:5px;">住所</div>
-        <div id="addressDisplay" style="padding:12px;background:#f7f7f8;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;"></div>
-        <label style="display:block;">
-          <div style="font-weight:bold;margin-bottom:5px;">番地・建物名など</div>
-          <input class="input" id="addressDetail" type="text" value="${model.form.addressDetail}" placeholder="1-2-3 マンション名 101号室" style="font-size:16px;padding:12px;width:100%;"/>
-        </label>
-      </div>
+        <input class="input" id="address" type="text" value="${model.form.address}" placeholder="都道府県市区町村" style="font-size:16px;padding:12px;width:100%;margin-bottom:10px;"/>
+        <div style="font-size:12px;color:#666;margin-bottom:10px;">※郵便番号を7桁入力すると自動で入力されます</div>
+      </label>
+      <label style="display:block;margin-bottom:15px;">
+        <div style="font-weight:bold;margin-bottom:5px;">番地・建物名など</div>
+        <input class="input" id="addressDetail" type="text" value="${model.form.addressDetail}" placeholder="1-2-3 マンション名 101号室" style="font-size:16px;padding:12px;width:100%;"/>
+      </label>
       <button class="btn primary" id="next" style="font-size:16px;padding:14px 18px;width:100%;margin-top:10px;">次へ</button>
     `;
 
     // 郵便番号入力時に住所を自動取得
     const postalInput = document.getElementById('postal');
-    postalInput.addEventListener('blur', async () => {
+    const addressInput = document.getElementById('address');
+    const fetchAddress = async () => {
       const postal = postalInput.value.replace(/-/g, '');
       if (postal.length === 7) {
         try {
@@ -129,19 +131,21 @@
             const result = data.results[0];
             const address = result.address1 + result.address2 + result.address3;
             model.form.address = address;
-            document.getElementById('addressDisplay').textContent = address;
-            document.getElementById('addressArea').style.display = 'block';
+            addressInput.value = address;
           }
         } catch(e) {
           console.error('[LIFF] Failed to fetch address:', e);
         }
       }
-    });
+    };
+    postalInput.addEventListener('input', fetchAddress);
+    postalInput.addEventListener('blur', fetchAddress);
 
     document.querySelector('#next').onclick = () => {
       model.form.name = document.getElementById('name').value.trim();
       model.form.phone = document.getElementById('phone').value.trim();
       model.form.postal = document.getElementById('postal').value.trim();
+      model.form.address = document.getElementById('address').value.trim();
       model.form.addressDetail = document.getElementById('addressDetail').value.trim();
       if (!model.form.name || !model.form.phone || !model.form.postal) {
         return alert('お名前、電話番号、郵便番号を入力してください。');
@@ -539,7 +543,10 @@
 
     if (!model.leadId) {
       console.error('[LIFF] leadId is missing!');
-      return alert('エラー: leadIdが見つかりません。最初からやり直してください。');
+      alert('エラー: 概算見積もりから開始してください。\n\n以下のURLから概算見積もりを開始してください：\nhttps://line-paint.onrender.com/');
+      // 概算見積もりページにリダイレクト
+      window.location.href = 'https://line-paint.onrender.com/';
+      return;
     }
 
     const fd = new FormData();
