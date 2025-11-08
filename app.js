@@ -1,142 +1,291 @@
-const el = (sel) => document.querySelector(sel);
-const stepEl = el('#step');
+// 画像はローカルのみ（/img/*.png）
+const IMG = (name) => `/img/${name}.png`;
 
-let state = {
-  desiredWork: null,
-  ageRange: null,
-  floors: null,
-  wallMaterial: null,
-  leadId: null,
-  amount: null,
-  addFriendUrl: null,
-  liffDeepLink: null
-};
-
-// 画像付き候補（ダミー画像URLは適宜差し替え）
-const WALLS = [
-  { key: "サイディング", img: "https://picsum.photos/seed/sai/200/200" },
-  { key: "モルタル", img: "https://picsum.photos/seed/mor/200/200" },
-  { key: "ALC", img: "https://picsum.photos/seed/alc/200/200" },
-  { key: "ガルバリウム", img: "https://picsum.photos/seed/gal/200/200" },
-  { key: "木", img: "https://picsum.photos/seed/wood/200/200" },
-  { key: "RC", img: "https://picsum.photos/seed/rc/200/200" },
-  { key: "その他", img: "https://picsum.photos/seed/other/200/200" },
-  { key: "わからない", img: "https://picsum.photos/seed/unk/200/200" }
+// 設問
+const STEPS = [
+  {
+    key: 'desiredWork',
+    title: 'お見積もり希望の内容は？',
+    type: 'select-one-v',
+    options: [
+      { value: '外壁塗装',       label: '外壁塗装' },
+      { value: '屋根工事',       label: '屋根工事' },
+      { value: '外壁塗装と屋根工事', label: '外壁塗装と屋根工事' },
+    ],
+  },
+  {
+    key: 'ageRange',
+    title: '築年数をお選びください',
+    type: 'select-one-v',
+    options: ['1〜5年','6〜10年','11〜15年','16〜20年','21〜25年','26〜30年','31年以上']
+      .map(v => ({ value: v, label: v })),
+  },
+  {
+    key: 'floors',
+    title: '何階建てですか？',
+    type: 'select-one-v',
+    options: [
+      { value:'1階建て',   label:'1階建て' },
+      { value:'2階建て',   label:'2階建て' },
+      { value:'3階建て以上', label:'3階建て以上' },
+    ],
+  },
+  {
+    key: 'wallMaterial',
+    title: '外壁材をお選びください',
+    desc: '見た目が近いものを選んでください（画像はサンプルです）',
+    type: 'select-one-grid',
+    options: [
+      { value:'サイディング',  label:'サイディング',  img: IMG('siding') },
+      { value:'ガルバリウム',  label:'ガルバリウム',  img: IMG('galvalume') },
+      { value:'モルタル',      label:'モルタル',      img: IMG('mortar') },
+      { value:'ALC',          label:'ALC',            img: IMG('alc') },
+      { value:'木',            label:'木',            img: IMG('wood') },
+      { value:'RC',           label:'RC',             img: IMG('rc') },
+      { value:'その他',        label:'その他',         img: IMG('other') },
+      { value:'わからない',    label:'わからない',     img: IMG('unknown') },
+    ],
+  },
+  { key: 'confirm', title: '入力内容のご確認', type: 'confirm' },
 ];
 
-function render() {
-  if (!state.desiredWork) return renderDesired();
-  if (!state.ageRange) return renderAge();
-  if (!state.floors) return renderFloors();
-  if (!state.wallMaterial) return renderWalls();
-  if (!state.leadId) return renderConfirm();
-  return renderAfterEstimate();
+// 状態
+const state = { answers: {}, idx: 0, order: STEPS.map(s => s.key) };
+
+// 要素
+const $root    = document.getElementById('q-root');
+const $stepper = document.getElementById('stepper');
+const $next    = document.getElementById('nextBtn');
+const $back    = document.getElementById('backBtn');
+const $done    = document.getElementById('done');
+const $navBar  = document.getElementById('nav-bar');
+
+// クリックのイベント委譲（動的DOMでも確実に拾う）
+document.addEventListener('click', (ev) => {
+  const tgt = ev.target;
+  if (!tgt) return;
+
+  // 最終確認：はい / いいえ
+  if (tgt.matches('[data-action="confirm-yes"]')) {
+    ev.preventDefault();
+    handleConfirmYes(tgt);
+  } else if (tgt.matches('[data-action="confirm-no"]')) {
+    ev.preventDefault();
+    handleConfirmNo();
+  }
+});
+
+$next.addEventListener('click', onNext);
+$back.addEventListener('click', onBack);
+
+init();
+
+// 初期化
+function init(){ render(); }
+function curDef(){ return STEPS.find(s => s.key === state.order[state.idx]); }
+
+function render(){
+  $done.hidden = true;
+  $root.innerHTML = '';
+  $navBar.classList.remove('hidden');
+
+  const step = curDef();
+  renderStepper();
+
+  const h2 = document.createElement('h2');
+  h2.textContent = step.title;
+  $root.appendChild(h2);
+  if (step.desc){
+    const p = document.createElement('p'); p.className = 'desc'; p.textContent = step.desc;
+    $root.appendChild(p);
+  }
+
+  $back.disabled = state.idx === 0;
+  $next.disabled = true;
+
+  if (step.type === 'select-one-v') {
+    renderSelectOneV(step);
+  } else if (step.type === 'select-one-grid') {
+    renderSelectOneGrid(step);
+  } else if (step.type === 'confirm') {
+    renderConfirm();
+  }
 }
 
-function renderDesired() {
-  stepEl.innerHTML = `
-    <div class="badge">質問 1/4</div>
-    <h3>お見積もり希望の内容は何ですか？</h3>
-    <div class="grid">
-      ${["外壁","屋根","外壁と屋根"].map(k => `
-        <button class="btn" data-k="${k}">${k}</button>
-      `).join('')}
-    </div>
-  `;
-  stepEl.querySelectorAll('.btn').forEach(b => b.onclick = () => { state.desiredWork = b.dataset.k; render(); });
+function renderStepper(){
+  $stepper.textContent = `Step ${state.idx + 1} / ${state.order.length}`;
 }
 
-function renderAge() {
-  const ages = ["1〜5年","6〜10年","11〜15年","16〜20年","21〜25年","26〜30年","31年以上"];
-  stepEl.innerHTML = `
-    <div class="badge">質問 2/4</div>
-    <h3>築年数をお選びください</h3>
-    <div class="grid">${ages.map(k => `<button class="btn" data-k="${k}">${k}</button>`).join('')}</div>
-    <button class="btn outline" id="back">戻る</button>
-  `;
-  stepEl.querySelectorAll('.btn[data-k]').forEach(b => b.onclick = () => { state.ageRange = b.dataset.k; render(); });
-  el('#back').onclick = () => { state.desiredWork = null; render(); };
-}
+function renderSelectOneV(step){
+  const wrap = document.createElement('div'); wrap.className = 'vlist';
 
-function renderFloors() {
-  const floors = ["1階建て","2階建て","3階建て以上"];
-  stepEl.innerHTML = `
-    <div class="badge">質問 3/4</div>
-    <h3>何階建てですか？</h3>
-    <div class="grid">${floors.map(k => `<button class="btn" data-k="${k}">${k}</button>`).join('')}</div>
-    <button class="btn outline" id="back">戻る</button>
-  `;
-  stepEl.querySelectorAll('.btn[data-k]').forEach(b => b.onclick = () => { state.floors = b.dataset.k; render(); });
-  el('#back').onclick = () => { state.ageRange = null; render(); };
-}
-
-function renderWalls() {
-  stepEl.innerHTML = `
-    <div class="badge">質問 4/4</div>
-    <h3>外壁材を以下からお選びください</h3>
-    <div class="grid">
-      ${WALLS.map(w => `
-        <div class="choice" data-k="${w.key}">
-          <img src="${w.img}" alt="${w.key}" />
-          <span>${w.key}</span>
-        </div>
-      `).join('')}
-    </div>
-    <button class="btn outline" id="back">戻る</button>
-  `;
-  stepEl.querySelectorAll('.choice').forEach(c => c.onclick = () => { state.wallMaterial = c.dataset.k; render(); });
-  el('#back').onclick = () => { state.floors = null; render(); };
-}
-
-function renderConfirm() {
-  stepEl.innerHTML = `
-    <h3>入力内容のご確認</h3>
-    <div class="summary">
-      <div>■見積もり希望内容：<b>${state.desiredWork}</b></div>
-      <div>■築年数：<b>${state.ageRange}</b></div>
-      <div>■階数：<b>${state.floors}</b></div>
-      <div>■外壁材：<b>${state.wallMaterial}</b></div>
-    </div>
-    <div class="grid">
-      <button class="btn" id="yes">はい</button>
-      <button class="btn outline" id="no">いいえ（最初からやり直す）</button>
-    </div>
-  `;
-  el('#no').onclick = () => { state = { desiredWork: null, ageRange: null, floors: null, wallMaterial: null, leadId: null }; render(); };
-  el('#yes').onclick = async () => {
-    const res = await fetch('/api/estimate', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        desiredWork: state.desiredWork,
-        ageRange: state.ageRange,
-        floors: state.floors,
-        wallMaterial: state.wallMaterial
-      })
+  step.options.forEach(opt=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'vbtn';
+    btn.textContent = opt.label;
+    btn.setAttribute('role','radio');
+    btn.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
+    btn.addEventListener('click', ()=>{
+      select(step.key, opt.value);
+      wrap.querySelectorAll('.vbtn').forEach(b => b.setAttribute('aria-checked','false'));
+      btn.setAttribute('aria-checked','true');
+      $next.disabled = false;
     });
-    const data = await res.json();
-    if (data.error) return alert('送信に失敗しました。');
-    state.leadId = data.leadId;
-    state.amount = data.amount;
-    state.addFriendUrl = data.addFriendUrl;
-    state.liffDeepLink = data.liffDeepLink;
-    render();
-  };
+    wrap.appendChild(btn);
+  });
+
+  $root.appendChild(wrap);
 }
 
-function renderAfterEstimate() {
-  stepEl.innerHTML = `
-    <div class="center">
-      <h3>LINEで見積額をご案内</h3>
-      <p>「お見積もり額は、こちらのLINEからご確認ください。」</p>
-      <a class="btn primary" href="${state.addFriendUrl}" target="_blank" rel="noopener">LINEの友だち登録</a>
-      <p class="note">友だち登録のあと、下のボタンをタップしてください。</p>
-      <a class="btn" href="${state.liffDeepLink}">LINEで見積額を受け取る</a>
-      <div class="summary">
-        <div class="note">※ 概算金額は回答内容（希望内容／築年数／階数／外壁材）から自動計算します。</div>
-      </div>
-    </div>
-  `;
+function renderSelectOneGrid(step){
+  const grid = document.createElement('div'); grid.className = 'grid';
+  step.options.forEach(opt=>{
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'option';
+    card.setAttribute('role','radio');
+    card.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
+
+    const ph = document.createElement('div'); ph.className = 'thumb';
+    ph.style.backgroundImage = `url("${opt.img}")`;
+
+    const cap = document.createElement('div'); cap.className = 'label';
+    cap.textContent = opt.label;
+
+    card.appendChild(ph); card.appendChild(cap);
+
+    card.addEventListener('click', ()=>{
+      select(step.key, opt.value);
+      grid.querySelectorAll('.option').forEach(el => el.setAttribute('aria-checked','false'));
+      card.setAttribute('aria-checked','true');
+      $next.disabled = false;
+    });
+
+    grid.appendChild(card);
+  });
+
+  $root.appendChild(grid);
 }
 
-render();
+function renderConfirm(){
+  // 確認ステップは共通ナビを隠す
+  $navBar.classList.add('hidden');
+
+  const list = [
+    ['■見積もり希望内容', state.answers.desiredWork ?? '-'],
+    ['■築年数',           state.answers.ageRange ?? '-'],
+    ['■階数',             state.answers.floors ?? '-'],
+    ['■外壁材',           state.answers.wallMaterial ?? '-'],
+  ];
+  const div = document.createElement('div');
+  div.style.marginTop = '8px';
+  div.innerHTML = list.map(([k,v]) => `${k}　${v}`).join('<br/>');
+  $root.appendChild(div);
+
+  const actions = document.createElement('div');
+  actions.className = 'nav';
+
+  const no = document.createElement('button');
+  no.type = 'button';
+  no.className = 'btn btn-ghost';
+  no.textContent = 'いいえ（最初からやり直す）';
+  no.setAttribute('data-action','confirm-no');
+
+  const yes = document.createElement('button');
+  yes.type = 'button';
+  yes.className = 'btn';
+  yes.textContent = 'はい';
+  yes.setAttribute('data-action','confirm-yes');
+
+  actions.appendChild(no);
+  actions.appendChild(document.createElement('div')).className = 'spacer';
+  actions.appendChild(yes);
+  $root.appendChild(actions);
+}
+
+// 選択時：以降の回答をクリア
+function select(key, value){
+  state.answers[key] = value;
+  const i = state.order.indexOf(key);
+  state.order.slice(i + 1).forEach(k => delete state.answers[k]);
+}
+
+function onNext(){
+  if ($next.disabled) return;
+  if (state.idx < state.order.length - 1){
+    state.idx++; render();
+  }
+}
+
+function onBack(){
+  if (state.idx === 0) return;
+  state.idx--;
+  const key = state.order[state.idx];
+  const i = state.order.indexOf(key);
+  state.order.slice(i + 1).forEach(k => delete state.answers[k]);
+  render();
+}
+
+// ======= 確認「はい」：強制遷移のフェイルセーフ =======
+async function handleConfirmYes(btn){
+  try {
+    // 二重クリック抑止
+    btn.disabled = true;
+
+    const payload = { ...state.answers };
+
+    // 1) /estimate
+    const r1 = await postJson('/estimate', payload);
+    if (r1?.redirectUrl) {
+      hardRedirect(r1.redirectUrl);
+      return;
+    }
+
+    // 2) /api/estimate にフォールバック
+    const r2 = await postJson('/api/estimate', payload);
+    if (r2?.redirectUrl) {
+      hardRedirect(r2.redirectUrl);
+      return;
+    }
+
+    // 3) 全て失敗 → 友だちURLへ
+    hardRedirect('https://lin.ee/dFC71xA');
+  } catch (_e) {
+    // 例外時も確実に誘導
+    hardRedirect('https://lin.ee/dFC71xA');
+  }
+}
+
+function handleConfirmNo(){
+  state.answers = {};
+  state.idx = 0;
+  render();
+}
+
+// JSON POST（5秒タイムアウト付き）
+async function postJson(url, body){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), 5000);
+  try{
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    return await res.json().catch(()=>null);
+  }catch(_e){
+    clearTimeout(t);
+    return null;
+  }
+}
+
+// リダイレクト（replace で戻るボタン汚染を避ける）
+function hardRedirect(url){
+  // location.assign だと一部環境でブロックされる事があるため両対応
+  try { window.location.replace(url); }
+  catch { window.location.href = url; }
+}
