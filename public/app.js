@@ -223,8 +223,8 @@ async function handleConfirmYes(){
 
     const payload = { ...state.answers };
 
-    // /estimate に送信
-    const res = await fetch('/estimate', {
+    // /api/estimate に送信
+    const res = await fetch('/api/estimate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -255,7 +255,7 @@ async function handleConfirmYes(){
 }
 
 function showResult(data) {
-  const { amount, leadId } = data;
+  const { amount, leadId, addFriendUrl } = data;
   
   $qRoot.hidden = false;
   $navBar.style.display = 'none';
@@ -276,10 +276,14 @@ function showResult(data) {
   html += '</div>';
   html += '<p class="note">この金額は概算です。詳しいお見積もりはLINEの友達登録後にご確認いただけます。</p>';
   
-  $qRoot.innerHTML = html;
+  // LINE友達追加ボタンを追加
+  if (addFriendUrl) {
+    html += '<div style="margin-top:24px;">';
+    html += `<a href="${addFriendUrl}" class="btn primary" style="display:inline-block;text-decoration:none;">LINEを開く（友だち追加）</a>`;
+    html += '</div>';
+  }
   
-  // 3秒後にLINE友達登録画面を表示
-  setTimeout(() => showDone(), 3000);
+  $qRoot.innerHTML = html;
 }
 
 function showDone() {
