@@ -134,7 +134,11 @@ function render(){
   $next.removeAttribute('data-action');
 
   // 戻るボタンの表示
-  $back.style.display = (state.idx === 0) ? 'none' : 'inline-block';
+  if (state.idx === 0) {
+    $back.style.display = 'none';
+  } else {
+    $back.style.display = 'inline-block';
+  }
 }
 
 function renderConfirm(def){
@@ -261,7 +265,7 @@ async function handleConfirmYes(){
 }
 
 function showResult(data) {
-  const { amount, leadId, addFriendUrl, liffDeepLink } = data;
+  const { amount, leadId, addFriendUrl } = data;
   
   $qRoot.hidden = false;
   $navBar.style.display = 'none';
@@ -288,10 +292,10 @@ function showResult(data) {
   // 説明テキスト（ボタンの上）
   html += '<p class="description-text">数ステップの回答で概算見積を算出。LINEで結果をお届けします。</p>';
   
-  // LIFF詳細見積もりボタン
-  if (liffDeepLink) {
+  // LINE友達追加ボタン
+  if (addFriendUrl) {
     html += '<div style="margin-top:16px;">';
-    html += `<a href="${liffDeepLink}" class="btn btn-line" style="display:inline-block;text-decoration:none;">[無料]現地調査なしで詳細見積を依頼</a>`;
+    html += `<a href="${addFriendUrl}" class="btn btn-line" style="display:inline-block;text-decoration:none;">[無料]現地調査なしで詳細見積を依頼</a>`;
     html += '</div>';
   }
   
