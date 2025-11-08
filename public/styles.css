@@ -308,6 +308,33 @@ input[type="file"]:hover{
   margin-top:8px;
 }
 
+.sample-img-small{
+  width:100%;
+  max-width:200px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  margin-top:8px;
+}
+
+.reference-images{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+  gap:16px;
+  margin:16px 0;
+  padding:16px;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+
+.reference-item{
+  text-align:center;
+}
+
+.reference-item .note{
+  margin-bottom:8px;
+}
+
 /* =========
    LIFF 専用（詳細見積）
    ========= */
@@ -347,6 +374,18 @@ input[type="file"]:hover{
   font-weight:600;
   display:block;
   margin-bottom:4px;
+}
+
+.amount-display{
+  font-size:36px;
+  font-weight:700;
+  color:var(--accent);
+  text-align:center;
+  margin:24px 0;
+  padding:20px;
+  background:#eef2ff;
+  border-radius:12px;
+  border:2px solid var(--accent);
 }
 
 .note{
