@@ -290,7 +290,7 @@ function showResult(data) {
   html += '<p class="note-compact">この金額は概算です。</p>';
   
   // 説明テキスト（ボタンの上）
-  html += '<p class="description-text">数ステップの回答で概算見積を算出。LINEで結果をお届けします。</p>';
+  html += '<p class="description-text">より詳しいお見積もりを現地調査なしで知りたい方は、LINEの友だち登録後、専用フォームからお申し込みください。</p>';
   
   // LINE友達追加ボタン
   if (addFriendUrl) {
