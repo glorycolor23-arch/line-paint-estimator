@@ -76,7 +76,10 @@ document.addEventListener('click', (ev) => {
 });
 
 $next.addEventListener('click', onNext);
-$back.addEventListener('click', onBack);
+$back.addEventListener('click', (e) => {
+  e.preventDefault();
+  onBack();
+});
 
 init();
 
@@ -100,7 +103,12 @@ function render(){
     $root.appendChild(p);
   }
 
-  $back.disabled = state.idx === 0;
+  // 戻るリンクの表示/非表示
+  if (state.idx === 0) {
+    $back.style.display = 'none';
+  } else {
+    $back.style.display = 'block';
+  }
   $next.disabled = true;
 
   if (step.type === 'select-one-v') {
