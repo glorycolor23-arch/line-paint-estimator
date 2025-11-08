@@ -20,7 +20,7 @@
     lineUserId: null,
     leadId,
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
-    form: { name: '', phone: '', postal: '', address: '' },
+    form: { name: '', phone: '', postal: '', address: '', addressDetail: '' },
     files: {},
     thumbnails: {}
   };
@@ -78,7 +78,10 @@
       <p class="note" style="font-size:12px;margin-top:4px;">郵便番号7桁を入力すると住所が自動入力されます</p>
       
       <label>住所<span class="required">*</span></label>
-      <input id="address" placeholder="大阪府大阪市北区梅田1-1-1" autocomplete="address-level1" class="input-field"/>
+      <input id="address" placeholder="大阪府大阪市北区梅田" autocomplete="address-level1" class="input-field" readonly/>
+      
+      <label>番地など<span class="required">*</span></label>
+      <input id="addressDetail" placeholder="1-1-1" autocomplete="address-level2" class="input-field"/>
       <p class="note address-note">こちらの住所は建物の区画を確認するためにのみ利用します。ご連絡なしでの現地調査訪問は一切行っておりませんのでご安心ください。</p>
       
       <div class="nav-vertical">
@@ -90,6 +93,7 @@
     document.querySelector('#phone').value = model.form.phone;
     document.querySelector('#postal').value = model.form.postal;
     document.querySelector('#address').value = model.form.address;
+    document.querySelector('#addressDetail').value = model.form.addressDetail;
     
     // 郵便番号から住所自動入力
     const postalInput = document.querySelector('#postal');
@@ -118,8 +122,9 @@
       model.form.phone = document.querySelector('#phone').value.trim();
       model.form.postal = document.querySelector('#postal').value.trim();
       model.form.address = document.querySelector('#address').value.trim();
+      model.form.addressDetail = document.querySelector('#addressDetail').value.trim();
       
-      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address) {
+      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address || !model.form.addressDetail) {
         return alert('未入力の項目があります。');
       }
       model.step = 2; render();
@@ -307,7 +312,7 @@
         <div><strong>お名前</strong><br>${model.form.name}</div>
         <div><strong>電話番号</strong><br>${model.form.phone}</div>
         <div><strong>郵便番号</strong><br>${model.form.postal}</div>
-        <div><strong>住所</strong><br>${model.form.address}</div>
+        <div><strong>住所</strong><br>${model.form.address} ${model.form.addressDetail}</div>
       </div>
       <h4>アップロードしたファイル</h4>
       ${thumbnailsHtml}
@@ -317,6 +322,9 @@
         <a href="#" id="back" class="back-link">← 戻る</a>
       </div>
     `;
+    
+    // ページ最上部にスクロール
+    window.scrollTo(0, 0);
     
     document.querySelector('#submit').onclick = submitAll;
     document.querySelector('#back').onclick = (e) => {
@@ -335,7 +343,7 @@
     fd.append('name', model.form.name);
     fd.append('phone', model.form.phone);
     fd.append('postal', model.form.postal);
-    fd.append('address', model.form.address);
+    fd.append('address', model.form.address + ' ' + model.form.addressDetail);
 
     // ファイルを追加
     Object.keys(model.files).forEach(id => {
