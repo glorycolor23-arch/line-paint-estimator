@@ -68,7 +68,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
 
     // 以下は非同期で実行（レスポンス後に処理）
     // スプレッドシート：失敗しても処理続行（ログのみ）
-    setImmediate(async () => {
+    (async () => {
       try {
         const created = new Date().toISOString();
         await appendToSheet([
@@ -87,12 +87,14 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
           wallMaterial || '',               // O:外壁材
           'ファイルはメール添付で受領' // P
         ]);
+        console.log('[details] Sheet updated successfully');
       } catch (e) {
         console.error('[details] appendToSheet failed (non-fatal):', e);
       }
 
       // メール：失敗しても処理続行（ログのみ）
       try {
+        console.log('[details] Starting email send...');
         const attachments = [];
         for (const key of Object.keys(req.files || {})) {
           const f = req.files[key]?.[0];
@@ -146,7 +148,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       } catch (e) {
         console.error('[details] sendAdminMail failed (non-fatal):', e);
       }
-    });
+    })();
 
   } catch (e) {
     console.error('[details] fatal error:', e);
