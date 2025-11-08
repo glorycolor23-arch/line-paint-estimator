@@ -55,14 +55,10 @@ router.post('/api/estimate', (req, res) => {
   // LIFF deeplink（詳細依頼へ）
   const liffDeepLink = liffLinkWithLead(leadId, '');
 
-  // 金額表示ページへリダイレクト
-  const lineAddFriendUrl = process.env.LINE_ADD_FRIEND_URL || 'https://lin.ee/dFC71xA';
-  const resultUrl = `/result.html?leadId=${encodeURIComponent(leadId)}&amount=${encodeURIComponent(amount)}&lineUrl=${encodeURIComponent(lineAddFriendUrl)}`;
   return res.json({
     leadId,
     amount,
-    redirectUrl: resultUrl,
-    addFriendUrl: lineAddFriendUrl,
+    addFriendUrl: process.env.LINE_ADD_FRIEND_URL || '',
     liffDeepLink
   });
 });
@@ -74,19 +70,18 @@ router.post('/api/link-line-user', async (req, res) => {
   if (!lead) return res.status(404).json({ error: 'lead not found' });
 
   const detailBtnUri = liffLinkWithLead(leadId, '&step=1');
+  const text = buildSummaryText(lead.answers, lead.amount);
 
   try {
-    const summaryText = '外壁塗装オンライン見積もりにご連絡ありがとうございます。\nご連絡いただいた内容の概算見積もりは以下の通りです。\n\n【回答内容】\n・お見積もり希望内容\n　' + (lead.answers.desiredWork || '') + '\n・築年数\n　' + (lead.answers.ageRange || '') + '\n・階数\n　' + (lead.answers.floors || '') + '\n・外壁材\n　' + (lead.answers.wallMaterial || '') + '\n\n概算見積もり金額\n¥' + Number(lead.amount).toLocaleString('ja-JP');
-    const detailText = 'より詳しいお見積もりをご希望の方はこちら。\nこちらのフォームに回答いただくと、現地調査での訪問は行わず正確な工事金額をご提示いたします。\nご提示した見積額で発注も可能です。';
-    
     await lineClient.pushMessage(lineUserId, [
-      { type: 'text', text: summaryText },
+      { type: 'text', text },
       {
         type: 'template',
         altText: '詳細見積もりのご案内',
         template: {
           type: 'buttons',
-          text: detailText,
+          title: 'より詳しいお見積もりをご希望の方はこちらから。',
+          text: '現地調査での訪問は行わず、具体的なお見積もりを提示します。',
           actions: [
             { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: detailBtnUri }
           ]
@@ -108,4 +103,3 @@ router.get('/api/lead/:leadId', (req, res) => {
 });
 
 export default router;
-
