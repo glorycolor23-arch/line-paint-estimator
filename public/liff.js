@@ -69,6 +69,7 @@
       
       <label>郵便番号<span class="required">*</span></label>
       <input id="postal" inputmode="numeric" pattern="[0-9]*" placeholder="5300001" autocomplete="postal-code" class="input-field"/>
+      <p class="note" style="font-size:12px;margin-top:4px;">郵便番号7桁を入力すると住所が自動入力されます</p>
       
       <label>住所<span class="required">*</span></label>
       <input id="address" placeholder="大阪府大阪市北区梅田1-1-1" autocomplete="address-level1" class="input-field"/>
@@ -83,6 +84,28 @@
     document.querySelector('#phone').value = model.form.phone;
     document.querySelector('#postal').value = model.form.postal;
     document.querySelector('#address').value = model.form.address;
+    
+    // 郵便番号から住所自動入力
+    const postalInput = document.querySelector('#postal');
+    const addressInput = document.querySelector('#address');
+    
+    postalInput.addEventListener('input', async (e) => {
+      const postal = e.target.value.replace(/[^0-9]/g, '');
+      if (postal.length === 7) {
+        try {
+          const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${postal}`);
+          const data = await res.json();
+          if (data.status === 200 && data.results && data.results[0]) {
+            const result = data.results[0];
+            const address = result.address1 + result.address2 + result.address3;
+            addressInput.value = address;
+            model.form.address = address;
+          }
+        } catch (err) {
+          console.error('郵便番号検索エラー:', err);
+        }
+      }
+    });
     
     document.querySelector('#next').onclick = () => {
       model.form.name = document.querySelector('#name').value.trim();
@@ -146,9 +169,19 @@
       <h3>お住まいの図面をアップロード</h3>
       <p class="note">立面図・平面図・断面図をアップロードしてください（PDF/画像）。</p>
       
-      <div class="reference-image">
-        <p class="note"><strong>立面図の例：</strong></p>
-        <img src="/public/img/elevation_sample.png" alt="立面図の参考例" class="sample-img"/>
+      <div class="reference-images">
+        <div class="reference-item">
+          <p class="note"><strong>立面図の例：</strong></p>
+          <img src="/public/img/elevation_sample.png" alt="立面図の参考例" class="sample-img-small"/>
+        </div>
+        <div class="reference-item">
+          <p class="note"><strong>平面図の例：</strong></p>
+          <img src="/public/img/plan_sample.gif" alt="平面図の参考例" class="sample-img-small"/>
+        </div>
+        <div class="reference-item">
+          <p class="note"><strong>断面図の例：</strong></p>
+          <img src="/public/img/section_sample.gif" alt="断面図の参考例" class="sample-img-small"/>
+        </div>
       </div>
       
       ${fileInput('drawing_elevation','立面図','image/*,application/pdf', true)}
@@ -181,6 +214,11 @@
       <div class="badge">3/4</div>
       <h3>建物の写真をアップロード</h3>
       <p class="note">建物の正面・右側面・左側面・背面の写真をアップロードしてください。</p>
+      
+      <div class="reference-image">
+        <p class="note"><strong>建物写真の例：</strong></p>
+        <img src="/public/img/building_sample.jpg" alt="建物写真の参考例" class="sample-img-small"/>
+      </div>
       
       ${fileInput('photo_front','建物の正面','image/*', true)}
       ${fileInput('photo_right','建物の右側面','image/*')}
