@@ -9,11 +9,19 @@
     render
   };
 
+  // leadIdをlocalStorageに保存して失われないようにする
+  let storedLeadId = leadId;
+  if (leadId) {
+    localStorage.setItem('leadId', leadId);
+  } else {
+    storedLeadId = localStorage.getItem('leadId');
+  }
+
   let model = {
     profile: null,
     lineUserId: null,
     displayName: '',
-    leadId,
+    leadId: storedLeadId,
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
     form: {
       name: '',
@@ -44,14 +52,16 @@
   console.log('[LIFF] URL:', location.href);
   console.log('[LIFF] URL params:', location.search);
   console.log('[LIFF] leadId from URL:', leadId);
+  console.log('[LIFF] leadId from localStorage:', localStorage.getItem('leadId'));
+  console.log('[LIFF] Final leadId:', model.leadId);
   console.log('[LIFF] lineUserId:', model.lineUserId);
   console.log('[LIFF] displayName:', model.displayName);
-  console.log('[LIFF] ===================================');
+  console.log('[LIFF] ===================================')
 
   // leadIdから概算見積もりの回答を取得
-  if (leadId) {
+  if (model.leadId) {
     try {
-      const leadRes = await fetch(`/api/lead/${leadId}`);
+      const leadRes = await fetch(`/api/lead/${model.leadId}`);
       if (leadRes.ok) {
         const leadData = await leadRes.json();
         model.initialAnswers = leadData.answers || {};
@@ -64,7 +74,7 @@
       await fetch('/api/link-line-user', {
         method: 'POST',
         headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({ leadId, lineUserId: model.lineUserId })
+        body: JSON.stringify({ leadId: model.leadId, lineUserId: model.lineUserId })
       });
     } catch(e) { /* noop */ }
   }
@@ -168,18 +178,21 @@
         <label>立面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/elevation-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="立面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_elevation" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <div id="preview_drawing_elevation" style="margin-top:10px;"></div>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>平面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/floor-plan.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="平面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_plan" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <div id="preview_drawing_plan" style="margin-top:10px;"></div>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>断面図</label>
         <div style="margin-bottom:8px;"><img src="/examples/section-drawing.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="断面図の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="drawing_section" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
+        <div id="preview_drawing_section" style="margin-top:10px;"></div>
       </div>
       
       <div style="display:flex;gap:10px;margin-top:20px;">
@@ -187,6 +200,19 @@
         <button class="btn" id="next" style="font-size:16px;padding:14px 18px;flex:2;">次へ</button>
       </div>
     `;
+    ['drawing_elevation', 'drawing_plan', 'drawing_section'].forEach(id => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const url = URL.createObjectURL(file);
+            const preview = document.getElementById('preview_' + id);
+            preview.innerHTML = `<img src="${url}" style="width:150px;height:150px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/><br><span style="font-size:12px;color:#666;">アップロード済み</span>`;
+          }
+        });
+      }
+    });
     document.querySelector('#back').onclick = () => { model.step = 1; render(); };
     document.querySelector('#next').onclick = () => {
       saveFiles(['drawing_elevation', 'drawing_plan', 'drawing_section']);
@@ -205,24 +231,28 @@
         <label>建物の正面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-front-new.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_front" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
+        <div id="preview_photo_front" style="margin-top:10px;"></div>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の右側面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-right.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物右側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_right" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
+        <div id="preview_photo_right" style="margin-top:10px;"></div>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の左側面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-left.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物左側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_left" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
+        <div id="preview_photo_left" style="margin-top:10px;"></div>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の背面</label>
         <div style="margin-bottom:8px;"><img src="/examples/house-back.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_back" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
+        <div id="preview_photo_back" style="margin-top:10px;"></div>
       </div>
       
       <div style="display:flex;gap:10px;margin-top:20px;">
@@ -230,6 +260,19 @@
         <button class="btn" id="next" style="font-size:16px;padding:14px 18px;flex:2;">次へ</button>
       </div>
     `;
+    ['photo_front', 'photo_right', 'photo_left', 'photo_back'].forEach(id => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const url = URL.createObjectURL(file);
+            const preview = document.getElementById('preview_' + id);
+            preview.innerHTML = `<img src="${url}" style="width:150px;height:150px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/><br><span style="font-size:12px;color:#666;">アップロード済み</span>`;
+          }
+        });
+      }
+    });
     document.querySelector('#back').onclick = () => { model.step = 2; render(); };
     document.querySelector('#next').onclick = () => {
       saveFiles(['photo_front', 'photo_right', 'photo_left', 'photo_back']);
