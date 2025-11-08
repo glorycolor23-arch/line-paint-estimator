@@ -381,11 +381,50 @@ input[type="file"]:hover{
   font-weight:700;
   color:var(--accent);
   text-align:center;
-  margin:24px 0;
-  padding:20px;
+  margin:16px 0;
+  padding:16px;
   background:#eef2ff;
   border-radius:12px;
   border:2px solid var(--accent);
+}
+
+.summary-compact{
+  font-size:13px;
+  color:var(--muted);
+  text-align:center;
+  margin:12px 0;
+  padding:8px;
+  background:#f9fafb;
+  border-radius:8px;
+  line-height:1.6;
+}
+
+.note-compact{
+  font-size:13px;
+  color:var(--muted);
+  text-align:center;
+  margin:8px 0;
+}
+
+.btn-line{
+  background:#06C755 !important;
+  color:#fff !important;
+  border:none;
+  padding:14px 20px;
+  font-size:15px;
+  font-weight:600;
+  border-radius:8px;
+  cursor:pointer;
+  width:100%;
+  max-width:400px;
+  text-align:center;
+  box-shadow:0 2px 8px rgba(6,199,85,0.3);
+  transition:all 0.2s;
+}
+
+.btn-line:hover{
+  background:#05b34a !important;
+  box-shadow:0 4px 12px rgba(6,199,85,0.4);
 }
 
 .note{
