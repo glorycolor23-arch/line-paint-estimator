@@ -1,7 +1,6 @@
 // public/liff.js - 詳細見積もりフォーム (完全版)
 (async () => {
   const params = new URLSearchParams(location.search);
-  const leadId = params.get('leadId');
   const forcedStep = params.get('step');
 
   const ui = {
@@ -9,19 +8,10 @@
     render
   };
 
-  // leadIdをlocalStorageに保存して失われないようにする
-  let storedLeadId = leadId;
-  if (leadId) {
-    localStorage.setItem('leadId', leadId);
-  } else {
-    storedLeadId = localStorage.getItem('leadId');
-  }
-
   let model = {
     profile: null,
     lineUserId: null,
     displayName: '',
-    leadId: storedLeadId,
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
     form: {
       name: '',
@@ -50,34 +40,11 @@
 
   console.log('[LIFF] ========== DEBUG INFO ==========');
   console.log('[LIFF] URL:', location.href);
-  console.log('[LIFF] URL params:', location.search);
-  console.log('[LIFF] leadId from URL:', leadId);
-  console.log('[LIFF] leadId from localStorage:', localStorage.getItem('leadId'));
-  console.log('[LIFF] Final leadId:', model.leadId);
   console.log('[LIFF] lineUserId:', model.lineUserId);
   console.log('[LIFF] displayName:', model.displayName);
-  console.log('[LIFF] ===================================')
+  console.log('[LIFF] ===================================');
 
-  // leadIdから概算見積もりの回答を取得
-  if (model.leadId) {
-    try {
-      const leadRes = await fetch(`/api/lead/${model.leadId}`);
-      if (leadRes.ok) {
-        const leadData = await leadRes.json();
-        model.initialAnswers = leadData.answers || {};
-      }
-    } catch(e) {
-      console.error('[LIFF] Error fetching lead:', e);
-    }
-
-    try {
-      await fetch('/api/link-line-user', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({ leadId: model.leadId, lineUserId: model.lineUserId })
-      });
-    } catch(e) { /* noop */ }
-  }
+  // leadId不要: 詳細見積もりフォームは独立したフォーム
 
   render();
 
@@ -585,24 +552,10 @@
 
   async function submitAll() {
     console.log('[LIFF] Submitting...');
-    console.log('[LIFF] leadId:', model.leadId);
     console.log('[LIFF] lineUserId:', model.lineUserId);
     console.log('[LIFF] displayName:', model.displayName);
 
-    if (!model.leadId) {
-      console.error('[LIFF] ========== ERROR: leadId is missing! ==========');
-      console.error('[LIFF] URL:', location.href);
-      console.error('[LIFF] URL params:', location.search);
-      console.error('[LIFF] model.leadId:', model.leadId);
-      console.error('[LIFF] ================================================');
-      alert('エラー: 概算見積もりから開始してください。\n\n以下のURLから概算見積もりを開始してください：\nhttps://line-paint.onrender.com/');
-      // 概算見積もりページにリダイレクト
-      window.location.href = 'https://line-paint.onrender.com/';
-      return;
-    }
-
     const fd = new FormData();
-    fd.append('leadId', model.leadId);
     fd.append('lineUserId', model.lineUserId);
     fd.append('displayName', model.displayName);
     fd.append('name', model.form.name);
