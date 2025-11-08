@@ -31,27 +31,29 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId } = req.body || {};
-    const lead = getLead(leadId);
-    if (!lead) {
-      console.warn('[details] lead not found', { leadId });
-      return res.status(404).json({ error: 'lead not found' });
+    const { leadId, name, phone, postal, address, lineUserId } = req.body || {};
+    
+    // leadIdがある場合はleadを取得、ない場合は新規として処理
+    let lead = null;
+    if (leadId) {
+      lead = getLead(leadId);
+      if (lead) {
+        updateLeadDetails(leadId, { name, phone, postal, address, lineUserId });
+      }
     }
-
-    updateLeadDetails(leadId, { name, phone, postal, lineUserId });
 
     // スプレッドシート：失敗しても処理続行（ログのみ）
     try {
       const created = new Date().toISOString();
       await appendToSheet([
         created,                   // A:日時
-        leadId,                    // B
-        lineUserId || (lead.lineUserId || ''), // C
-        lead.answers?.desiredWork || '',  // D
-        lead.answers?.ageRange || '',     // E
-        lead.answers?.floors || '',       // F
-        lead.answers?.wallMaterial || '', // G
-        lead.amount || '',                // H
+        leadId || '新規',                    // B
+        lineUserId || (lead?.lineUserId || ''), // C
+        lead?.answers?.desiredWork || '',  // D
+        lead?.answers?.ageRange || '',     // E
+        lead?.answers?.floors || '',       // F
+        lead?.answers?.wallMaterial || '', // G
+        lead?.amount || '',                // H
         name || '', phone || '', postal || '', // I,J,K
         'ファイルはメール添付で受領' // L
       ]);
@@ -69,25 +71,26 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
 
       const summaryHtml = `
         <h3>新しい見積り依頼</h3>
-        <p><b>Lead ID:</b> ${leadId}</p>
-        <p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>
-        <p><b>初期回答</b><br/>
+        <p><b>Lead ID:</b> ${leadId || '新規'}</p>
+        ${lead ? `<p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>` : ''}
+        ${lead ? `<p><b>初期回答</b><br/>
           見積り希望: ${lead.answers?.desiredWork || ''}<br/>
           築年数: ${lead.answers?.ageRange || ''}<br/>
           階数: ${lead.answers?.floors || ''}<br/>
           外壁材: ${lead.answers?.wallMaterial || ''}
-        </p>
+        </p>` : ''}
         <p><b>詳細</b><br/>
           お名前: ${name || ''}<br/>
           電話: ${phone || ''}<br/>
-          郵便番号: ${postal || ''}
+          郵便番号: ${postal || ''}<br/>
+          住所: ${address || ''}
         </p>
         <p>図面・写真は添付ファイルをご確認ください。</p>
       `;
 
       await sendAdminMail({
-        subject: `【見積依頼】Lead ${leadId} / ${name || '名無し'}`,
-        text: `Lead ${leadId} 概算: ${lead.amount}円`,
+        subject: `【見積依頼】Lead ${leadId || '新規'} / ${name || '名無し'}`,
+        text: `Lead ${leadId || '新規'} ${lead ? `概算: ${lead.amount}円` : ''}`,
         html: summaryHtml,
         attachments
       });
