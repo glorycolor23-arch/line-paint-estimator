@@ -561,10 +561,18 @@
     // 送信中画面を表示
     ui.root.innerHTML = `
       <div style="text-align:center;padding:60px 20px;">
-        <div style="font-size:48px;margin-bottom:20px;animation:pulse 1.5s infinite;">📤</div>
-        <style>@keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.7; } }</style>
-        <h2 style="color:#3b82f6;margin-bottom:20px;">送信中...</h2>
-        <p style="color:#666;">しばらくお待ちください</p>
+        <svg width="80" height="80" viewBox="0 0 80 80" style="margin-bottom:24px;">
+          <circle cx="40" cy="40" r="32" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+          <circle cx="40" cy="40" r="32" fill="none" stroke="#3b82f6" stroke-width="6" 
+                  stroke-dasharray="200" stroke-dashoffset="50" stroke-linecap="round"
+                  style="animation:spin 1.5s linear infinite;transform-origin:center;">
+            <animateTransform attributeName="transform" type="rotate" from="0 40 40" to="360 40 40" 
+                              dur="1.5s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="40" cy="12" r="4" fill="#3b82f6" style="animation:pulse 1.5s ease-in-out infinite;"/>
+        </svg>
+        <h2 style="color:#3b82f6;margin-bottom:12px;font-size:20px;font-weight:600;">送信中...</h2>
+        <p style="color:#666;font-size:14px;">しばらくお待ちください</p>
       </div>
     `;
     
