@@ -77,7 +77,8 @@ router.post('/api/link-line-user', async (req, res) => {
   const text = buildSummaryText(lead.answers, lead.amount);
 
   try {
-    const summaryText = `外壁塗装オンライン見積もりにご連絡ありがとうございます。\nご連絡いただいた内容の概算見積もりは以下の通りです。\n\n【回答内容】\n・お見積もり希望内容\n　${lead.answers.desiredWork || ''}\n・築年数\n　${lead.answers.ageRange || ''}\n・階数\n　${lead.answers.floors || ''}\n・外壁材\n　${lead.answers.wallMaterial || ''}\n\n概算見積もり金額\n¥${Number(lead.amount).toLocaleString('ja-JP')}`;\n  const detailText = `より詳しいお見積もりをご希望の方はこちら。\nこちらのフォームに回答いただくと、現地調査での訪問は行わず正確な工事金額をご提示いたします。\nご提示した見積額で発注も可能です。`;
+const summaryText = '外壁塗装オンライン見積もりにご連絡ありがとうございます。\nご連絡いただいた内容の概算見積もりは以下の通りです。\n\n【回答内容】\n・お見積もり希望内容\n　' + (lead.answers.desiredWork || '') + '\n・築年数\n　' + (lead.answers.ageRange || '') + '\n・階数\n　' + (lead.answers.floors || '') + '\n・外壁材\n　' + (lead.answers.wallMaterial || '') + '\n\n概算見積もり金額\n¥' + Number(lead.amount).toLocaleString('ja-JP');
+const detailText = 'より詳しいお見積もりをご希望の方はこちら。\nこちらのフォームに回答いただくと、現地調査での訪問は行わず正確な工事金額をご提示いたします。\nご提示した見積額で発注も可能です。';
     await lineClient.pushMessage(lineUserId, [\n      { type: 'text', text: summaryText },\n      { type: 'text', text: detailText },      {
         type: 'template',
         altText: '詳細見積もりのご案内',
