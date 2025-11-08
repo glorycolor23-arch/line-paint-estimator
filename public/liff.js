@@ -224,19 +224,19 @@
       <div class="reference-images">
         <div class="reference-item">
           <p class="note"><strong>正面の例：</strong></p>
-          <img src="/public/img/building_sample.jpg" alt="正面写真の参考例" class="sample-img-small"/>
+          <img src="/public/img/building_front.jpg" alt="正面写真の参考例" class="sample-img-small"/>
         </div>
         <div class="reference-item">
           <p class="note"><strong>右側面の例：</strong></p>
-          <img src="/public/img/building_sample.jpg" alt="右側面写真の参考例" class="sample-img-small"/>
+          <img src="/public/img/building_right.jpg" alt="右側面写真の参考例" class="sample-img-small"/>
         </div>
         <div class="reference-item">
           <p class="note"><strong>左側面の例：</strong></p>
-          <img src="/public/img/building_sample.jpg" alt="左側面写真の参考例" class="sample-img-small"/>
+          <img src="/public/img/building_left.jpg" alt="左側面写真の参考例" class="sample-img-small"/>
         </div>
         <div class="reference-item">
           <p class="note"><strong>背面の例：</strong></p>
-          <img src="/public/img/building_sample.jpg" alt="背面写真の参考例" class="sample-img-small"/>
+          <img src="/public/img/building_back.jpg" alt="背面写真の参考例" class="sample-img-small"/>
         </div>
       </div>
       
@@ -280,6 +280,26 @@
       return labels[id] || id;
     }).join('、');
     
+    // アップロード画像のサムネイルを表示
+    let thumbnailsHtml = '<div class="uploaded-thumbnails">';
+    Object.keys(model.files).forEach(id => {
+      const labels = {
+        'drawing_elevation': '立面図',
+        'drawing_plan': '平面図',
+        'drawing_section': '断面図',
+        'photo_front': '建物正面',
+        'photo_right': '建物右側面',
+        'photo_left': '建物左側面',
+        'photo_back': '建物背面'
+      };
+      const label = labels[id] || id;
+      const thumb = model.thumbnails[id] || '';
+      if (thumb) {
+        thumbnailsHtml += `<div class="thumbnail-item"><p class="note">${label}</p>${thumb}</div>`;
+      }
+    });
+    thumbnailsHtml += '</div>';
+    
     ui.root.innerHTML = `
       <div class="badge">4/4</div>
       <h3>入力内容のご確認</h3>
@@ -288,8 +308,9 @@
         <div><strong>電話番号</strong><br>${model.form.phone}</div>
         <div><strong>郵便番号</strong><br>${model.form.postal}</div>
         <div><strong>住所</strong><br>${model.form.address}</div>
-        <div><strong>アップロードファイル</strong><br>${fileList}</div>
       </div>
+      <h4>アップロードしたファイル</h4>
+      ${thumbnailsHtml}
       
       <div class="nav-vertical">
         <button class="btn primary" id="submit">この内容で見積もりを依頼</button>
