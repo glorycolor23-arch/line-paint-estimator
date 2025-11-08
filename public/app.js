@@ -1,4 +1,4 @@
-// 画像はローカルのみ（/img/*.png）
+// public/app.js
 const IMG = (name) => `/img/${name}.png`;
 
 // 設問
@@ -49,31 +49,20 @@ const STEPS = [
   { key: 'confirm', title: '入力内容のご確認', type: 'confirm' },
 ];
 
-// 状態
-const state = { answers: {}, idx: 0, order: STEPS.map(s => s.key) };
+// ステート
+const state = {
+  idx: 0,
+  order: STEPS.map(s => s.key),
+  answers: {}
+};
 
-// 要素
-const $root    = document.getElementById('q-root');
+// DOM
 const $stepper = document.getElementById('stepper');
+const $qRoot   = document.getElementById('q-root');
+const $done    = document.getElementById('done');
 const $next    = document.getElementById('nextBtn');
 const $back    = document.getElementById('backBtn');
-const $done    = document.getElementById('done');
 const $navBar  = document.getElementById('nav-bar');
-
-// クリックのイベント委譲（動的DOMでも確実に拾う）
-document.addEventListener('click', (ev) => {
-  const tgt = ev.target;
-  if (!tgt) return;
-
-  // 最終確認：はい / いいえ
-  if (tgt.matches('[data-action="confirm-yes"]')) {
-    ev.preventDefault();
-    handleConfirmYes(tgt);
-  } else if (tgt.matches('[data-action="confirm-no"]')) {
-    ev.preventDefault();
-    handleConfirmNo();
-  }
-});
 
 $next.addEventListener('click', onNext);
 $back.addEventListener('click', (e) => {
@@ -88,118 +77,92 @@ function init(){ render(); }
 function curDef(){ return STEPS.find(s => s.key === state.order[state.idx]); }
 
 function render(){
+  const def = curDef();
+  if (!def) return;
+
+  // ステッパー
+  $stepper.innerHTML = `ステップ ${state.idx + 1} / ${state.order.length}`;
+
+  // 確認画面
+  if (def.type === 'confirm') {
+    renderConfirm(def);
+    return;
+  }
+
+  // 通常の質問
+  let html = `<h2>${def.title}</h2>`;
+  if (def.desc) html += `<p class="note">${def.desc}</p>`;
+
+  if (def.type === 'select-one-v') {
+    html += '<div class="btn-group-v">';
+    def.options.forEach(opt => {
+      const sel = (state.answers[def.key] === opt.value) ? ' selected' : '';
+      html += `<button type="button" class="btn-choice${sel}" data-key="${def.key}" data-value="${opt.value}">${opt.label}</button>`;
+    });
+    html += '</div>';
+  } else if (def.type === 'select-one-grid') {
+    html += '<div class="grid-choice">';
+    def.options.forEach(opt => {
+      const sel = (state.answers[def.key] === opt.value) ? ' selected' : '';
+      html += `
+        <button type="button" class="grid-item${sel}" data-key="${def.key}" data-value="${opt.value}">
+          <img src="${opt.img}" alt="${opt.label}" loading="lazy"/>
+          <span>${opt.label}</span>
+        </button>`;
+    });
+    html += '</div>';
+  }
+
+  $qRoot.innerHTML = html;
+  $qRoot.hidden = false;
   $done.hidden = true;
-  $root.innerHTML = '';
-  $navBar.classList.remove('hidden');
+  $navBar.style.display = 'flex';
 
-  const step = curDef();
-  renderStepper();
-
-  const h2 = document.createElement('h2');
-  h2.textContent = step.title;
-  $root.appendChild(h2);
-  if (step.desc){
-    const p = document.createElement('p'); p.className = 'desc'; p.textContent = step.desc;
-    $root.appendChild(p);
-  }
-
-  // 戻るリンクの表示/非表示
-  if (state.idx === 0) {
-    $back.style.display = 'none';
-  } else {
-    $back.style.display = 'block';
-  }
-  $next.disabled = true;
-
-  if (step.type === 'select-one-v') {
-    renderSelectOneV(step);
-  } else if (step.type === 'select-one-grid') {
-    renderSelectOneGrid(step);
-  } else if (step.type === 'confirm') {
-    renderConfirm();
-  }
-}
-
-function renderStepper(){
-  $stepper.textContent = `Step ${state.idx + 1} / ${state.order.length}`;
-}
-
-function renderSelectOneV(step){
-  const wrap = document.createElement('div'); wrap.className = 'vlist';
-
-  step.options.forEach(opt=>{
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'vbtn';
-    btn.textContent = opt.label;
-    btn.setAttribute('role','radio');
-    btn.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
-    btn.addEventListener('click', ()=>{
-      select(step.key, opt.value);
-      wrap.querySelectorAll('.vbtn').forEach(b => b.setAttribute('aria-checked','false'));
-      btn.setAttribute('aria-checked','true');
-      $next.disabled = false;
+  // 選択肢クリック
+  $qRoot.querySelectorAll('[data-key]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.key;
+      const v = btn.dataset.value;
+      state.answers[k] = v;
+      render();
     });
-    wrap.appendChild(btn);
   });
 
-  $root.appendChild(wrap);
+  // 次へボタンの状態
+  $next.disabled = !state.answers[def.key];
+  $next.textContent = '次へ';
+  $next.removeAttribute('data-action');
+
+  // 戻るボタンの表示
+  $back.style.display = (state.idx === 0) ? 'none' : 'inline-block';
 }
 
-function renderSelectOneGrid(step){
-  const grid = document.createElement('div'); grid.className = 'grid';
-  step.options.forEach(opt=>{
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'option';
-    card.setAttribute('role','radio');
-    card.setAttribute('aria-checked', String(state.answers[step.key] === opt.value));
-
-    const ph = document.createElement('div'); ph.className = 'thumb';
-    ph.style.backgroundImage = `url("${opt.img}")`;
-
-    const cap = document.createElement('div'); cap.className = 'label';
-    cap.textContent = opt.label;
-
-    card.appendChild(ph); card.appendChild(cap);
-
-    card.addEventListener('click', ()=>{
-      select(step.key, opt.value);
-      grid.querySelectorAll('.option').forEach(el => el.setAttribute('aria-checked','false'));
-      card.setAttribute('aria-checked','true');
-      $next.disabled = false;
-    });
-
-    grid.appendChild(card);
+function renderConfirm(def){
+  let html = `<h2>${def.title}</h2>`;
+  html += '<div class="summary">';
+  
+  state.order.slice(0, -1).forEach(key => {
+    const step = STEPS.find(s => s.key === key);
+    if (step && state.answers[key]) {
+      html += `<div><strong>${step.title}</strong><br>${state.answers[key]}</div>`;
+    }
   });
+  
+  html += '</div>';
+  html += '<p class="note">上記の内容で概算見積もりを依頼します。よろしいですか？</p>';
 
-  $root.appendChild(grid);
-}
+  $qRoot.innerHTML = html;
+  $qRoot.hidden = false;
+  $done.hidden = true;
+  $navBar.style.display = 'flex';
 
-function renderConfirm(){
-  // 確認ステップは共通ナビを表示（戻るリンクのみ）
-  $navBar.classList.remove('hidden');
-  $next.textContent = 'この内容で概算見積もりを依頼';
+  // 次へボタンを「この内容で概算見積もりを依頼」に変更
   $next.disabled = false;
-  $next.setAttribute('data-action','confirm-yes');
+  $next.textContent = 'この内容で概算見積もりを依頼';
+  $next.setAttribute('data-action', 'confirm-yes');
 
-  const list = [
-    ['■見積もり希望内容', state.answers.desiredWork ?? '-'],
-    ['■築年数',           state.answers.ageRange ?? '-'],
-    ['■階数',             state.answers.floors ?? '-'],
-    ['■外壁材',           state.answers.wallMaterial ?? '-'],
-  ];
-  const div = document.createElement('div');
-  div.style.marginTop = '8px';
-  div.innerHTML = list.map(([k,v]) => `${k}　${v}`).join('<br/>');
-  $root.appendChild(div);
-}
-
-// 選択時：以降の回答をクリア
-function select(key, value){
-  state.answers[key] = value;
-  const i = state.order.indexOf(key);
-  state.order.slice(i + 1).forEach(k => delete state.answers[k]);
+  // 戻るボタンを表示
+  $back.style.display = 'inline-block';
 }
 
 function onNext(){
@@ -207,7 +170,7 @@ function onNext(){
   
   // 最終確認画面で「この内容で概算見積もりを依頼」ボタンが押された場合
   if ($next.hasAttribute('data-action') && $next.getAttribute('data-action') === 'confirm-yes') {
-    handleConfirmYes($next);
+    handleConfirmYes();
     return;
   }
   
@@ -225,65 +188,76 @@ function onBack(){
   render();
 }
 
-// ======= 確認「はい」：強制遷移のフェイルセーフ =======
-async function handleConfirmYes(btn){
+// ローディング画面を表示
+function showLoading() {
+  const loadingHTML = `
+    <div class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-dots">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <p>送信中...</p>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', loadingHTML);
+}
+
+// ローディング画面を非表示
+function hideLoading() {
+  const overlay = document.querySelector('.loading-overlay');
+  if (overlay) overlay.remove();
+}
+
+// 確認「はい」：送信処理
+async function handleConfirmYes(){
   try {
-    // 二重クリック抑止
-    btn.disabled = true;
+    // ボタンを無効化
+    $next.disabled = true;
+    $back.style.display = 'none';
+    
+    // ローディング画面を表示
+    showLoading();
 
     const payload = { ...state.answers };
 
-    // 1) /estimate
-    const r1 = await postJson('/estimate', payload);
-    if (r1?.redirectUrl) {
-      hardRedirect(r1.redirectUrl);
-      return;
-    }
-
-    // 2) /api/estimate にフォールバック
-    const r2 = await postJson('/api/estimate', payload);
-    if (r2?.redirectUrl) {
-      hardRedirect(r2.redirectUrl);
-      return;
-    }
-
-    // 3) 全て失敗 → 友だちURLへ
-    hardRedirect('https://lin.ee/dFC71xA');
-  } catch (_e) {
-    // 例外時も確実に誘導
-    hardRedirect('https://lin.ee/dFC71xA');
-  }
-}
-
-function handleConfirmNo(){
-  state.answers = {};
-  state.idx = 0;
-  render();
-}
-
-// JSON POST（5秒タイムアウト付き）
-async function postJson(url, body){
-  const ctrl = new AbortController();
-  const t = setTimeout(()=>ctrl.abort(), 5000);
-  try{
-    const res = await fetch(url, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body),
-      signal: ctrl.signal
+    // /estimate に送信
+    const res = await fetch('/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    return await res.json().catch(()=>null);
-  }catch(_e){
-    clearTimeout(t);
-    return null;
+
+    const data = await res.json().catch(() => ({}));
+    
+    // ローディング画面を非表示
+    hideLoading();
+
+    if (data && data.error) {
+      alert('送信に失敗しました。再度お試しください。');
+      $next.disabled = false;
+      $back.style.display = 'inline-block';
+      return;
+    }
+
+    // 完了画面を表示（LINE友達登録への誘導）
+    showDone();
+
+  } catch (err) {
+    hideLoading();
+    console.error('送信エラー:', err);
+    alert('送信に失敗しました。通信状態をご確認ください。');
+    $next.disabled = false;
+    $back.style.display = 'inline-block';
   }
 }
 
-// リダイレクト（replace で戻るボタン汚染を避ける）
-function hardRedirect(url){
-  // location.assign だと一部環境でブロックされる事があるため両対応
-  try { window.location.replace(url); }
-  catch { window.location.href = url; }
+function showDone() {
+  $qRoot.hidden = true;
+  $navBar.style.display = 'none';
+  $stepper.innerHTML = '';
+  $done.hidden = false;
 }
+
