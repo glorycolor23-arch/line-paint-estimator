@@ -32,13 +32,15 @@ const fields = [
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
     const { leadId, name, phone, postal, address, lineUserId } = req.body || {};
-    const lead = getLead(leadId);
-    if (!lead) {
-      console.warn('[details] lead not found', { leadId });
-      return res.status(404).json({ error: 'lead not found' });
+    
+    // leadIdがある場合は既存のleadを更新
+    let lead = null;
+    if (leadId) {
+      lead = getLead(leadId);
+      if (lead) {
+        updateLeadDetails(leadId, { name, phone, postal, address, lineUserId });
+      }
     }
-
-    updateLeadDetails(leadId, { name, phone, postal, lineUserId });
 
     // スプレッドシート：失敗しても処理続行（ログのみ）
     try {
@@ -67,28 +69,36 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
       }
 
-      const summaryHtml = `
-        <h3>新しい見積り依頼</h3>
-        <p><b>Lead ID:</b> ${leadId}</p>
-        <p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>
-        <p><b>初期回答</b><br/>
-          見積り希望: ${lead.answers?.desiredWork || ''}<br/>
-          築年数: ${lead.answers?.ageRange || ''}<br/>
-          階数: ${lead.answers?.floors || ''}<br/>
-          外壁材: ${lead.answers?.wallMaterial || ''}
-        </p>
-        <p><b>詳細</b><br/>
-          お名前: ${name || ''}<br/>
-          電話: ${phone || ''}<br/>
-          郵便番号: ${postal || ''}<br/>
-          住所: ${address || ''}
-        </p>
-        <p>図面・写真は添付ファイルをご確認ください。</p>
-      `;
+      let summaryHtml = '<h3>新しい見積り依頼</h3>';
+      if (lead) {
+        summaryHtml += `<p><b>Lead ID:</b> ${leadId}</p>`;
+        summaryHtml += `<p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>`;
+        summaryHtml += '<p><b>初期回答</b><br/>';
+        summaryHtml += `見積り希望: ${lead.answers?.desiredWork || ''}<br/>`;
+        summaryHtml += `築年数: ${lead.answers?.ageRange || ''}<br/>`;
+        summaryHtml += `階数: ${lead.answers?.floors || ''}<br/>`;
+        summaryHtml += `外壁材: ${lead.answers?.wallMaterial || ''}</p>`;
+      } else {
+        summaryHtml += '<p>概算見積もりなし（直接依頼）</p>';
+      }
+      summaryHtml += '<p><b>詳細</b><br/>';
+      summaryHtml += `お名前: ${name || ''}<br/>`;
+      summaryHtml += `電話: ${phone || ''}<br/>`;
+      summaryHtml += `郵便番号: ${postal || ''}<br/>`;
+      summaryHtml += `住所: ${address || ''}</p>`;
+      summaryHtml += '<p>図面・写真は添付ファイルをご確認ください。</p>';
 
+      const subject = lead 
+        ? `【見積依頼】Lead ${leadId} / ${name || '名無し'}`
+        : `【見積依頼】${name || '名無し'}`;
+      
+      const text = lead 
+        ? `Lead ${leadId} 概算: ${lead.amount}円`
+        : `直接依頼: ${name || '名無し'}`;
+      
       await sendAdminMail({
-        subject: `【見積依頼】Lead ${leadId} / ${name || '名無し'}`,
-        text: `Lead ${leadId} 概算: ${lead.amount}円`,
+        subject,
+        text,
         html: summaryHtml,
         attachments
       });
