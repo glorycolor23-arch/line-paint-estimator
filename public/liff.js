@@ -221,9 +221,23 @@
       <h3>建物の写真をアップロード</h3>
       <p class="note">建物の正面・右側面・左側面・背面の写真をアップロードしてください。</p>
       
-      <div class="reference-image">
-        <p class="note"><strong>建物写真の例：</strong></p>
-        <img src="/public/img/building_sample.jpg" alt="建物写真の参考例" class="sample-img-small"/>
+      <div class="reference-images">
+        <div class="reference-item">
+          <p class="note"><strong>正面の例：</strong></p>
+          <img src="/public/img/building_sample.jpg" alt="正面写真の参考例" class="sample-img-small"/>
+        </div>
+        <div class="reference-item">
+          <p class="note"><strong>右側面の例：</strong></p>
+          <img src="/public/img/building_sample.jpg" alt="右側面写真の参考例" class="sample-img-small"/>
+        </div>
+        <div class="reference-item">
+          <p class="note"><strong>左側面の例：</strong></p>
+          <img src="/public/img/building_sample.jpg" alt="左側面写真の参考例" class="sample-img-small"/>
+        </div>
+        <div class="reference-item">
+          <p class="note"><strong>背面の例：</strong></p>
+          <img src="/public/img/building_sample.jpg" alt="背面写真の参考例" class="sample-img-small"/>
+        </div>
       </div>
       
       ${fileInput('photo_front','建物の正面','image/*', true)}
