@@ -255,7 +255,7 @@ async function handleConfirmYes(){
 }
 
 function showResult(data) {
-  const { amount, leadId, addFriendUrl } = data;
+  const { amount, leadId, liffDeepLink } = data;
   
   $qRoot.hidden = false;
   $navBar.style.display = 'none';
@@ -264,22 +264,25 @@ function showResult(data) {
   // 金額表示画面
   let html = '<h2>概算見積もり金額</h2>';
   html += `<div class="amount-display">${Number(amount).toLocaleString('ja-JP')}円</div>`;
-  html += '<div class="summary">';
   
+  // コンパクトな回答内容表示
+  html += '<div class="summary-compact">';
+  const answers = [];
   state.order.slice(0, -1).forEach(key => {
     const step = STEPS.find(s => s.key === key);
     if (step && state.answers[key]) {
-      html += `<div><strong>${step.title}</strong><br>${state.answers[key]}</div>`;
+      answers.push(`${step.title}: ${state.answers[key]}`);
     }
   });
-  
+  html += answers.join(' / ');
   html += '</div>';
-  html += '<p class="note">この金額は概算です。詳しいお見積もりはLINEの友達登録後にご確認いただけます。</p>';
   
-  // LINE友達追加ボタンを追加
-  if (addFriendUrl) {
-    html += '<div style="margin-top:24px;">';
-    html += `<a href="${addFriendUrl}" class="btn primary" style="display:inline-block;text-decoration:none;">LINEを開く（友だち追加）</a>`;
+  html += '<p class="note-compact">この金額は概算です。</p>';
+  
+  // 詳細見積もりボタン
+  if (liffDeepLink) {
+    html += '<div style="margin-top:16px;">';
+    html += `<a href="${liffDeepLink}" class="btn btn-line" style="display:inline-block;text-decoration:none;">［無料］現地調査なしで詳細見積を依頼</a>`;
     html += '</div>';
   }
   
