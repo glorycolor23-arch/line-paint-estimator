@@ -19,8 +19,9 @@ export const CONFIG = {
     // Renderの1行貼付け対応（\n → 改行）
     .replace(/\\n/g, '\n'),
 
-  // Mail (Nodemailer)
+  // Mail (Nodemailer / Resend)
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || process.env.EMAIL_TO || '',
+  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   SMTP_HOST: process.env.SMTP_HOST || '',
   SMTP_PORT: Number(process.env.SMTP_PORT || 587),
   SMTP_SECURE: String(process.env.SMTP_SECURE || 'false') === 'true',
