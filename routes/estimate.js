@@ -81,14 +81,12 @@ router.post('/api/link-line-user', async (req, res) => {
     
     await lineClient.pushMessage(lineUserId, [
       { type: 'text', text: summaryText },
-      { type: 'text', text: detailText },
       {
         type: 'template',
         altText: '詳細見積もりのご案内',
         template: {
           type: 'buttons',
-          title: '詳細見積もりのご案内',
-          text: '下記ボタンよりお進みください',
+          text: detailText,
           actions: [
             { type: 'uri', label: '無料で、現地調査なしの見積もりを依頼', uri: detailBtnUri }
           ]
