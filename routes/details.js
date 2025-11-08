@@ -49,85 +49,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       console.log('[details] No leadId provided (independent detail form)');
     }
 
-    // スプレッドシート：失敗しても処理続行（ログのみ）
-    try {
-      const created = new Date().toISOString();
-      await appendToSheet([
-        created,                   // A:日時
-        leadId || 'N/A',          // B
-        lineUserId || '', // C
-        displayName || '', // D:LINE表示名
-        name || '', phone || '', postal || '', // E,F,G
-        (address || '') + ' ' + (addressDetail || ''), // H:住所
-        needsPaint === 'true' ? '希望する' : '希望しない', // I:外壁塗装
-        paintType || '',                  // J:希望の塗料
-        needsRoof === 'true' ? '希望する' : '希望しない', // K:屋根工事
-        roofWorkType || '',               // L:希望の工事内容
-        buildingAge || '',                // M:築年数
-        buildingFloors || '',             // N:階数
-        wallMaterial || '',               // O:外壁材
-        'ファイルはメール添付で受領' // P
-      ]);
-    } catch (e) {
-      console.error('[details] appendToSheet failed (non-fatal):', e);
-    }
-
-    // メール：失敗しても処理続行（ログのみ）
-    try {
-      const attachments = [];
-      for (const key of Object.keys(req.files || {})) {
-        const f = req.files[key]?.[0];
-        if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
-      }
-
-      const paintLabels = {
-        'acrylic': 'コスト重視(アクリル系またはウレタン系塗料)',
-        'silicon': 'バランス重視(シリコン系塗料)',
-        'fluorine': '高耐久＋機能付き(フッ素系/無機系/ラジカル制御塗料)',
-        'thermal': '機能重視(遮熱・断熱塗料)'
-      };
-      const roofLabels = {
-        'painting': '屋根塗装',
-        'cover': 'カバー工法(重ね葵き)',
-        'replacement': '葵き替え(全面交換)',
-        'repair': '部分修理・補修',
-        'insulation': '断熱・遮熱リフォーム'
-      };
-
-      const summaryHtml = `
-        <h3>新しい見積り依頼</h3>
-        <p><b>Lead ID:</b> ${leadId || 'N/A (独立フォーム)'}</p>
-        <p><b>LINE User ID:</b> ${lineUserId || ''}</p>
-        <p><b>LINE表示名:</b> ${displayName || ''}</p>
-        <p><b>お名前:</b> ${name || ''}</p>
-        <p><b>電話:</b> ${phone || ''}</p>
-        <p><b>郵便番号:</b> ${postal || ''}</p>
-        <p><b>住所:</b> ${(address || '') + ' ' + (addressDetail || '')}</p>
-        <hr/>
-        <p><b>外壁塗装:</b> ${needsPaint === 'true' ? '希望する' : '希望しない'}</p>
-        ${needsPaint === 'true' ? `<p><b>希望の塗料:</b> ${paintLabels[paintType] || paintType || '未選択'}</p>` : ''}
-        <p><b>屋根工事:</b> ${needsRoof === 'true' ? '希望する' : '希望しない'}</p>
-        ${needsRoof === 'true' ? `<p><b>希望の工事内容:</b> ${roofLabels[roofWorkType] || roofWorkType || '未選択'}</p>` : ''}
-        <hr/>
-        <p><b>築年数:</b> ${buildingAge || ''}</p>
-        <p><b>階数:</b> ${buildingFloors || ''}</p>
-        <p><b>外壁材:</b> ${wallMaterial || ''}</p>
-        <hr/>
-        <p>図面・写真は添付ファイルをご確認ください。</p>
-      `;
-
-      const estimateAmount = lead ? lead.amount : 'N/A';
-      await sendAdminMail({
-        subject: `【見積依頼】${leadId ? 'Lead ' + leadId : '独立フォーム'} / ${name || '名無し'}`,
-        text: `Lead ${leadId || 'N/A'} 概算: ${estimateAmount}円`,
-        html: summaryHtml,
-        attachments
-      });
-    } catch (e) {
-      console.error('[details] sendAdminMail failed (non-fatal):', e);
-    }
-
-    // LINEメッセージ送信
+    // LINEメッセージ送信（優先処理）
     if (lineUserId) {
       try {
         const lineClient = new Client({ channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '' });
@@ -141,7 +63,91 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       }
     }
 
-    return res.json({ ok: true });
+    // すぐにレスポンスを返す（ユーザーを待たせない）
+    res.json({ ok: true });
+
+    // 以下は非同期で実行（レスポンス後に処理）
+    // スプレッドシート：失敗しても処理続行（ログのみ）
+    setImmediate(async () => {
+      try {
+        const created = new Date().toISOString();
+        await appendToSheet([
+          created,                   // A:日時
+          leadId || 'N/A',          // B
+          lineUserId || '', // C
+          displayName || '', // D:LINE表示名
+          name || '', phone || '', postal || '', // E,F,G
+          (address || '') + ' ' + (addressDetail || ''), // H:住所
+          needsPaint === 'true' ? '希望する' : '希望しない', // I:外壁塗装
+          paintType || '',                  // J:希望の塗料
+          needsRoof === 'true' ? '希望する' : '希望しない', // K:屋根工事
+          roofWorkType || '',               // L:希望の工事内容
+          buildingAge || '',                // M:築年数
+          buildingFloors || '',             // N:階数
+          wallMaterial || '',               // O:外壁材
+          'ファイルはメール添付で受領' // P
+        ]);
+      } catch (e) {
+        console.error('[details] appendToSheet failed (non-fatal):', e);
+      }
+
+      // メール：失敗しても処理続行（ログのみ）
+      try {
+        const attachments = [];
+        for (const key of Object.keys(req.files || {})) {
+          const f = req.files[key]?.[0];
+          if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
+        }
+
+        const paintLabels = {
+          'acrylic': 'コスト重視(アクリル系またはウレタン系塗料)',
+          'silicon': 'バランス重視(シリコン系塗料)',
+          'fluorine': '高耐久＋機能付き(フッ素系/無機系/ラジカル制御塗料)',
+          'thermal': '機能重視(遮熱・断熱塗料)'
+        };
+        const roofLabels = {
+          'painting': '屋根塗装',
+          'cover': 'カバー工法(重ね葵き)',
+          'replacement': '葵き替え(全面交換)',
+          'repair': '部分修理・補修',
+          'insulation': '断熱・遮熱リフォーム'
+        };
+
+        const summaryHtml = `
+          <h3>新しい見積り依頼</h3>
+          <p><b>Lead ID:</b> ${leadId || 'N/A (独立フォーム)'}</p>
+          <p><b>LINE User ID:</b> ${lineUserId || ''}</p>
+          <p><b>LINE表示名:</b> ${displayName || ''}</p>
+          <p><b>お名前:</b> ${name || ''}</p>
+          <p><b>電話:</b> ${phone || ''}</p>
+          <p><b>郵便番号:</b> ${postal || ''}</p>
+          <p><b>住所:</b> ${(address || '') + ' ' + (addressDetail || '')}</p>
+          <hr/>
+          <p><b>外壁塗装:</b> ${needsPaint === 'true' ? '希望する' : '希望しない'}</p>
+          ${needsPaint === 'true' ? `<p><b>希望の塗料:</b> ${paintLabels[paintType] || paintType || '未選択'}</p>` : ''}
+          <p><b>屋根工事:</b> ${needsRoof === 'true' ? '希望する' : '希望しない'}</p>
+          ${needsRoof === 'true' ? `<p><b>希望の工事内容:</b> ${roofLabels[roofWorkType] || roofWorkType || '未選択'}</p>` : ''}
+          <hr/>
+          <p><b>築年数:</b> ${buildingAge || ''}</p>
+          <p><b>階数:</b> ${buildingFloors || ''}</p>
+          <p><b>外壁材:</b> ${wallMaterial || ''}</p>
+          <hr/>
+          <p>図面・写真は添付ファイルをご確認ください。</p>
+        `;
+
+        const estimateAmount = lead ? lead.amount : 'N/A';
+        await sendAdminMail({
+          subject: `【見積依頼】${leadId ? 'Lead ' + leadId : '独立フォーム'} / ${name || '名無し'}`,
+          text: `Lead ${leadId || 'N/A'} 概算: ${estimateAmount}円`,
+          html: summaryHtml,
+          attachments
+        });
+        console.log('[details] Admin email sent successfully');
+      } catch (e) {
+        console.error('[details] sendAdminMail failed (non-fatal):', e);
+      }
+    });
+
   } catch (e) {
     console.error('[details] fatal error:', e);
     console.error('[details] error stack:', e.stack);
