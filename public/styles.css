@@ -247,3 +247,35 @@ small, .hint{color:#6b7280}
   font-size: 14px;
 }
 
+
+/* =========
+   Nav Vertical (概算見積もり用)
+   ========= */
+.nav-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.nav-vertical .btn.primary {
+  width: 100%;
+  min-height: 52px;
+  font-size: 17px;
+}
+
+.back-link {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 15px;
+  transition: color 0.15s ease;
+}
+
+.back-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
