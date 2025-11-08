@@ -34,22 +34,28 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
     const { leadId, name, phone, postal, address, addressDetail, lineUserId, displayName, needsPaint, needsRoof, paintType, roofWorkType, buildingAge, buildingFloors, wallMaterial } = req.body || {};
     console.log('[details] Received request:', { leadId, lineUserId, displayName, name, phone, postal, address, addressDetail });
-    const lead = getLead(leadId);
-    if (!lead) {
-      console.warn('[details] lead not found', { leadId });
-      return res.status(404).json({ error: 'lead not found' });
+    
+    // leadIdは任意: 概算見積もりから来た場合のみ存在する
+    let lead = null;
+    if (leadId) {
+      lead = getLead(leadId);
+      if (lead) {
+        console.log('[details] Lead found:', lead);
+        updateLeadDetails(leadId, { name, phone, postal, address, addressDetail, lineUserId, displayName });
+      } else {
+        console.warn('[details] leadId provided but lead not found:', { leadId });
+      }
+    } else {
+      console.log('[details] No leadId provided (independent detail form)');
     }
-    console.log('[details] Lead found:', lead);
-
-    updateLeadDetails(leadId, { name, phone, postal, address, addressDetail, lineUserId, displayName });
 
     // スプレッドシート：失敗しても処理続行（ログのみ）
     try {
       const created = new Date().toISOString();
       await appendToSheet([
         created,                   // A:日時
-        leadId,                    // B
-        lineUserId || (lead.lineUserId || ''), // C
+        leadId || 'N/A',          // B
+        lineUserId || '', // C
         displayName || '', // D:LINE表示名
         name || '', phone || '', postal || '', // E,F,G
         (address || '') + ' ' + (addressDetail || ''), // H:住所
@@ -60,7 +66,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         buildingAge || '',                // M:築年数
         buildingFloors || '',             // N:階数
         wallMaterial || '',               // O:外壁材
-        'ファイルはメール添付で受領' // N
+        'ファイルはメール添付で受領' // P
       ]);
     } catch (e) {
       console.error('[details] appendToSheet failed (non-fatal):', e);
@@ -90,7 +96,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
 
       const summaryHtml = `
         <h3>新しい見積り依頼</h3>
-        <p><b>Lead ID:</b> ${leadId}</p>
+        <p><b>Lead ID:</b> ${leadId || 'N/A (独立フォーム)'}</p>
         <p><b>LINE User ID:</b> ${lineUserId || ''}</p>
         <p><b>LINE表示名:</b> ${displayName || ''}</p>
         <p><b>お名前:</b> ${name || ''}</p>
@@ -110,9 +116,10 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         <p>図面・写真は添付ファイルをご確認ください。</p>
       `;
 
+      const estimateAmount = lead ? lead.amount : 'N/A';
       await sendAdminMail({
-        subject: `【見積依頼】Lead ${leadId} / ${name || '名無し'}`,
-        text: `Lead ${leadId} 概算: ${lead.amount}円`,
+        subject: `【見積依頼】${leadId ? 'Lead ' + leadId : '独立フォーム'} / ${name || '名無し'}`,
+        text: `Lead ${leadId || 'N/A'} 概算: ${estimateAmount}円`,
         html: summaryHtml,
         attachments
       });
@@ -143,3 +150,4 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
 });
 
 export default router;
+
