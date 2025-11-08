@@ -16,6 +16,16 @@ const LIFF_ID  = process.env.LIFF_ID  || '';
 
 const lineClient = new Client({ channelAccessToken: LINE_ACCESS_TOKEN });
 
+// LIFF deeplinkを生成
+function liffLinkWithLead(leadId, lineUserId) {
+  const base = LIFF_URL || `https://liff.line.me/${LIFF_ID}`;
+  const params = new URLSearchParams();
+  if (leadId) params.append('leadId', leadId);
+  if (lineUserId) params.append('lineUserId', lineUserId);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 // 回答要約テキストを作る（LINEにそのまま流せる体裁）
 function buildSummaryText(answers, amount) {
   let text = '外壁塗装オンライン見積もりにご連絡ありがとうございます。\n';
