@@ -18,15 +18,13 @@ const lineClient = new Client({ channelAccessToken: LINE_ACCESS_TOKEN });
 
 // 回答要約テキストを作る（LINEにそのまま流せる体裁）
 function buildSummaryText(answers, amount) {
-  let text = '外壁塗装オンライン見積もりにご連絡ありがとうございます。\n';
-  text += 'ご連絡いただいた内容の概算見積もりは以下の通りです。\n\n';
-  text += '回答内容\n';
-  if (answers?.desiredWork)  text += `・お見積もり希望内容\n　${answers.desiredWork}\n`;
-  if (answers?.ageRange)     text += `・築年数\n　${answers.ageRange}\n`;
-  if (answers?.floors)       text += `・階数\n　${answers.floors}\n`;
-  if (answers?.wallMaterial) text += `・外壁材\n　${answers.wallMaterial}\n`;
-  text += `\n概算見積もり金額\n${Number(amount).toLocaleString('ja-JP')}円`;
-  return text;
+  const lines = [];
+  if (answers?.desiredWork)  lines.push(`■見積もり希望内容：${answers.desiredWork}`);
+  if (answers?.ageRange)     lines.push(`■築年数：${answers.ageRange}`);
+  if (answers?.floors)       lines.push(`■階数：${answers.floors}`);
+  if (answers?.wallMaterial) lines.push(`■外壁材：${answers.wallMaterial}`);
+  const head = `お見積もりのご依頼ありがとうございます。\n概算お見積額は ${Number(amount).toLocaleString('ja-JP')} 円です。`;
+  return head + (lines.length ? `\n\n【ご回答内容】\n${lines.join('\n')}` : '');
 }
 
 function liffLinkWithLead(leadId, extra = '') {
