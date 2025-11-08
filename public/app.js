@@ -242,8 +242,8 @@ async function handleConfirmYes(){
       return;
     }
 
-    // 完了画面を表示（LINE友達登録への誘導）
-    showDone();
+    // 金額表示画面を表示
+    showResult(data);
 
   } catch (err) {
     hideLoading();
@@ -252,6 +252,34 @@ async function handleConfirmYes(){
     $next.disabled = false;
     $back.style.display = 'inline-block';
   }
+}
+
+function showResult(data) {
+  const { amount, leadId } = data;
+  
+  $qRoot.hidden = false;
+  $navBar.style.display = 'none';
+  $stepper.innerHTML = '';
+  
+  // 金額表示画面
+  let html = '<h2>概算見積もり金額</h2>';
+  html += `<div class="amount-display">${Number(amount).toLocaleString('ja-JP')}円</div>`;
+  html += '<div class="summary">';
+  
+  state.order.slice(0, -1).forEach(key => {
+    const step = STEPS.find(s => s.key === key);
+    if (step && state.answers[key]) {
+      html += `<div><strong>${step.title}</strong><br>${state.answers[key]}</div>`;
+    }
+  });
+  
+  html += '</div>';
+  html += '<p class="note">この金額は概算です。詳しいお見積もりはLINEの友達登録後にご確認いただけます。</p>';
+  
+  $qRoot.innerHTML = html;
+  
+  // 3秒後にLINE友達登録画面を表示
+  setTimeout(() => showDone(), 3000);
 }
 
 function showDone() {
