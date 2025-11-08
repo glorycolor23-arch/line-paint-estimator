@@ -232,18 +232,19 @@ async function handleConfirmYes(){
 
     const data = await res.json().catch(() => ({}));
     
-    // ローディング画面を非表示
-    hideLoading();
-
     if (data && data.error) {
+      hideLoading();
       alert('送信に失敗しました。再度お試しください。');
       $next.disabled = false;
       $back.style.display = 'inline-block';
       return;
     }
 
-    // 金額表示画面を表示
-    showResult(data);
+    // 計算中ローディングを2秒間表示してから金額表示
+    setTimeout(() => {
+      hideLoading();
+      showResult(data);
+    }, 2000);
 
   } catch (err) {
     hideLoading();
@@ -255,7 +256,7 @@ async function handleConfirmYes(){
 }
 
 function showResult(data) {
-  const { amount, leadId, liffDeepLink } = data;
+  const { amount, leadId, addFriendUrl } = data;
   
   $qRoot.hidden = false;
   $navBar.style.display = 'none';
@@ -279,10 +280,13 @@ function showResult(data) {
   
   html += '<p class="note-compact">この金額は概算です。</p>';
   
-  // 詳細見積もりボタン
-  if (liffDeepLink) {
+  // 説明テキスト（ボタンの上）
+  html += '<p class="description-text">数ステップの回答で概算見積を算出。LINEで結果をお届けします。</p>';
+  
+  // LINE友達追加ボタン
+  if (addFriendUrl) {
     html += '<div style="margin-top:16px;">';
-    html += `<a href="${liffDeepLink}" class="btn btn-line" style="display:inline-block;text-decoration:none;">［無料］現地調査なしで詳細見積を依頼</a>`;
+    html += `<a href="${addFriendUrl}" class="btn btn-line" style="display:inline-block;text-decoration:none;">［無料］現地調査なしで詳細見積を依頼</a>`;
     html += '</div>';
   }
   
