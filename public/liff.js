@@ -136,6 +136,7 @@
   }
 
   function renderDrawings() {
+    window.scrollTo(0, 0);
     ui.root.innerHTML = `
       <div class="badge">2/9</div>
       <h3>図面のアップロード</h3>
@@ -147,6 +148,7 @@
         <input class="file" id="drawing_elevation" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
         <div id="preview_drawing_elevation" style="margin-top:10px;"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">
       
       <div style="margin-bottom:20px;">
         <label>平面図</label>
@@ -154,6 +156,7 @@
         <input class="file" id="drawing_plan" type="file" accept="image/*" style="font-size:16px;padding:12px"/>
         <div id="preview_drawing_plan" style="margin-top:10px;"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">
       
       <div style="margin-bottom:20px;">
         <label>断面図</label>
@@ -188,6 +191,7 @@
   }
 
   function renderPhotos() {
+    window.scrollTo(0, 0);
     ui.root.innerHTML = `
       <div class="badge">3/9</div>
       <h3>建物の写真</h3>
@@ -200,6 +204,7 @@
         <input class="file" id="photo_front" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
         <div id="preview_photo_front" style="margin-top:10px;"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">
       
       <div style="margin-bottom:20px;">
         <label>建物の右側面</label>
@@ -207,6 +212,7 @@
         <input class="file" id="photo_right" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
         <div id="preview_photo_right" style="margin-top:10px;"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">
       
       <div style="margin-bottom:20px;">
         <label>建物の左側面</label>
@@ -214,6 +220,7 @@
         <input class="file" id="photo_left" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
         <div id="preview_photo_left" style="margin-top:10px;"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">
       
       <div style="margin-bottom:20px;">
         <label>建物の背面</label>
@@ -551,6 +558,15 @@
   }
 
   async function submitAll() {
+    // 送信中画面を表示
+    ui.root.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;">
+        <div style="font-size:48px;margin-bottom:20px;">📤</div>
+        <h2 style="color:#3b82f6;margin-bottom:20px;">送信中...</h2>
+        <p style="color:#666;">しばらくお待ちください</p>
+      </div>
+    `;
+    
     console.log('[LIFF] Submitting...');
     console.log('[LIFF] lineUserId:', model.lineUserId);
     console.log('[LIFF] displayName:', model.displayName);
