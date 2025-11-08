@@ -406,6 +406,14 @@ input[type="file"]:hover{
   margin:8px 0;
 }
 
+.description-text{
+  font-size:14px;
+  color:var(--text);
+  text-align:center;
+  margin:16px 0 8px 0;
+  line-height:1.6;
+}
+
 .btn-line{
   background:#06C755 !important;
   color:#fff !important;
