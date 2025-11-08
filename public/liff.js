@@ -199,28 +199,29 @@
       <div class="badge">3/9</div>
       <h3>建物の写真</h3>
       <p style="margin-bottom:20px;color:#666;">以下は参考例です。工事希望の物件の写真を撮影または保存済みの画像をアップロードしてください。</p>
+      <p style="margin-bottom:20px;color:#e74c3c;font-weight:bold;">※建物全体が画面におさまるように撮影をお願いします</p>
       
       <div style="margin-bottom:20px;">
         <label>建物の正面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-front.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-front-new.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物正面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_front" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の右側面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-right.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物右側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_right" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の左側面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-left.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物左側面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_left" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
       <div style="margin-bottom:20px;">
         <label>建物の背面</label>
-        <div style="margin-bottom:8px;"><img src="/examples/house-side.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
+        <div style="margin-bottom:8px;"><img src="/examples/house-back.png" style="max-width:40%;height:auto;border:1px solid #ddd;border-radius:4px;" alt="建物背面の例"><br><span style="font-size:12px;color:#999;">※参考例</span></div>
         <input class="file" id="photo_back" type="file" accept="image/*" capture="environment" style="font-size:16px;padding:12px"/>
       </div>
       
@@ -499,14 +500,14 @@
     let drawingThumbs = '';
     for (const key of ['drawing_elevation', 'drawing_plan', 'drawing_section']) {
       if (model.fileUrls[key]) {
-        drawingThumbs += `<img src="${model.fileUrls[key]}" style="width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/>`;
+        drawingThumbs += `<img src="${model.fileUrls[key]}" style="width:150px;height:150px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/>`;
       }
     }
 
     let photoThumbs = '';
     for (const key of ['photo_front', 'photo_right', 'photo_left', 'photo_back']) {
       if (model.fileUrls[key]) {
-        photoThumbs += `<img src="${model.fileUrls[key]}" style="width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/>`;
+        photoThumbs += `<img src="${model.fileUrls[key]}" style="width:150px;height:150px;object-fit:cover;border:1px solid #ddd;border-radius:4px;"/>`;
       }
     }
 
@@ -525,9 +526,9 @@
         <div>階数:<b>${model.buildingFloors}</b></div>
         <div>外壁材:<b>${model.wallMaterial}</b></div>
         <div style="margin-top:12px;">図面:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${drawingThumbs}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">${drawingThumbs}</div>
         <div>建物写真:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">${photoThumbs}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">${photoThumbs}</div>
       </div>
       <div style="display:flex;gap:10px;margin-top:20px;">
         <button class="btn btn-ghost" id="back" style="font-size:16px;padding:14px 18px;flex:1;">戻る</button>
