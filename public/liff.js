@@ -1,7 +1,13 @@
 // public/liff.js
 (async function() {
   const params = new URLSearchParams(location.search);
-  const leadId = params.get('leadId') || params.get('lead');
+  let leadId = params.get('leadId') || params.get('lead');
+  
+  // localStorageからleadIdを取得（URLにない場合）
+  if (!leadId) {
+    leadId = localStorage.getItem('estimateLeadId');
+  }
+  
   const forcedStep = params.get('step');
 
   const ui = {
