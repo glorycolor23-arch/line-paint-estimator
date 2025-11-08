@@ -177,8 +177,11 @@ function renderSelectOneGrid(step){
 }
 
 function renderConfirm(){
-  // 確認ステップは共通ナビを隠す
-  $navBar.classList.add('hidden');
+  // 確認ステップは共通ナビを表示（戻るリンクのみ）
+  $navBar.classList.remove('hidden');
+  $next.textContent = 'この内容で概算見積もりを依頼';
+  $next.disabled = false;
+  $next.setAttribute('data-action','confirm-yes');
 
   const list = [
     ['■見積もり希望内容', state.answers.desiredWork ?? '-'],
@@ -190,26 +193,6 @@ function renderConfirm(){
   div.style.marginTop = '8px';
   div.innerHTML = list.map(([k,v]) => `${k}　${v}`).join('<br/>');
   $root.appendChild(div);
-
-  const actions = document.createElement('div');
-  actions.className = 'nav';
-
-  const no = document.createElement('button');
-  no.type = 'button';
-  no.className = 'btn btn-ghost';
-  no.textContent = 'いいえ（最初からやり直す）';
-  no.setAttribute('data-action','confirm-no');
-
-  const yes = document.createElement('button');
-  yes.type = 'button';
-  yes.className = 'btn';
-  yes.textContent = 'はい';
-  yes.setAttribute('data-action','confirm-yes');
-
-  actions.appendChild(no);
-  actions.appendChild(document.createElement('div')).className = 'spacer';
-  actions.appendChild(yes);
-  $root.appendChild(actions);
 }
 
 // 選択時：以降の回答をクリア
@@ -221,6 +204,13 @@ function select(key, value){
 
 function onNext(){
   if ($next.disabled) return;
+  
+  // 最終確認画面で「この内容で概算見積もりを依頼」ボタンが押された場合
+  if ($next.hasAttribute('data-action') && $next.getAttribute('data-action') === 'confirm-yes') {
+    handleConfirmYes($next);
+    return;
+  }
+  
   if (state.idx < state.order.length - 1){
     state.idx++; render();
   }
