@@ -31,7 +31,7 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, lineUserId } = req.body || {};
+    const { leadId, name, phone, postal, address, lineUserId } = req.body || {};
     const lead = getLead(leadId);
     if (!lead) {
       console.warn('[details] lead not found', { leadId });
@@ -52,8 +52,8 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         lead.answers?.floors || '',       // F
         lead.answers?.wallMaterial || '', // G
         lead.amount || '',                // H
-        name || '', phone || '', postal || '', // I,J,K
-        'ファイルはメール添付で受領' // L
+        name || '', phone || '', postal || '', address || '', // I,J,K,L
+        'ファイルはメール添付で受領' // M
       ]);
     } catch (e) {
       console.error('[details] appendToSheet failed (non-fatal):', e);
@@ -80,7 +80,8 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         <p><b>詳細</b><br/>
           お名前: ${name || ''}<br/>
           電話: ${phone || ''}<br/>
-          郵便番号: ${postal || ''}
+          郵便番号: ${postal || ''}<br/>
+          住所: ${address || ''}
         </p>
         <p>図面・写真は添付ファイルをご確認ください。</p>
       `;
