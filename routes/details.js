@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { updateLeadDetails, getLead } from '../lib/store.js';
 import { appendToSheet } from '../lib/sheets.js';
 import { sendAdminMail } from '../lib/mailer.js';
+import { CONFIG } from '../src/config.js';
 
 const router = express.Router();
 
@@ -64,10 +65,15 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
     // メール：失敗しても処理続行（ログのみ）
     try {
       const attachments = [];
+      console.log('[details] req.files keys:', Object.keys(req.files || {}));
       for (const key of Object.keys(req.files || {})) {
         const f = req.files[key]?.[0];
-        if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
+        if (f) {
+          console.log('[details] Adding attachment:', key, f.originalname || path.basename(f.path));
+          attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
+        }
       }
+      console.log('[details] Total attachments:', attachments.length);
 
       const now = new Date();
       const dateStr = now.toLocaleString('ja-JP', { 
@@ -75,10 +81,25 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         hour: '2-digit', minute: '2-digit', second: '2-digit' 
       });
       
-      // LINEユーザー紐付け情報
+      // LINEユーザー紐付け情報：LINE表示名を取得
+      let lineDisplayName = '';
+      if (lineUserId && CONFIG.LINE_CHANNEL_ACCESS_TOKEN) {
+        try {
+          const profileRes = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {
+            headers: { 'Authorization': `Bearer ${CONFIG.LINE_CHANNEL_ACCESS_TOKEN}` }
+          });
+          if (profileRes.ok) {
+            const profile = await profileRes.json();
+            lineDisplayName = profile.displayName || '';
+          }
+        } catch (err) {
+          console.error('[details] Failed to get LINE profile:', err);
+        }
+      }
+      
       let lineInfo = name || '名無し';
-      if (lineUserId) {
-        lineInfo += ` (LINE ID: ${lineUserId})`;
+      if (lineDisplayName) {
+        lineInfo += ` (LINE表示名: ${lineDisplayName})`;
       }
       
       const summaryHtml = `
@@ -94,10 +115,11 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         
         <h4>■見積もり内容</h4>
         ${lead ? `
-        <p><b>・見積もり希望内容</b><br/>${lead.answers?.desiredWork || ''}</p>
-        <p><b>・階数</b><br/>${lead.answers?.floors || ''}</p>
-        <p><b>・築年数</b><br/>${lead.answers?.ageRange || ''}</p>
-        <p><b>・現在の外壁材</b><br/>${lead.answers?.wallMaterial || ''}</p>
+        <p><b>・見積もり希望内容</b><br/>${lead.answers?.desiredWork || '（未回答）'}</p>
+        <p><b>・階数</b><br/>${lead.answers?.floors || '（未回答）'}</p>
+        <p><b>・築年数</b><br/>${lead.answers?.ageRange || '（未回答）'}</p>
+        <p><b>・現在の外壁材</b><br/>${lead.answers?.wallMaterial || '（未回答）'}</p>
+        <p><b>・希望の工事内容</b><br/>${lead.answers?.desiredWork || '（未回答）'}</p>
         <p><b>・概算見積金額</b><br/>${Number(lead.amount).toLocaleString('ja-JP')}円</p>
         ` : '<p>概算見積情報なし</p>'}
         
