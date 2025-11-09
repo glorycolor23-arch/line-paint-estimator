@@ -56,9 +56,13 @@
   function render() {
     if (model.step === 0) return renderIntro();
     if (model.step === 1) return renderContact();
-    if (model.step === 2) return renderDrawings();
-    if (model.step === 3) return renderPhotos();
-    if (model.step === 4) return renderConfirm();
+    if (model.step === 2) return renderDesiredWork();
+    if (model.step === 3) return renderAgeRange();
+    if (model.step === 4) return renderFloors();
+    if (model.step === 5) return renderWallMaterial();
+    if (model.step === 6) return renderDrawings();
+    if (model.step === 7) return renderPhotos();
+    if (model.step === 8) return renderConfirm();
     return renderDone();
   }
 
@@ -75,7 +79,7 @@
 
   function renderContact() {
     ui.root.innerHTML = `
-      <div class="badge">1/4</div>
+      <div class="badge">1/8</div>
       <h3>ご連絡先</h3>
       <label>お名前<span class="required">*</span></label>
       <input id="name" placeholder="山田 太郎" autocomplete="name" class="input-field"/>
@@ -94,47 +98,6 @@
       <input id="addressDetail" placeholder="1-1-1" autocomplete="address-level2" class="input-field"/>
       <p class="note address-note">こちらの住所は建物の区画を確認するためにのみ利用します。ご連絡なしでの現地調査訪問は一切行っておりませんのでご安心ください。</p>
       
-      <label>お見積もり希望の内容<span class="required">*</span></label>
-      <select id="desiredWork" class="input-field">
-        <option value="">選択してください</option>
-        <option value="外壁塗装">外壁塗装</option>
-        <option value="屋根工事">屋根工事</option>
-        <option value="外壁塗装と屋根工事">外壁塗装と屋根工事</option>
-      </select>
-      
-      <label>階数<span class="required">*</span></label>
-      <select id="floors" class="input-field">
-        <option value="">選択してください</option>
-        <option value="1階建て">1階建て</option>
-        <option value="2階建て">2階建て</option>
-        <option value="3階建て以上">3階建て以上</option>
-      </select>
-      
-      <label>築年数<span class="required">*</span></label>
-      <select id="ageRange" class="input-field">
-        <option value="">選択してください</option>
-        <option value="1〜5年">1〜5年</option>
-        <option value="6〜10年">6〜10年</option>
-        <option value="11〜15年">11〜15年</option>
-        <option value="16〜20年">16〜20年</option>
-        <option value="21〜25年">21〜25年</option>
-        <option value="26〜30年">26〜30年</option>
-        <option value="31年以上">31年以上</option>
-      </select>
-      
-      <label>外壁材<span class="required">*</span></label>
-      <select id="wallMaterial" class="input-field">
-        <option value="">選択してください</option>
-        <option value="サイディング">サイディング</option>
-        <option value="ガルバリウム">ガルバリウム</option>
-        <option value="モルタル">モルタル</option>
-        <option value="ALC">ALC</option>
-        <option value="木">木</option>
-        <option value="RC">RC</option>
-        <option value="その他">その他</option>
-        <option value="わからない">わからない</option>
-      </select>
-      
       <div class="nav-vertical">
         <button class="btn primary" id="next">次へ</button>
       </div>
@@ -145,10 +108,6 @@
     document.querySelector('#postal').value = model.form.postal;
     document.querySelector('#address').value = model.form.address;
     document.querySelector('#addressDetail').value = model.form.addressDetail;
-    document.querySelector('#desiredWork').value = model.form.desiredWork;
-    document.querySelector('#floors').value = model.form.floors;
-    document.querySelector('#ageRange').value = model.form.ageRange;
-    document.querySelector('#wallMaterial').value = model.form.wallMaterial;
     
     // 郵便番号から住所自動入力
     const postalInput = document.querySelector('#postal');
@@ -178,15 +137,176 @@
       model.form.postal = document.querySelector('#postal').value.trim();
       model.form.address = document.querySelector('#address').value.trim();
       model.form.addressDetail = document.querySelector('#addressDetail').value.trim();
-      model.form.desiredWork = document.querySelector('#desiredWork').value.trim();
-      model.form.floors = document.querySelector('#floors').value.trim();
-      model.form.ageRange = document.querySelector('#ageRange').value.trim();
-      model.form.wallMaterial = document.querySelector('#wallMaterial').value.trim();
       
-      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address || !model.form.addressDetail || !model.form.desiredWork || !model.form.floors || !model.form.ageRange || !model.form.wallMaterial) {
+      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address || !model.form.addressDetail) {
         return alert('未入力の項目があります。');
       }
       model.step = 2; render();
+    };
+  }
+
+
+  // ステップ2: 希望内容
+  function renderDesiredWork() {
+    ui.root.innerHTML = `
+      <div class="badge">2/8</div>
+      <h2>お見積もり希望の内容は？</h2>
+      <div class="btn-group-v">
+        <button type="button" class="btn-choice${model.form.desiredWork === '外壁塗装' ? ' selected' : ''}" data-value="外壁塗装">外壁塗装</button>
+        <button type="button" class="btn-choice${model.form.desiredWork === '屋根工事' ? ' selected' : ''}" data-value="屋根工事">屋根工事</button>
+        <button type="button" class="btn-choice${model.form.desiredWork === '外壁塗装と屋根工事' ? ' selected' : ''}" data-value="外壁塗装と屋根工事">外壁塗装と屋根工事</button>
+      </div>
+      
+      <div class="nav-vertical">
+        <button class="btn primary" id="next" ${!model.form.desiredWork ? 'disabled' : ''}>次へ</button>
+        <a href="#" id="back" class="back-link">← 戻る</a>
+      </div>
+    `;
+    
+    document.querySelectorAll('[data-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        model.form.desiredWork = btn.dataset.value;
+        render();
+      });
+    });
+    
+    document.querySelector('#next').onclick = () => {
+      if (!model.form.desiredWork) return alert('選択してください。');
+      model.step = 3; render();
+    };
+    
+    document.querySelector('#back').onclick = (e) => {
+      e.preventDefault();
+      model.step = 1; render();
+    };
+  }
+
+  // ステップ3: 築年数
+  function renderAgeRange() {
+    ui.root.innerHTML = `
+      <div class="badge">3/8</div>
+      <h2>築年数をお選びください</h2>
+      <div class="btn-group-v">
+        <button type="button" class="btn-choice${model.form.ageRange === '1〜5年' ? ' selected' : ''}" data-value="1〜5年">1〜5年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '6〜10年' ? ' selected' : ''}" data-value="6〜10年">6〜10年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '11〜15年' ? ' selected' : ''}" data-value="11〜15年">11〜15年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '16〜20年' ? ' selected' : ''}" data-value="16〜20年">16〜20年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '21〜25年' ? ' selected' : ''}" data-value="21〜25年">21〜25年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '26〜30年' ? ' selected' : ''}" data-value="26〜30年">26〜30年</button>
+        <button type="button" class="btn-choice${model.form.ageRange === '31年以上' ? ' selected' : ''}" data-value="31年以上">31年以上</button>
+      </div>
+      
+      <div class="nav-vertical">
+        <button class="btn primary" id="next" ${!model.form.ageRange ? 'disabled' : ''}>次へ</button>
+        <a href="#" id="back" class="back-link">← 戻る</a>
+      </div>
+    `;
+    
+    document.querySelectorAll('[data-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        model.form.ageRange = btn.dataset.value;
+        render();
+      });
+    });
+    
+    document.querySelector('#next').onclick = () => {
+      if (!model.form.ageRange) return alert('選択してください。');
+      model.step = 4; render();
+    };
+    
+    document.querySelector('#back').onclick = (e) => {
+      e.preventDefault();
+      model.step = 2; render();
+    };
+  }
+
+  // ステップ4: 階数
+  function renderFloors() {
+    ui.root.innerHTML = `
+      <div class="badge">4/8</div>
+      <h2>何階建てですか？</h2>
+      <div class="btn-group-v">
+        <button type="button" class="btn-choice${model.form.floors === '1階建て' ? ' selected' : ''}" data-value="1階建て">1階建て</button>
+        <button type="button" class="btn-choice${model.form.floors === '2階建て' ? ' selected' : ''}" data-value="2階建て">2階建て</button>
+        <button type="button" class="btn-choice${model.form.floors === '3階建て以上' ? ' selected' : ''}" data-value="3階建て以上">3階建て以上</button>
+      </div>
+      
+      <div class="nav-vertical">
+        <button class="btn primary" id="next" ${!model.form.floors ? 'disabled' : ''}>次へ</button>
+        <a href="#" id="back" class="back-link">← 戻る</a>
+      </div>
+    `;
+    
+    document.querySelectorAll('[data-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        model.form.floors = btn.dataset.value;
+        render();
+      });
+    });
+    
+    document.querySelector('#next').onclick = () => {
+      if (!model.form.floors) return alert('選択してください。');
+      model.step = 5; render();
+    };
+    
+    document.querySelector('#back').onclick = (e) => {
+      e.preventDefault();
+      model.step = 3; render();
+    };
+  }
+
+  // ステップ5: 外壁材
+  function renderWallMaterial() {
+    const wallMaterials = [
+      { value: 'サイディング', label: 'サイディング', img: '/img/siding.png' },
+      { value: 'ガルバリウム', label: 'ガルバリウム', img: '/img/galvalume.png' },
+      { value: 'モルタル', label: 'モルタル', img: '/img/mortar.png' },
+      { value: 'ALC', label: 'ALC', img: '/img/alc.png' },
+      { value: '木', label: '木', img: '/img/wood.png' },
+      { value: 'RC', label: 'RC', img: '/img/rc.png' },
+      { value: 'その他', label: 'その他', img: '/img/other.png' },
+      { value: 'わからない', label: 'わからない', img: '/img/unknown.png' }
+    ];
+    
+    let gridHtml = '';
+    wallMaterials.forEach(opt => {
+      const selected = model.form.wallMaterial === opt.value ? ' selected' : '';
+      gridHtml += `
+        <button type="button" class="grid-item${selected}" data-value="${opt.value}">
+          <img src="${opt.img}" alt="${opt.label}" loading="lazy"/>
+          <span>${opt.label}</span>
+        </button>`;
+    });
+    
+    ui.root.innerHTML = `
+      <div class="badge">5/8</div>
+      <h2>外壁材をお選びください</h2>
+      <p class="note">見た目が近いものを選んでください（画像はサンプルです）</p>
+      <div class="grid-choice">
+        ${gridHtml}
+      </div>
+      
+      <div class="nav-vertical">
+        <button class="btn primary" id="next" ${!model.form.wallMaterial ? 'disabled' : ''}>次へ</button>
+        <a href="#" id="back" class="back-link">← 戻る</a>
+      </div>
+    `;
+    
+    document.querySelectorAll('[data-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        model.form.wallMaterial = btn.dataset.value;
+        render();
+      });
+    });
+    
+    document.querySelector('#next').onclick = () => {
+      if (!model.form.wallMaterial) return alert('選択してください。');
+      model.step = 6; render();
+    };
+    
+    document.querySelector('#back').onclick = (e) => {
+      e.preventDefault();
+      model.step = 4; render();
     };
   }
 
@@ -235,7 +355,7 @@
 
   function renderDrawings() {
     ui.root.innerHTML = `
-      <div class="badge">2/4</div>
+      <div class="badge">6/8</div>
       <h3>お住まいの図面をアップロード</h3>
       <p class="note">立面図・平面図・断面図をアップロードしてください（PDF/画像）。</p>
       
@@ -270,18 +390,18 @@
       if (!model.files['drawing_elevation']) {
         return alert('立面図は必須です。');
       }
-      model.step = 3; render();
+      model.step = 7; render();
     };
     
     document.querySelector('#back').onclick = (e) => {
       e.preventDefault();
-      model.step = 1; render();
+      model.step = 5; render();
     };
   }
 
   function renderPhotos() {
     ui.root.innerHTML = `
-      <div class="badge">3/4</div>
+      <div class="badge">7/8</div>
       <h3>建物の写真をアップロード</h3>
       <p class="note">建物の正面・右側面・左側面・背面の写真をアップロードしてください。</p>
       
@@ -321,12 +441,12 @@
       if (!model.files['photo_front']) {
         return alert('建物の正面写真は必須です。');
       }
-      model.step = 4; render();
+      model.step = 8; render();
     };
     
     document.querySelector('#back').onclick = (e) => {
       e.preventDefault();
-      model.step = 2; render();
+      model.step = 6; render();
     };
   }
 
@@ -365,7 +485,7 @@
     thumbnailsHtml += '</div>';
     
     ui.root.innerHTML = `
-      <div class="badge">4/4</div>
+      <div class="badge">8/8</div>
       <h3>入力内容のご確認</h3>
       <div class="summary">
         <div><strong>お名前</strong><br>${model.form.name}</div>
@@ -392,7 +512,7 @@
     document.querySelector('#submit').onclick = submitAll;
     document.querySelector('#back').onclick = (e) => {
       e.preventDefault();
-      model.step = 3; render();
+      model.step = 7; render();
     };
   }
 
