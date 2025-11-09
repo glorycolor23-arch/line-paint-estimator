@@ -69,8 +69,11 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
       for (const key of Object.keys(req.files || {})) {
         const f = req.files[key]?.[0];
         if (f) {
-          console.log('[details] Adding attachment:', key, f.originalname || path.basename(f.path));
-          attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
+          const originalFilename = f.originalname || path.basename(f.path);
+          // ファイル名にフィールド名のプレフィックスを追加してユニークにする
+          const uniqueFilename = `${key}_${originalFilename}`;
+          console.log('[details] Adding attachment:', key, originalFilename, '-> unique name:', uniqueFilename);
+          attachments.push({ filename: uniqueFilename, path: f.path });
         }
       }
       console.log('[details] Total attachments:', attachments.length);
