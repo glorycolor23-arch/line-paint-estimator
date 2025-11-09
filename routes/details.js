@@ -69,28 +69,47 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         if (f) attachments.push({ filename: f.originalname || path.basename(f.path), path: f.path });
       }
 
+      const now = new Date();
+      const dateStr = now.toLocaleString('ja-JP', { 
+        year: 'numeric', month: '2-digit', day: '2-digit', 
+        hour: '2-digit', minute: '2-digit', second: '2-digit' 
+      });
+      
+      // LINEユーザー紐付け情報
+      let lineInfo = name || '名無し';
+      if (lineUserId) {
+        lineInfo += ` (LINE ID: ${lineUserId})`;
+      }
+      
       const summaryHtml = `
-        <h3>新しい見積り依頼</h3>
-        <p><b>Lead ID:</b> ${leadId || '新規'}</p>
-        ${lead ? `<p><b>概算見積:</b> ${Number(lead.amount).toLocaleString('ja-JP')} 円</p>` : ''}
-        ${lead ? `<p><b>初期回答</b><br/>
-          見積り希望: ${lead.answers?.desiredWork || ''}<br/>
-          築年数: ${lead.answers?.ageRange || ''}<br/>
-          階数: ${lead.answers?.floors || ''}<br/>
-          外壁材: ${lead.answers?.wallMaterial || ''}
-        </p>` : ''}
-        <p><b>詳細</b><br/>
-          お名前: ${name || ''}<br/>
-          電話: ${phone || ''}<br/>
-          郵便番号: ${postal || ''}<br/>
-          住所: ${address || ''}
-        </p>
-        <p>図面・写真は添付ファイルをご確認ください。</p>
+        <h3>以下の内容で見積もりの依頼が入っています。</h3>
+        <p>内容を確認後見積もりをLINEで回答してください。</p>
+        
+        <p><b>・送信日時</b><br/>${dateStr}</p>
+        
+        <p><b>・LINE表示名などユーザーとLINEを紐づける方法</b><br/>${lineInfo}</p>
+        <p><b>・電話番号</b><br/>${phone || ''}</p>
+        <p><b>・郵便番号</b><br/>${postal || ''}</p>
+        <p><b>・住所</b><br/>${address || ''}</p>
+        
+        <h4>■見積もり内容</h4>
+        ${lead ? `
+        <p><b>・見積もり希望内容</b><br/>${lead.answers?.desiredWork || ''}</p>
+        <p><b>・階数</b><br/>${lead.answers?.floors || ''}</p>
+        <p><b>・築年数</b><br/>${lead.answers?.ageRange || ''}</p>
+        <p><b>・現在の外壁材</b><br/>${lead.answers?.wallMaterial || ''}</p>
+        <p><b>・概算見積金額</b><br/>${Number(lead.amount).toLocaleString('ja-JP')}円</p>
+        ` : '<p>概算見積情報なし</p>'}
+        
+        <p>図面や立面図は添付ファイルで確認をお願いします。</p>
+        
+        <p><b>LINE回答URL</b><br/>
+        <a href="https://chat.line.biz/Ucb376adbb2ec65df69e70589da64dd15/">https://chat.line.biz/Ucb376adbb2ec65df69e70589da64dd15/</a></p>
       `;
 
       await sendAdminMail({
-        subject: `【見積依頼】Lead ${leadId || '新規'} / ${name || '名無し'}`,
-        text: `Lead ${leadId || '新規'} ${lead ? `概算: ${lead.amount}円` : ''}`,
+        subject: `外壁塗装LINEから見積もり依頼が入りました。`,
+        text: `${name || '名無し'}さまから見積もり依頼が入りました。`,
         html: summaryHtml,
         attachments
       });
