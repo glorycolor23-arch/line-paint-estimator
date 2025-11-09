@@ -1,36 +1,91 @@
-# line-paint-estimator
+# v21-v19 変更内容
 
-外壁塗装の見積もりを Web フォーム + LINE（Messaging API / LIFF）で実現する雛形。  
-Render へそのままデプロイ可能。Google スプレッドシート書き込み、管理者メール送信、画像アップロード対応。
+## 概要
+詳細見積もりフォームに概算見積もりの質問項目を追加し、メールレイアウトを改善しました。
 
-## セットアップ（要約）
+## 変更ファイル
 
-1. **Google スプレッドシート**
-   - 新規シート（タブ: `Sheet1`）。A〜L は `日時 / leadId / lineUserId / 希望 / 築年数 / 階数 / 外壁材 / 概算 / 氏名 / 電話 / 郵便 / メモ` を推奨。
-   - サービスアカウント（`GOOGLE_SERVICE_ACCOUNT_EMAIL`）を「編集者」で共有。
+### 1. public/liff.js
+**変更内容:**
+- 確認画面（renderConfirm関数）に以下の4項目を追加表示:
+  - お見積もり希望の内容（desiredWork）
+  - 階数（floors）
+  - 築年数（ageRange）
+  - 外壁材（wallMaterial）
+- submitAll関数で上記4項目をFormDataに追加して送信
 
-2. **LINE Developers**
-   - Messaging API チャネルを作成 → `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` を取得。
-   - Webhook URL：`https://<RenderのURL>/line/webhook` を設定し有効化。
-   - 友だち追加用 URL（`LINE_ADD_FRIEND_URL`）を取得。
-   - **LIFF** を作成（Size: Full / Endpoint URL: `https://<RenderのURL>/liff.html`）→ `LIFF_ID` を控える。  
-     - `public/liff.html` の `{{LIFF_ID_REPLACED_AT_RUNTIME}}` を**実値に置換**してください。
+**影響範囲:**
+- 詳細見積もりフォームの確認画面
+- バックエンドへのデータ送信
 
-3. **Render**
-   - New Web Service → このリポジトリを指定。
-   - Build: `npm install` / Start: `npm start`
-   - 環境変数に `.env.example` を参考に投入。
+### 2. routes/details.js
+**変更内容:**
+- req.bodyから4つの新規項目（desiredWork, floors, ageRange, wallMaterial）を受信
+- メールのHTMLレイアウトを変更:
+  - 順序: 名前 → 電話番号 → 郵便番号 → 住所 → 見積もり内容 → LINE表示名 → LINE回答URL
+  - 見積もり内容セクションで、詳細フォームから送信された項目を優先表示（概算見積もりデータがない場合にも対応）
+  - 重複していた「希望の工事内容」を削除
 
-4. **使い方**
-   - `https://<RenderのURL>/` で最初のステップフォーム。
-   - 確認 → 「LINEの友だち登録」 → 「LINEで見積額を受け取る」で概算金額が LINE に届く。
-   - 「詳しい見積もりを依頼する」 → LIFF で詳細入力 → 送信で**メール**送付 & **スプレッドシート**に記録。
+**影響範囲:**
+- 管理者に送信されるメールの内容と順序
 
-## 計算式の差し替え
+### 3. lib/mailer.js
+**変更内容:**
+- ファイル添付処理に詳細なログを追加:
+  - 添付ファイル数
+  - 各ファイルの読み込み状況
+  - Base64エンコード後のサイズ
+  - 送信時の添付ファイル数
 
-- `lib/estimate.js` の `BASE / AGE_COEF / FLOOR_ADD / WALL_ADJ` と `computeEstimate()` を編集。
+**目的:**
+- 画像添付の問題（7枚中2-3枚しか届かない）をデバッグするため
+- Renderのログで添付ファイルの処理状況を確認可能に
 
-## 注意
+## デプロイ手順
 
-- 本番は `lib/store.js` を Redis/Postgres 等へ移行推奨（現在はメモリ）。
-- 添付ファイルの恒久保存が要る場合、Google Drive/S3/Cloudinary へ変更してください。
+1. 変更ファイルをプロジェクトにコピー:
+```bash
+cp v21-v19/liff.js line-paint-estimator-main/public/
+cp v21-v19/details.js line-paint-estimator-main/routes/
+cp v21-v19/mailer.js line-paint-estimator-main/lib/
+```
+
+2. Gitにコミット&プッシュ:
+```bash
+cd line-paint-estimator-main
+git add public/liff.js routes/details.js lib/mailer.js
+git commit -m "v21-v19: 詳細フォームに概算項目追加、メールレイアウト改善、添付ログ追加"
+git push origin main
+```
+
+3. Renderで自動デプロイを確認
+
+## テスト項目
+
+1. **詳細見積もりフォームの確認画面**
+   - 4つの見積もり項目（希望内容、階数、築年数、外壁材）が表示されるか確認
+
+2. **メール受信確認**
+   - graphitystaff@gmail.comにメールが届くか確認
+   - メールの項目順序が正しいか確認（名前→電話→郵便→住所→見積もり内容→LINE表示名→LINE回答URL）
+   - 見積もり内容セクションに4項目が表示されるか確認
+
+3. **画像添付の確認**
+   - Renderのログで添付ファイルのログを確認
+   - 7枚の画像すべてが添付されているか確認
+   - ログに「Total attachments encoded: 7」と表示されるか確認
+
+## 既知の問題と調査中の項目
+
+### 画像添付問題
+- **症状**: 7枚の画像のうち2-3枚しかメールに添付されない
+- **調査**: lib/mailer.jsに詳細ログを追加済み
+- **次のステップ**: 
+  1. Renderのログで「Total attachments encoded」の数を確認
+  2. すべて7と表示される場合、Resend APIの制限を確認
+  3. 一部しかエンコードされていない場合、ファイル読み込みエラーを調査
+
+## 備考
+- 概算見積もりを経由せず、直接詳細フォームにアクセスした場合でも、4項目は「（未回答）」と表示されます
+- leadIdがある場合は、概算見積もりのデータ（lead.answers）も参照されます
+
