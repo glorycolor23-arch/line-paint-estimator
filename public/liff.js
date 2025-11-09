@@ -20,7 +20,17 @@
     lineUserId: null,
     leadId,
     step: forcedStep ? parseInt(forcedStep, 10) : 0,
-    form: { name: '', phone: '', postal: '', address: '', addressDetail: '' },
+    form: { 
+      name: '', 
+      phone: '', 
+      postal: '', 
+      address: '', 
+      addressDetail: '',
+      desiredWork: '',
+      floors: '',
+      ageRange: '',
+      wallMaterial: ''
+    },
     files: {},
     thumbnails: {}
   };
@@ -84,6 +94,47 @@
       <input id="addressDetail" placeholder="1-1-1" autocomplete="address-level2" class="input-field"/>
       <p class="note address-note">こちらの住所は建物の区画を確認するためにのみ利用します。ご連絡なしでの現地調査訪問は一切行っておりませんのでご安心ください。</p>
       
+      <label>お見積もり希望の内容<span class="required">*</span></label>
+      <select id="desiredWork" class="input-field">
+        <option value="">選択してください</option>
+        <option value="外壁塗装">外壁塗装</option>
+        <option value="屋根工事">屋根工事</option>
+        <option value="外壁塗装と屋根工事">外壁塗装と屋根工事</option>
+      </select>
+      
+      <label>階数<span class="required">*</span></label>
+      <select id="floors" class="input-field">
+        <option value="">選択してください</option>
+        <option value="1階建て">1階建て</option>
+        <option value="2階建て">2階建て</option>
+        <option value="3階建て以上">3階建て以上</option>
+      </select>
+      
+      <label>築年数<span class="required">*</span></label>
+      <select id="ageRange" class="input-field">
+        <option value="">選択してください</option>
+        <option value="1〜5年">1〜5年</option>
+        <option value="6〜10年">6〜10年</option>
+        <option value="11〜15年">11〜15年</option>
+        <option value="16〜20年">16〜20年</option>
+        <option value="21〜25年">21〜25年</option>
+        <option value="26〜30年">26〜30年</option>
+        <option value="31年以上">31年以上</option>
+      </select>
+      
+      <label>外壁材<span class="required">*</span></label>
+      <select id="wallMaterial" class="input-field">
+        <option value="">選択してください</option>
+        <option value="サイディング">サイディング</option>
+        <option value="ガルバリウム">ガルバリウム</option>
+        <option value="モルタル">モルタル</option>
+        <option value="ALC">ALC</option>
+        <option value="木">木</option>
+        <option value="RC">RC</option>
+        <option value="その他">その他</option>
+        <option value="わからない">わからない</option>
+      </select>
+      
       <div class="nav-vertical">
         <button class="btn primary" id="next">次へ</button>
       </div>
@@ -94,6 +145,10 @@
     document.querySelector('#postal').value = model.form.postal;
     document.querySelector('#address').value = model.form.address;
     document.querySelector('#addressDetail').value = model.form.addressDetail;
+    document.querySelector('#desiredWork').value = model.form.desiredWork;
+    document.querySelector('#floors').value = model.form.floors;
+    document.querySelector('#ageRange').value = model.form.ageRange;
+    document.querySelector('#wallMaterial').value = model.form.wallMaterial;
     
     // 郵便番号から住所自動入力
     const postalInput = document.querySelector('#postal');
@@ -123,8 +178,12 @@
       model.form.postal = document.querySelector('#postal').value.trim();
       model.form.address = document.querySelector('#address').value.trim();
       model.form.addressDetail = document.querySelector('#addressDetail').value.trim();
+      model.form.desiredWork = document.querySelector('#desiredWork').value.trim();
+      model.form.floors = document.querySelector('#floors').value.trim();
+      model.form.ageRange = document.querySelector('#ageRange').value.trim();
+      model.form.wallMaterial = document.querySelector('#wallMaterial').value.trim();
       
-      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address || !model.form.addressDetail) {
+      if (!model.form.name || !model.form.phone || !model.form.postal || !model.form.address || !model.form.addressDetail || !model.form.desiredWork || !model.form.floors || !model.form.ageRange || !model.form.wallMaterial) {
         return alert('未入力の項目があります。');
       }
       model.step = 2; render();
@@ -313,6 +372,10 @@
         <div><strong>電話番号</strong><br>${model.form.phone}</div>
         <div><strong>郵便番号</strong><br>${model.form.postal}</div>
         <div><strong>住所</strong><br>${model.form.address} ${model.form.addressDetail}</div>
+        <div><strong>お見積もり希望の内容</strong><br>${model.form.desiredWork}</div>
+        <div><strong>階数</strong><br>${model.form.floors}</div>
+        <div><strong>築年数</strong><br>${model.form.ageRange}</div>
+        <div><strong>外壁材</strong><br>${model.form.wallMaterial}</div>
       </div>
       <h4>アップロードしたファイル</h4>
       ${thumbnailsHtml}
@@ -344,6 +407,10 @@
     fd.append('phone', model.form.phone);
     fd.append('postal', model.form.postal);
     fd.append('address', model.form.address + ' ' + model.form.addressDetail);
+    fd.append('desiredWork', model.form.desiredWork);
+    fd.append('floors', model.form.floors);
+    fd.append('ageRange', model.form.ageRange);
+    fd.append('wallMaterial', model.form.wallMaterial);
 
     // ファイルを追加
     Object.keys(model.files).forEach(id => {
