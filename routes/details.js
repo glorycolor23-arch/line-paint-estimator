@@ -32,7 +32,7 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, address, lineUserId } = req.body || {};
+    const { leadId, name, phone, postal, address, lineUserId, desiredWork, floors, ageRange, wallMaterial } = req.body || {};
     
     // leadIdがある場合はleadを取得、ない場合は新規として処理
     let lead = null;
@@ -108,24 +108,23 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         
         <p><b>・送信日時</b><br/>${dateStr}</p>
         
-        <p><b>・LINE表示名などユーザーとLINEを紐づける方法</b><br/>${lineInfo}</p>
+        <p><b>・お名前</b><br/>${name || ''}</p>
         <p><b>・電話番号</b><br/>${phone || ''}</p>
         <p><b>・郵便番号</b><br/>${postal || ''}</p>
         <p><b>・住所</b><br/>${address || ''}</p>
         
         <h4>■見積もり内容</h4>
-        ${lead ? `
-        <p><b>・見積もり希望内容</b><br/>${lead.answers?.desiredWork || '（未回答）'}</p>
-        <p><b>・階数</b><br/>${lead.answers?.floors || '（未回答）'}</p>
-        <p><b>・築年数</b><br/>${lead.answers?.ageRange || '（未回答）'}</p>
-        <p><b>・現在の外壁材</b><br/>${lead.answers?.wallMaterial || '（未回答）'}</p>
-        <p><b>・希望の工事内容</b><br/>${lead.answers?.desiredWork || '（未回答）'}</p>
-        <p><b>・概算見積金額</b><br/>${Number(lead.amount).toLocaleString('ja-JP')}円</p>
-        ` : '<p>概算見積情報なし</p>'}
+        <p><b>・見積もり希望内容</b><br/>${desiredWork || lead?.answers?.desiredWork || '（未回答）'}</p>
+        <p><b>・階数</b><br/>${floors || lead?.answers?.floors || '（未回答）'}</p>
+        <p><b>・築年数</b><br/>${ageRange || lead?.answers?.ageRange || '（未回答）'}</p>
+        <p><b>・現在の外壁材</b><br/>${wallMaterial || lead?.answers?.wallMaterial || '（未回答）'}</p>
+        ${lead ? `<p><b>・概算見積金額</b><br/>${Number(lead.amount).toLocaleString('ja-JP')}円</p>` : ''}
         
         <p>図面や立面図は添付ファイルで確認をお願いします。</p>
         
-        <p><b>LINE回答URL</b><br/>
+        <p><b>・LINE表示名</b><br/>${lineDisplayName || '（取得失敗）'}</p>
+        
+        <p><b>・LINE回答URL</b><br/>
         <a href="https://chat.line.biz/Ucb376adbb2ec65df69e70589da64dd15/">https://chat.line.biz/Ucb376adbb2ec65df69e70589da64dd15/</a></p>
       `;
 
