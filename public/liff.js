@@ -548,7 +548,7 @@
         return alert('送信に失敗しました。再度お試しください。');
       }
       
-      model.step = 5; render();
+      model.step = 9; render();
     } catch (err) {
       hideLoading();
       console.error('送信エラー:', err);
