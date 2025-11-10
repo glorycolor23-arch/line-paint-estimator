@@ -32,7 +32,7 @@ const fields = [
 
 router.post('/api/details', upload.fields(fields), async (req, res) => {
   try {
-    const { leadId, name, phone, postal, address, lineUserId, desiredWork, floors, ageRange, wallMaterial } = req.body || {};
+    const { leadId, name, phone, postal, address, lineUserId, desiredWork, floors, ageRange, wallMaterial, roofMaterial } = req.body || {};
     
     // leadIdがある場合はleadを取得、ない場合は新規として処理
     let lead = null;
@@ -121,6 +121,7 @@ router.post('/api/details', upload.fields(fields), async (req, res) => {
         <p><b>・階数</b><br/>${floors || lead?.answers?.floors || '（未回答）'}</p>
         <p><b>・築年数</b><br/>${ageRange || lead?.answers?.ageRange || '（未回答）'}</p>
         <p><b>・現在の外壁材</b><br/>${wallMaterial || lead?.answers?.wallMaterial || '（未回答）'}</p>
+        <p><b>・現在の屋根材</b><br/>${roofMaterial || '（未回答）'}</p>
         ${lead ? `<p><b>・概算見積金額</b><br/>${Number(lead.amount).toLocaleString('ja-JP')}円</p>` : ''}
         
         <p>図面や立面図は添付ファイルで確認をお願いします。</p>
