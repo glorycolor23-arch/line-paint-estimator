@@ -29,7 +29,8 @@
       desiredWork: '',
       floors: '',
       ageRange: '',
-      wallMaterial: ''
+      wallMaterial: '',
+      roofMaterial: ''
     },
     files: {},
     thumbnails: {}
@@ -60,9 +61,10 @@
     if (model.step === 3) return renderAgeRange();
     if (model.step === 4) return renderFloors();
     if (model.step === 5) return renderWallMaterial();
-    if (model.step === 6) return renderDrawings();
-    if (model.step === 7) return renderPhotos();
-    if (model.step === 8) return renderConfirm();
+    if (model.step === 6) return renderRoofMaterial();
+    if (model.step === 7) return renderDrawings();
+    if (model.step === 8) return renderPhotos();
+    if (model.step === 9) return renderConfirm();
     return renderDone();
   }
 
@@ -79,7 +81,7 @@
 
   function renderContact() {
     ui.root.innerHTML = `
-      <div class="badge">1/8</div>
+      <div class="badge">1/9</div>
       <h3>ご連絡先</h3>
       <label>お名前<span class="required">*</span></label>
       <input id="name" placeholder="山田 太郎" autocomplete="name" class="input-field"/>
@@ -149,7 +151,7 @@
   // ステップ2: 希望内容
   function renderDesiredWork() {
     ui.root.innerHTML = `
-      <div class="badge">2/8</div>
+      <div class="badge">2/9</div>
       <h2>お見積もり希望の内容は？</h2>
       <div class="btn-group-v">
         <button type="button" class="btn-choice${model.form.desiredWork === '外壁塗装' ? ' selected' : ''}" data-value="外壁塗装">外壁塗装</button>
@@ -184,7 +186,7 @@
   // ステップ3: 築年数
   function renderAgeRange() {
     ui.root.innerHTML = `
-      <div class="badge">3/8</div>
+      <div class="badge">3/9</div>
       <h2>築年数をお選びください</h2>
       <div class="btn-group-v">
         <button type="button" class="btn-choice${model.form.ageRange === '1〜5年' ? ' selected' : ''}" data-value="1〜5年">1〜5年</button>
@@ -223,7 +225,7 @@
   // ステップ4: 階数
   function renderFloors() {
     ui.root.innerHTML = `
-      <div class="badge">4/8</div>
+      <div class="badge">4/9</div>
       <h2>何階建てですか？</h2>
       <div class="btn-group-v">
         <button type="button" class="btn-choice${model.form.floors === '1階建て' ? ' selected' : ''}" data-value="1階建て">1階建て</button>
@@ -279,8 +281,8 @@
     });
     
     ui.root.innerHTML = `
-      <div class="badge">5/8</div>
-      <h2>外壁材をお選びください</h2>
+      <div class="badge">5/9</div>
+      <h2>現在の外壁材をお選びください</h2>
       <p class="note">見た目が近いものを選んでください（画像はサンプルです）</p>
       <div class="grid-choice">
         ${gridHtml}
@@ -309,6 +311,57 @@
       model.step = 4; render();
     };
   }
+  // ステップ6: 屋根材
+  function renderRoofMaterial() {
+    const roofMaterials = [
+      { value: '和瓦', label: '和瓦', img: '/img/japanese_tile.png' },
+      { value: 'スレート瓦', label: 'スレート瓦', img: '/img/slate_tile.png' },
+      { value: '金属屋根', label: '金属屋根', img: '/img/metal_roof.png' },
+      { value: 'セメント瓦', label: 'セメント瓦', img: '/img/cement_tile.png' }
+    ];
+    
+    let gridHtml = '';
+    roofMaterials.forEach(opt => {
+      const selected = model.form.roofMaterial === opt.value ? ' selected' : '';
+      gridHtml += `
+        <button type="button" class="grid-item${selected}" data-value="${opt.value}">
+          <img src="${opt.img}" alt="${opt.label}" loading="lazy"/>
+          <span>${opt.label}</span>
+        </button>`;
+    });
+    
+    ui.root.innerHTML = `
+      <div class="badge">6/9</div>
+      <h2>現在の屋根材をお選びください</h2>
+      <p class="note">見た目が近いものを選んでください（画像はサンプルです）</p>
+      <div class="grid-choice">
+        ${gridHtml}
+      </div>
+      
+      <div class="nav-vertical">
+        <button class="btn primary" id="next" ${!model.form.roofMaterial ? 'disabled' : ''}>次へ</button>
+        <a href="#" id="back" class="back-link">← 戻る</a>
+      </div>
+    `;
+    
+    document.querySelectorAll('[data-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        model.form.roofMaterial = btn.dataset.value;
+        render();
+      });
+    });
+    
+    document.querySelector('#next').onclick = () => {
+      if (!model.form.roofMaterial) return alert('選択してください。');
+      model.step = 7; render();
+    };
+    
+    document.querySelector('#back').onclick = (e) => {
+      e.preventDefault();
+      model.step = 5; render();
+    };
+  }
+
 
   function fileInput(id, label, accept, required = false) {
     const req = required ? '<span class="required">*</span>' : '';
@@ -355,7 +408,7 @@
 
   function renderDrawings() {
     ui.root.innerHTML = `
-      <div class="badge">6/8</div>
+      <div class="badge">7/9</div>
       <h3>お住まいの図面をアップロード</h3>
       <p class="note">立面図・平面図・断面図をアップロードしてください（PDF/画像）。</p>
       
@@ -401,7 +454,7 @@
 
   function renderPhotos() {
     ui.root.innerHTML = `
-      <div class="badge">7/8</div>
+      <div class="badge">8/9</div>
       <h3>建物の写真をアップロード</h3>
       <p class="note">建物の正面・右側面・左側面・背面の写真をアップロードしてください。</p>
       
@@ -441,12 +494,12 @@
       if (!model.files['photo_front']) {
         return alert('建物の正面写真は必須です。');
       }
-      model.step = 8; render();
+      model.step = 9; render();
     };
     
     document.querySelector('#back').onclick = (e) => {
       e.preventDefault();
-      model.step = 6; render();
+      model.step = 7; render();
     };
   }
 
@@ -485,7 +538,7 @@
     thumbnailsHtml += '</div>';
     
     ui.root.innerHTML = `
-      <div class="badge">8/8</div>
+      <div class="badge">9/9</div>
       <h3>入力内容のご確認</h3>
       <div class="summary">
         <div><strong>お名前</strong><br>${model.form.name}</div>
@@ -495,7 +548,8 @@
         <div><strong>お見積もり希望の内容</strong><br>${model.form.desiredWork}</div>
         <div><strong>階数</strong><br>${model.form.floors}</div>
         <div><strong>築年数</strong><br>${model.form.ageRange}</div>
-        <div><strong>外壁材</strong><br>${model.form.wallMaterial}</div>
+        <div><strong>現在の外壁材</strong><br>${model.form.wallMaterial}</div>
+        <div><strong>現在の屋根材</strong><br>${model.form.roofMaterial}</div>
       </div>
       <h4>アップロードしたファイル</h4>
       ${thumbnailsHtml}
@@ -512,7 +566,7 @@
     document.querySelector('#submit').onclick = submitAll;
     document.querySelector('#back').onclick = (e) => {
       e.preventDefault();
-      model.step = 7; render();
+      model.step = 8; render();
     };
   }
 
@@ -531,6 +585,7 @@
     fd.append('floors', model.form.floors);
     fd.append('ageRange', model.form.ageRange);
     fd.append('wallMaterial', model.form.wallMaterial);
+    fd.append('roofMaterial', model.form.roofMaterial);
 
     // ファイルを追加
     Object.keys(model.files).forEach(id => {
@@ -548,7 +603,7 @@
         return alert('送信に失敗しました。再度お試しください。');
       }
       
-      model.step = 9; render();
+      model.step = 10; render();
     } catch (err) {
       hideLoading();
       console.error('送信エラー:', err);
